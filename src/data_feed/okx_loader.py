@@ -42,6 +42,7 @@ class OKXDataLoader:
             if after:
                 params["after"] = after
 
+            candles = []
             for attempt in range(retries):
                 try:
                     response = requests.get(url, params=params, timeout=10)

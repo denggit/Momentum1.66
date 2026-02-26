@@ -9,13 +9,21 @@
 import yaml
 
 
-def load_settings():
+def load_config():
     with open('config/settings.yaml', 'r') as file:
-        return yaml.safe_load(file)
+        settings = yaml.safe_load(file)
+    with open('config/strategies.yaml', 'r') as file:
+        strategies = yaml.safe_load(file)
+    return settings, strategies
 
 
-settings = load_settings()
+settings, strategies = load_config()
 
+# settings.yaml 配置
 SYMBOL = settings['symbol']
 TIMEFRAME = settings['timeframe']
 TIMEZONE = settings['timezone']
+RISK_PARAMS = settings['risk']
+
+# strategies.yaml 配置
+SQZ_PARAMS = strategies['squeeze']
