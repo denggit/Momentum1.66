@@ -1,0 +1,11 @@
+# 全局设置
+exchange: "okx"
+symbol: "ETH-USDT-SWAP"  # 换成 OKX 原生的永续合约名
+timeframe: "15m"
+timezone: "UTC+8"
+
+# 1.66% 核心风控系统
+risk:
+  max_risk_per_trade: 0.0166
+  min_pnl_ratio: 1.5
+  max_leverage: 10

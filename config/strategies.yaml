@@ -1,0 +1,8 @@
+# 波动率挤压突破策略 (Squeeze Breakout)
+squeeze:
+  bb_length: 20           # 布林带周期
+  bb_std: 2.0             # 布林带标准差
+  kc_length: 20           # 凯特纳通道周期
+  kc_mult: 1.5            # 凯特纳通道 ATR 倍数
+  atr_length: 14          # ATR 真实波动幅度周期
+  volume_factor: 1.5      # 突破时的成交量放大倍数要求
