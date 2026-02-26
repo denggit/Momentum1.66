@@ -12,28 +12,31 @@ class OKXDataLoader:
     def __init__(self, symbol: str, timeframe: str):
         """
         初始化原生 OKX 数据加载器
-        :param symbol: 交易对，如 'ETH-USDT-SWAP'
-        :param timeframe: 周期，如 '15m'
         """
         self.base_url = "https://www.okx.com"
         self.symbol = symbol
         self.timeframe = timeframe
+        # 【新增】使用 Session 维持连接池，提高效率并在断开时可以重置
+        self.session = requests.Session()
 
-    def fetch_historical_data(self, limit: int = 500, retries: int = 3) -> pd.DataFrame:
+    def fetch_historical_data(self, limit: int = 5000, max_retries: int = 10) -> pd.DataFrame:
         """
-        原生调用 OKX V5 接口拉取 K 线
+        原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)
         """
         endpoint = "/api/v5/market/history-candles"
         url = f"{self.base_url}{endpoint}"
 
         all_candles = []
-        after = ""  # 用于分页的请求游标
+        after = ""
 
-        logging.info(f"开始通过原生 API 拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
+        logging.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
+
+        # 核心参数：每拉取多少根进行一次深度休眠断点
+        batch_size_threshold = 1000
 
         while len(all_candles) < limit:
-            # OKX 每次最大支持 300 根
-            fetch_size = min(300, limit - len(all_candles))
+            # OKX 每次最大支持 100 根
+            fetch_size = min(100, limit - len(all_candles))
             params = {
                 "instId": self.symbol,
                 "bar": self.timeframe,
@@ -43,9 +46,12 @@ class OKXDataLoader:
                 params["after"] = after
 
             candles = []
-            for attempt in range(retries):
+            success = False
+
+            for attempt in range(max_retries):
                 try:
-                    response = requests.get(url, params=params, timeout=10)
+                    # 使用 session 发起请求
+                    response = self.session.get(url, params=params, timeout=15)
                     response.raise_for_status()
                     data = response.json()
 
@@ -54,22 +60,40 @@ class OKXDataLoader:
 
                     candles = data["data"]
                     if not candles:
-                        break  # 已经没有更多数据了
+                        success = True
+                        break
 
                     all_candles.extend(candles)
-                    # 取最后一根K线的时间戳，作为下一次请求的游标
                     after = candles[-1][0]
-                    break  # 成功获取本页数据，跳出重试循环
+                    success = True
+
+                    # 打印精细进度
+                    if len(all_candles) % 500 == 0 or len(all_candles) == limit:
+                        logging.info(f"拉取进度: {len(all_candles)} / {limit} ...")
+
+                    break  # 成功，跳出重试循环
 
                 except Exception as e:
-                    logging.error(f"第 {attempt + 1} 次请求失败: {e}")
-                    if attempt == retries - 1:
-                        raise ConnectionError(f"API 请求彻底失败: {e}")
-                    time.sleep(1)  # 失败后等 1 秒再试
+                    # 【核心机制 1】遭遇代理断开或超时，销毁并重建底层 TCP 连接！
+                    logging.warning(
+                        f"网络颠簸 (进度 {len(all_candles)}/{limit}) | 第 {attempt + 1}/{max_retries} 次重试... 报错: {e}")
+                    self.session.close()
+                    self.session = requests.Session()
 
-            if not candles:
+                    # 【核心机制 2】指数退避休眠：3秒, 5秒, 7秒... 越失败休息越久
+                    sleep_time = 3 + (attempt * 2)
+                    time.sleep(sleep_time)
+
+            if not success or not candles:
+                logging.error(f"严重网络故障或无更多数据。停止拉取！将返回已成功获取的 {len(all_candles)} 根数据。")
                 break
-            time.sleep(0.1)  # 频率保护：每秒最多 20 次请求
+
+            # 【核心机制 3】大批次深度休眠防封锁
+            if len(all_candles) > 0 and len(all_candles) % batch_size_threshold == 0:
+                logging.info(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，释放代理与服务器连接压力...")
+                time.sleep(3)
+            else:
+                time.sleep(0.15)  # 平时的正常频率保护
 
         if not all_candles:
             logging.warning("未拉取到任何数据！")
@@ -87,17 +111,16 @@ class OKXDataLoader:
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = df[col].astype(float)
 
-        # 转换时间戳 (并加 8 小时转换为东八区时间)
+        # 转换时间戳
         df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms')
         if "+" in TIMEZONE:
             df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
         elif "-" in TIMEZONE:
             df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
 
-        # **非常重要**：OKX 接口返回的数据是最新的在最前面 (倒序)
-        # 必须反转排序，变成最旧的在前面，否则以后所有的 EMA 和布林带计算全都会算错！
+        # 反转排序，最旧的在前面
         df.sort_values('timestamp', ascending=True, inplace=True)
         df.set_index('timestamp', inplace=True)
 
-        logging.info(f"成功构建 DataFrame，共 {len(df)} 根 K 线。最新时间: {df.index[-1]}")
+        logging.info(f"✅ 成功构建 DataFrame，共 {len(df)} 根 K 线。最旧时间: {df.index[0]} | 最新时间: {df.index[-1]}")
         return df

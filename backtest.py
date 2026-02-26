@@ -12,13 +12,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     capital = initial_capital
-    max_risk = RISK_PARAMS['max_risk_per_trade']  # 0.0166
+    max_risk = RISK_PARAMS['max_risk_per_trade']
     atr_multiplier = 3.0  # 3倍ATR吊灯止损
 
     in_position = False
     position_type = 0
     entry_time = None
-    entry_price = 0.0  # 现在的含义是：平均持仓成本
+    entry_price = 0.0  # 记录均价
     stop_loss = 0.0
     position_size_coin = 0.0
 
@@ -31,13 +31,11 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         just_closed = False
 
         # ==========================================
-        # 1. 离场逻辑：检查是否触发吊灯止损
+        # 1. 离场逻辑：严格遵守时序（先检查存活，再更新防守）
         # ==========================================
         if in_position:
             if position_type == 1:  # -- 多头 --
-                trailing_sl = row['high'] - (row['ATR'] * atr_multiplier)
-                if trailing_sl > stop_loss: stop_loss = trailing_sl
-
+                # 【先检查】：这根线的下探有没有打穿“老止损线”？
                 if row['low'] <= stop_loss:
                     exit_price = stop_loss
                     pnl = (exit_price - entry_price) * position_size_coin
@@ -47,11 +45,13 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                          'exit': exit_price, 'pnl': pnl, 'capital': capital})
                     in_position = False
                     just_closed = True
+                else:
+                    # 【活下来了】：用这根线的最高价，去抬高“新止损线”
+                    trailing_sl = row['high'] - (row['ATR'] * atr_multiplier)
+                    if trailing_sl > stop_loss:
+                        stop_loss = trailing_sl
 
             elif position_type == -1:  # -- 空头 --
-                trailing_sl = row['low'] + (row['ATR'] * atr_multiplier)
-                if trailing_sl < stop_loss: stop_loss = trailing_sl
-
                 if row['high'] >= stop_loss:
                     exit_price = stop_loss
                     pnl = (entry_price - exit_price) * position_size_coin
@@ -61,16 +61,17 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                          'exit': exit_price, 'pnl': pnl, 'capital': capital})
                     in_position = False
                     just_closed = True
-
-            if just_closed:
-                continue  # 如果刚刚平仓，直接进入下一根K线
+                else:
+                    trailing_sl = row['low'] + (row['ATR'] * atr_multiplier)
+                    if trailing_sl < stop_loss:
+                        stop_loss = trailing_sl
 
         # ==========================================
         # 2. 进场/加仓逻辑：寻找信号
         # ==========================================
         if row['Signal'] != 0:
 
-            # 【A】如果空仓，正常首次开仓
+            # 【A】如果空仓 (或者是同一根K线刚被扫损出局)，正常开新仓
             if not in_position:
                 entry_time = index
                 entry_price = row['close']
@@ -88,50 +89,42 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
                 if sl_distance > 0:
                     position_size_coin = risk_amount_usdt / sl_distance
-
-                    # 初始杠杆检查
                     if (position_size_coin * entry_price / capital) > RISK_PARAMS['max_leverage']:
                         position_size_coin = (capital * RISK_PARAMS['max_leverage']) / entry_price
                     in_position = True
 
-            # 【B】如果持有仓位，且新信号与当前方向一致 -> 执行加仓！
-            elif in_position and row['Signal'] == position_type:
+            # 【B】如果正在持仓，且新信号方向一致 -> 触发金字塔加仓！
+            elif in_position and row['Signal'] == position_type and not just_closed:
                 new_entry_price = row['close']
                 atr_value = row['ATR']
                 risk_amount_usdt = capital * max_risk
 
-                # 重新计算基于新加仓价的止损
                 if position_type == 1:
                     new_stop_loss = new_entry_price - (atr_value * atr_multiplier)
-                    if new_stop_loss > stop_loss:
-                        stop_loss = new_stop_loss  # 暴力上移防守线
+                    if new_stop_loss > stop_loss: stop_loss = new_stop_loss  # 暴力上移防守
                     sl_distance = new_entry_price - stop_loss
                 else:
                     new_stop_loss = new_entry_price + (atr_value * atr_multiplier)
-                    if new_stop_loss < stop_loss:
-                        stop_loss = new_stop_loss  # 暴力下移防守线
+                    if new_stop_loss < stop_loss: stop_loss = new_stop_loss
                     sl_distance = stop_loss - new_entry_price
 
                 if sl_distance > 0:
                     new_size = risk_amount_usdt / sl_distance
-
-                    # 加仓时的总杠杆安全阀
                     total_notional = (position_size_coin + new_size) * new_entry_price
                     if (total_notional / capital) > RISK_PARAMS['max_leverage']:
-                        # 如果满仓了，只加允许的剩余额度
                         allowed_total_size = (capital * RISK_PARAMS['max_leverage']) / new_entry_price
                         new_size = allowed_total_size - position_size_coin
 
                     if new_size > 0:
-                        # 重新计算加权平均成本价！
                         total_size = position_size_coin + new_size
+                        # 重新计算均价
                         entry_price = ((entry_price * position_size_coin) + (new_entry_price * new_size)) / total_size
                         position_size_coin = total_size
                         print(
-                            f"   [+] {index} 触发同向加仓! 最新均价变为: {entry_price:.2f} | 止损位推至: {stop_loss:.2f}")
+                            f"   [+] {index} 触发同向加仓! 最新均价变为: {entry_price:.2f} | 止损推至: {stop_loss:.2f}")
 
     # ==========================================
-    # 3. 回测结束：期末强平逻辑 (防止盈利的单子隐身)
+    # 3. 期末强制平仓结算 (循环结束后的逻辑)
     # ==========================================
     if in_position:
         last_time = df.index[-1]
@@ -147,7 +140,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
              'entry': entry_price, 'exit': exit_price, 'pnl': pnl, 'capital': capital, 'note': '(期末强平)'})
 
     # ==========================================
-    # 4. 打印回测报告
+    # 4. 打印报告
     # ==========================================
     print("\n=== 回测交易日志 ===")
     win_trades = 0
