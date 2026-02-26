@@ -35,16 +35,16 @@ class SqueezeStrategy:
 
         # -- 多头突破 (LONG) --
         long_cond = (
-                (df['Squeeze_On'].shift(1) is True) &  # 前一秒还在蓄力
-                (df['Squeeze_Off'] is True) &  # 这一刻爆发
+                (df['Squeeze_On'].shift(1) == True) &  # 前一秒还在蓄力
+                (df['Squeeze_Off'] == True) &  # 这一刻爆发
                 (df['close'] > df['BB_upper']) &  # 价格暴力击穿上轨
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor)  # 确认主力资金进场
         )
 
         # -- 空头突破 (SHORT) --
         short_cond = (
-                (df['Squeeze_On'].shift(1) is True) &
-                (df['Squeeze_Off'] is True) &
+                (df['Squeeze_On'].shift(1) == True) &
+                (df['Squeeze_Off'] == True) &
                 (df['close'] < df['BB_lower']) &  # 价格暴力砸穿下轨
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor)
         )

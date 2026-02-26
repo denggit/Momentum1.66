@@ -23,7 +23,7 @@ class OKXDataLoader:
         """
         原生调用 OKX V5 接口拉取 K 线
         """
-        endpoint = "/api/v5/market/candles"
+        endpoint = "/api/v5/market/history-candles"
         url = f"{self.base_url}{endpoint}"
 
         all_candles = []
