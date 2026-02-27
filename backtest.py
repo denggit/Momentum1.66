@@ -9,6 +9,8 @@ from src.strategy.squeeze import SqueezeStrategy
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+LIMIT = 17500
+
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     capital = initial_capital
@@ -182,7 +184,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         print("\n" + "-"*50)
         print(" 📈 核心绩效指标 (Core Metrics)")
         print("-"*50)
-        print(f"测试周期: 近 {limit} 根 K 线")
+        print(f"测试周期: 近 {LIMIT} 根 K 线")
         print(f"总交易次数: {total_trades}")
         print(f"胜率 (Win Rate): {win_rate*100:.2f}%")
         print(f"盈亏比 (PnL Ratio): {pnl_ratio:.2f}")
@@ -197,7 +199,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol=SYMBOL, timeframe=TIMEFRAME)
-    df = loader.fetch_historical_data(limit=17500)
+    df = loader.fetch_historical_data(limit=LIMIT)
 
     if not df.empty:
         df = add_squeeze_indicators(
