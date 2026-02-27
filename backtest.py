@@ -16,7 +16,7 @@ LIMIT = 35040
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     capital = initial_capital
     max_risk = 0.008  # 单笔风险定额 0.8%
-    atr_multiplier = 3.0  
+    atr_multiplier = 4.5  
     fee_rate = 0.0005  # 【新增】单边手续费 0.05% (OKX Taker市价标准)
     
     in_position = False
