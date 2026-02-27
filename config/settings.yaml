@@ -1,6 +1,6 @@
 # 全局设置
 exchange: "okx"
-symbol: "DOGE-USDT-SWAP"  # 换成 OKX 原生的永续合约名
+symbol: "ETH-USDT-SWAP"  # 换成 OKX 原生的永续合约名
 timeframe: "1H"
 timezone: "UTC+8"
 fee_rate: 0.0005
@@ -9,5 +9,5 @@ fee_rate: 0.0005
 risk:
   max_risk_per_trade: 0.02
   min_pnl_ratio: 1.5
-  max_leverage: 10
+  max_leverage: 20
   atr_multiplier: 4.5

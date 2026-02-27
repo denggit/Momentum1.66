@@ -1,9 +1,10 @@
+import logging
+import os
+import sqlite3
+import time
+
 import pandas as pd
 import requests
-import time
-import sqlite3
-import os
-import logging
 
 # 确保引入你的时区配置
 try:
@@ -23,12 +24,17 @@ class OKXDataLoader:
         self.session = requests.Session()
 
         self.bar_map = {
+            '1m': '1m',
+            '5m': '5m',
             '15m': '15m',
+            '30m': '30m',
             '1H': '1H',
             '4H': '4H',
             '1D': '1D'
         }
-        self.okx_bar = self.bar_map.get(timeframe, '1H')
+        if timeframe not in self.bar_map:
+            raise IndexError(f"没有这个timeframe: {timeframe}")
+        self.okx_bar = self.bar_map.get(timeframe)
 
         if not os.path.exists(db_dir):
             os.makedirs(db_dir)
@@ -113,7 +119,7 @@ class OKXDataLoader:
                     current_after = candles[-1][0]
                     success = True
 
-                    if len(all_candles) % 5000 == 0 or len(all_candles) == limit:
+                    if len(all_candles) % 10000 == 0 or len(all_candles) == limit:
                         logging.info(f"拉取进度: {len(all_candles)} / {limit} ...")
 
                     break
@@ -239,5 +245,16 @@ class OKXDataLoader:
         return combined_df.tail(limit)
 
     def _get_seconds(self, timeframe: str) -> int:
-        mapping = {'15m': 900, '1H': 3600, '4H': 14400, '1D': 86400}
-        return mapping.get(timeframe, 3600)
+        mapping = {
+            '1m': 60,
+            '5m': 300,
+            '15m': 900,
+            '30m': 1800,  # <--- 加上 1800 秒！
+            '1H': 3600,
+            '4H': 14400,
+            '1D': 86400
+        }
+        if timeframe not in mapping:
+            raise IndexError(f"没有这个timeframe: {timeframe}")
+
+        return mapping.get(timeframe)

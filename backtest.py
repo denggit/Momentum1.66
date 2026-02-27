@@ -19,7 +19,7 @@ START_DATE = '2020-01-01'  # 回测开始日期
 END_DATE = '2026-02-27'  # 回测结束日期
 # 设置一个足够大的 LIMIT，确保能拉取到 START_DATE 之前的数据
 # (1小时级别，一年约 8760 根，50000 根约等于 5.7 年)
-FETCH_LIMIT = 60000
+FETCH_LIMIT = 200000
 
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
@@ -168,7 +168,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     # 4. 打印专业级量化回测报告
     # ==========================================
     print("\n" + "=" * 65)
-    print(" 📊 Momentum 1H 引擎 - 多年期量化绩效报告")
+    print(f" 📊 Momentum {TIMEFRAME} 引擎 - 多年期量化绩效报告")
     print("=" * 65)
 
     win_trades = 0
