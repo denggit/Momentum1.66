@@ -40,6 +40,9 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
         # 4. 计算 ATR (后面风控仓位计算时极其重要)
         df['ATR'] = ta.atr(high=df['high'], low=df['low'], close=df['close'], length=14)
 
+        # 5. 计算大级别环境过滤器 (200 EMA)
+        df['EMA_200'] = ta.ema(close=df['close'], length=200)
+
         # 剔除因为计算均线产生的 NaN 行
         df.dropna(inplace=True)
 
