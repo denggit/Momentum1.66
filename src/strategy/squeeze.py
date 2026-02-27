@@ -30,7 +30,7 @@ class SqueezeStrategy:
         # 核心参数：弹簧必须至少被压住 5 根 K 线
         min_squeeze_duration = 5
         # 【新增参数】：ADX 必须大于 20，确认市场具备产生大单边趋势的能量！
-        min_adx_trend_strength = 20.0 
+        min_adx_trend_strength = 25
 
         # -- 多头突破 (LONG) --
         long_cond = (
