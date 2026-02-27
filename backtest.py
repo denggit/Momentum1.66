@@ -10,7 +10,7 @@ from src.strategy.squeeze import SqueezeStrategy
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-LIMIT = 17500
+LIMIT = 35040
 
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
