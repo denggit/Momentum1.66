@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS, RISK_PARAMS
+from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS, RISK_PARAMS, FEE_RATE
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_squeeze_indicators
 from src.strategy.squeeze import SqueezeStrategy
@@ -24,9 +24,9 @@ FETCH_LIMIT = 60000
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     capital = initial_capital
-    max_risk = 0.02  # 单笔风险定额 2%
-    atr_multiplier = 4.5
-    fee_rate = 0.0005  # 单边手续费 0.05% (OKX Taker市价标准)
+    max_risk = RISK_PARAMS["max_risk_per_trade"]  # 单笔风险定额 2%
+    atr_multiplier = RISK_PARAMS["atr_multiplier"]
+    fee_rate = FEE_RATE  # 单边手续费 0.05% (OKX Taker市价标准)
 
     in_position = False
     position_type = 0
@@ -340,6 +340,6 @@ if __name__ == "__main__":
                 kc_mult=SQZ_PARAMS['kc_mult']
             )
             strategy = SqueezeStrategy(volume_factor=SQZ_PARAMS['volume_factor'])
-            df = strategy.generate_signals(df)
+            df = strategy.generate_signals(df, SQZ_PARAMS["min_squeeze_duration"], SQZ_PARAMS["min_adx"])
 
             run_backtest(df, initial_capital=1000.0)

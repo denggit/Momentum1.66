@@ -19,18 +19,13 @@ class SqueezeStrategy:
         """
         self.volume_factor = volume_factor
 
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+    def generate_signals(self, df: pd.DataFrame, min_squeeze_duration=2, min_adx_trend_strength=20) -> pd.DataFrame:
         df['Squeeze_On'] = (df['BB_lower'] > df['KC_lower']) & (df['BB_upper'] < df['KC_upper'])
         df['Squeeze_Off'] = ~df['Squeeze_On']
 
         # 【新增手术】：计算弹簧连续被压缩的次数！
         # 这个高端的 pandas 写法能统计当前处于连续第几根 Squeeze_On 状态
         df['Squeeze_Count'] = df['Squeeze_On'].groupby((~df['Squeeze_On']).cumsum()).cumsum()
-
-        # 核心参数：弹簧必须至少被压住 5 根 K 线
-        min_squeeze_duration = 5
-        # 【新增参数】：ADX 必须大于 20，确认市场具备产生大单边趋势的能量！
-        min_adx_trend_strength = 25
 
         # -- 多头突破 (LONG) --
         long_cond = (

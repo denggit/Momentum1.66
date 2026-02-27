@@ -23,6 +23,7 @@ settings, strategies = load_config()
 SYMBOL = settings['symbol']
 TIMEFRAME = settings['timeframe']
 TIMEZONE = settings['timezone']
+FEE_RATE = settings["fee_rate"]
 RISK_PARAMS = settings['risk']
 
 # strategies.yaml 配置

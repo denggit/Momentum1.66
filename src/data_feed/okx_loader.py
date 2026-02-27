@@ -113,7 +113,7 @@ class OKXDataLoader:
                     current_after = candles[-1][0]
                     success = True
 
-                    if len(all_candles) % 1000 == 0 or len(all_candles) == limit:
+                    if len(all_candles) % 5000 == 0 or len(all_candles) == limit:
                         logging.info(f"拉取进度: {len(all_candles)} / {limit} ...")
 
                     break
