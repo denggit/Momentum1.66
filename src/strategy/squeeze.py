@@ -38,7 +38,8 @@ class SqueezeStrategy:
                 (df['Squeeze_On'].shift(1) == True) &  # 前一秒还在蓄力
                 (df['Squeeze_Off'] == True) &  # 这一刻爆发
                 (df['close'] > df['BB_upper']) &  # 价格暴力击穿上轨
-                (df['volume'] > df['Vol_SMA'] * self.volume_factor)  # 确认主力资金进场
+                (df['volume'] > df['Vol_SMA'] * self.volume_factor)  &
+                (df['close'] > df['EMA_200'])
         )
 
         # -- 空头突破 (SHORT) --
@@ -46,7 +47,8 @@ class SqueezeStrategy:
                 (df['Squeeze_On'].shift(1) == True) &
                 (df['Squeeze_Off'] == True) &
                 (df['close'] < df['BB_lower']) &  # 价格暴力砸穿下轨
-                (df['volume'] > df['Vol_SMA'] * self.volume_factor)
+                (df['volume'] > df['Vol_SMA'] * self.volume_factor) &
+                (df['close'] < df['EMA_200'])
         )
 
         # 初始化信号列为 0 (无操作)
