@@ -140,33 +140,64 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
              'entry': entry_price, 'exit': exit_price, 'pnl': pnl, 'capital': capital, 'note': '(期末强平)'})
 
     # ==========================================
-    # 4. 打印报告
+    # 4. 打印专业级回测报告 (Phase 1 终极产出)
     # ==========================================
-    print("\n=== 回测交易日志 ===")
+    print("\n" + "="*50)
+    print(" 📊 项目 1.66 - Phase 1 阶段性回测报告")
+    print("="*50)
+    
     win_trades = 0
     total_trades = len(trade_history)
+    gross_profit = 0.0
+    gross_loss = 0.0
+    
+    # 记录资金曲线以计算最大回撤
+    capital_curve = [initial_capital]
+    peak_capital = initial_capital
+    max_drawdown_pct = 0.0
+    
     for t in trade_history:
         res = "盈利" if t['pnl'] > 0 else "亏损"
-        if t['pnl'] > 0: win_trades += 1
+        if t['pnl'] > 0: 
+            win_trades += 1
+            gross_profit += t['pnl']
+        else:
+            gross_loss += abs(t['pnl'])
+            
         note = t.get('note', '')
-        print(
-            f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 出价: {t['exit']:.2f} | 盈亏: {t['pnl']:+.2f} U ({res}) {note} | 余额: {t['capital']:.2f} U")
-
+        print(f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 出价: {t['exit']:.2f} | 盈亏: {t['pnl']:+.2f} U ({res}) {note} | 余额: {t['capital']:.2f} U")
+        
+        # 计算回撤
+        capital_curve.append(t['capital'])
+        if t['capital'] > peak_capital:
+            peak_capital = t['capital']
+        drawdown = (peak_capital - t['capital']) / peak_capital
+        if drawdown > max_drawdown_pct:
+            max_drawdown_pct = drawdown
+    
     if total_trades > 0:
         win_rate = win_trades / total_trades
-        print("\n=== 核心绩效指标 ===")
+        pnl_ratio = (gross_profit / win_trades) / (gross_loss / (total_trades - win_trades)) if (total_trades - win_trades) > 0 and win_trades > 0 else float('inf')
+        
+        print("\n" + "-"*50)
+        print(" 📈 核心绩效指标 (Core Metrics)")
+        print("-"*50)
+        print(f"测试周期: 近 {limit} 根 K 线")
         print(f"总交易次数: {total_trades}")
-        print(f"胜率: {win_rate * 100:.2f}%")
+        print(f"胜率 (Win Rate): {win_rate*100:.2f}%")
+        print(f"盈亏比 (PnL Ratio): {pnl_ratio:.2f}")
+        print(f"最大回撤 (Max Drawdown): {max_drawdown_pct*100:.2f}%")
         print(f"初始资金: ${initial_capital:.2f}")
         print(f"最终资金: ${capital:.2f}")
-        print(f"净利润: ${(capital - initial_capital):.2f} ({(capital / initial_capital - 1) * 100:.2f}%)")
+        print(f"总净利润: ${(capital - initial_capital):.2f} ({(capital/initial_capital - 1)*100:.2f}%)")
+        print("="*50)
     else:
         print("无交易发生。")
 
 
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol=SYMBOL, timeframe=TIMEFRAME)
-    df = loader.fetch_historical_data(limit=5000)
+    df = loader.fetch_historical_data(limit=17500)
 
     if not df.empty:
         df = add_squeeze_indicators(
