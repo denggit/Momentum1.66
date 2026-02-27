@@ -6,9 +6,10 @@
 @File       : indicators.py
 @Description: 
 """
+import logging
+
 import pandas as pd
 import pandas_ta as ta
-import logging
 
 
 def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, kc_mult=1.5) -> pd.DataFrame:
@@ -59,3 +60,24 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
     except Exception as e:
         logging.error(f"计算技术指标时发生错误: {e}")
         raise e
+
+
+def add_reversal_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.5, rsi_len=14) -> pd.DataFrame:
+    """
+    二号引擎专供：计算极端布林带 (2.5标准差) 和 RSI 超买超卖
+    """
+    import pandas_ta as ta
+
+    # 计算极宽的布林带（捕捉极端情绪插针）
+    bbands = ta.bbands(close=df['close'], length=bb_len, std=bb_std)
+    df['BB_lower_rev'] = bbands[bbands.filter(like='BBL').columns[0]]
+    df['BB_upper_rev'] = bbands[bbands.filter(like='BBU').columns[0]]
+
+    # 计算 RSI
+    df['RSI'] = ta.rsi(close=df['close'], length=rsi_len)
+
+    # 依然需要 ATR 作为止损参考
+    df['ATR'] = ta.atr(high=df['high'], low=df['low'], close=df['close'], length=14)
+
+    df.dropna(inplace=True)
+    return df
