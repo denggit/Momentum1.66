@@ -1,7 +1,7 @@
 # 全局设置
 exchange: "okx"
 symbol: "ETH-USDT-SWAP"  # 换成 OKX 原生的永续合约名
-timeframe: "15m"
+timeframe: "1H"
 timezone: "UTC+8"
 
 # 1.66% 核心风控系统
