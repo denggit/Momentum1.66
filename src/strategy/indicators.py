@@ -43,6 +43,14 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
         # 5. 计算大级别环境过滤器 (200 EMA)
         df['EMA_200'] = ta.ema(close=df['close'], length=200)
 
+        # 6. 【新增核心动量过滤】计算 ADX (14)
+        # pandas_ta 的 adx 会返回一个包含多列的 DataFrame，我们只需要 ADX_14 这一列
+        adx_df = ta.adx(high=df['high'], low=df['low'], close=df['close'], length=14)
+        if adx_df is not None:
+            df['ADX'] = adx_df['ADX_14']
+        else:
+            df['ADX'] = 0.0  # 防错处理
+
         # 剔除因为计算均线产生的 NaN 行
         df.dropna(inplace=True)
 
