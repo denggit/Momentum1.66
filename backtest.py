@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import pandas as pd
+import numpy as np
 import logging
 from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS, RISK_PARAMS
 from src.data_feed.okx_loader import OKXDataLoader
@@ -142,10 +143,10 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
              'entry': entry_price, 'exit': exit_price, 'pnl': pnl, 'capital': capital, 'note': '(期末强平)'})
 
     # ==========================================
-    # 4. 打印专业级回测报告 (Phase 1 终极产出)
+    # 4. 打印专业级量化回测报告
     # ==========================================
     print("\n" + "="*50)
-    print(" 📊 项目 1.66 - Phase 1 阶段性回测报告")
+    print(" 📊 Momentum 1.66 - 深度量化绩效报告")
     print("="*50)
     
     win_trades = 0
@@ -153,45 +154,82 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     gross_profit = 0.0
     gross_loss = 0.0
     
-    # 记录资金曲线以计算最大回撤
     capital_curve = [initial_capital]
     peak_capital = initial_capital
     max_drawdown_pct = 0.0
+    trade_returns = []  # 记录单笔交易的收益率，用于计算夏普
     
     for t in trade_history:
-        res = "盈利" if t['pnl'] > 0 else "亏损"
-        if t['pnl'] > 0: 
+        pnl = t['pnl']
+        if pnl > 0: 
             win_trades += 1
-            gross_profit += t['pnl']
+            gross_profit += pnl
         else:
-            gross_loss += abs(t['pnl'])
+            gross_loss += abs(pnl)
             
-        note = t.get('note', '')
-        print(f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 出价: {t['exit']:.2f} | 盈亏: {t['pnl']:+.2f} U ({res}) {note} | 余额: {t['capital']:.2f} U")
+        # 记录每笔交易对当时总本金的收益率贡献
+        capital_before_trade = t['capital'] - pnl
+        trade_returns.append(pnl / capital_before_trade)
         
-        # 计算回撤
         capital_curve.append(t['capital'])
         if t['capital'] > peak_capital:
             peak_capital = t['capital']
         drawdown = (peak_capital - t['capital']) / peak_capital
         if drawdown > max_drawdown_pct:
             max_drawdown_pct = drawdown
+            
+        res = "盈利" if pnl > 0 else "亏损"
+        note = t.get('note', '')
+        print(f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 出价: {t['exit']:.2f} | 盈亏: {pnl:+.2f} U ({res}) {note}")
     
     if total_trades > 0:
         win_rate = win_trades / total_trades
-        pnl_ratio = (gross_profit / win_trades) / (gross_loss / (total_trades - win_trades)) if (total_trades - win_trades) > 0 and win_trades > 0 else float('inf')
+        loss_rate = 1 - win_rate
+        avg_win = gross_profit / win_trades if win_trades > 0 else 0
+        avg_loss = gross_loss / (total_trades - win_trades) if (total_trades - win_trades) > 0 else 0
+        
+        # 1. 盈亏比与盈利因子
+        pnl_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+        
+        # 2. 数学期望值 (Expected Value)
+        # 每次开单，预期能赚多少 U
+        expected_value_u = (win_rate * avg_win) - (loss_rate * avg_loss)
+        
+        # 3. 夏普比率 (Sharpe Ratio) - 假设无风险利率为 0
+        # 衡量你每承担 1 单位的波动风险，能换来多少超额回报。>1 为优秀，>2 为神级。
+        if len(trade_returns) > 1:
+            std_dev = np.std(trade_returns)
+            sharpe_ratio = np.mean(trade_returns) / std_dev if std_dev > 0 else 0
+            # 转换为年化夏普 (近似算法：乘以交易次数的平方根)
+            annualized_sharpe = sharpe_ratio * np.sqrt(total_trades)
+        else:
+            annualized_sharpe = 0.0
+            
+        # 4. 卡玛比率 (Calmar Ratio)
+        # 收益回撤比：年化收益率 / 最大回撤。>3 为极佳的抗风险印钞机。
+        net_profit_pct = (capital - initial_capital) / initial_capital
+        calmar_ratio = net_profit_pct / max_drawdown_pct if max_drawdown_pct > 0 else float('inf')
         
         print("\n" + "-"*50)
-        print(" 📈 核心绩效指标 (Core Metrics)")
+        print(" 📈 核心量化指标 (Core Metrics)")
         print("-"*50)
-        print(f"测试周期: 近 {LIMIT} 根 K 线")
-        print(f"总交易次数: {total_trades}")
-        print(f"胜率 (Win Rate): {win_rate*100:.2f}%")
-        print(f"盈亏比 (PnL Ratio): {pnl_ratio:.2f}")
-        print(f"最大回撤 (Max Drawdown): {max_drawdown_pct*100:.2f}%")
-        print(f"初始资金: ${initial_capital:.2f}")
-        print(f"最终资金: ${capital:.2f}")
-        print(f"总净利润: ${(capital - initial_capital):.2f} ({(capital/initial_capital - 1)*100:.2f}%)")
+        print(f"总交易次数 (Total Trades):  {total_trades}")
+        print(f"胜率 (Win Rate):          {win_rate*100:.2f}%")
+        print(f"平均盈利 (Avg Win):       +${avg_win:.2f}")
+        print(f"平均亏损 (Avg Loss):      -${avg_loss:.2f}")
+        print(f"盈亏比 (PnL Ratio):       {pnl_ratio:.2f}")
+        print(f"盈利因子 (Profit Factor): {profit_factor:.2f}")
+        print(f"单笔期望值 (Expectancy):  +${expected_value_u:.2f} (每开一单的统计学净收益)")
+        print("-"*50)
+        print(" 🛡️ 风险与绩效评估 (Risk & Performance)")
+        print("-"*50)
+        print(f"最大回撤 (Max Drawdown):  {max_drawdown_pct*100:.2f}%")
+        print(f"夏普比率 (Sharpe Ratio):  {annualized_sharpe:.2f}")
+        print(f"卡玛比率 (Calmar Ratio):  {calmar_ratio:.2f}")
+        print(f"初始资金 (Initial Cap):   ${initial_capital:.2f}")
+        print(f"最终资金 (Final Cap):     ${capital:.2f}")
+        print(f"总净利润 (Net Profit):    +${(capital - initial_capital):.2f} ({net_profit_pct*100:.2f}%)")
         print("="*50)
     else:
         print("无交易发生。")
