@@ -6,6 +6,6 @@ timezone: "UTC+8"
 
 # 1.66% 核心风控系统
 risk:
-  max_risk_per_trade: 0.008
+  max_risk_per_trade: 0.02
   min_pnl_ratio: 1.5
   max_leverage: 10
