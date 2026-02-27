@@ -1,86 +1,128 @@
-import requests
 import pandas as pd
+import requests
 import time
+import sqlite3
+import os
 import logging
 
-from config.loader import TIMEZONE
+# 确保引入你的时区配置
+try:
+    from config.loader import TIMEZONE
+except ImportError:
+    TIMEZONE = "+8"  # 兜底默认值
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class OKXDataLoader:
-    def __init__(self, symbol: str, timeframe: str):
-        """
-        初始化原生 OKX 数据加载器
-        """
-        self.base_url = "https://www.okx.com"
+    def __init__(self, symbol="ETH-USDT-SWAP", timeframe="1H", db_dir="data"):
         self.symbol = symbol
         self.timeframe = timeframe
-        # 【新增】使用 Session 维持连接池，提高效率并在断开时可以重置
+        self.base_url = "https://www.okx.com"
+
         self.session = requests.Session()
 
-    def fetch_historical_data(self, limit: int = 5000, max_retries: int = 10) -> pd.DataFrame:
-        """
-        原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)
-        """
+        self.bar_map = {
+            '15m': '15m',
+            '1H': '1H',
+            '4H': '4H',
+            '1D': '1D'
+        }
+        self.okx_bar = self.bar_map.get(timeframe, '1H')
+
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir)
+        self.db_path = os.path.join(db_dir, 'crypto_history.db')
+        self.table_name = f"{symbol.replace('-', '_')}_{timeframe}"
+
+    def _get_db_connection(self):
+        return sqlite3.connect(self.db_path)
+
+    def _get_current_local_time(self):
+        """获取带有配置时区偏移的当前时间"""
+        now_utc = pd.Timestamp.utcnow().tz_localize(None)
+        if "+" in TIMEZONE:
+            now_utc += pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
+        elif "-" in TIMEZONE:
+            now_utc -= pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
+        return now_utc
+
+    def load_local_data(self) -> pd.DataFrame:
+        try:
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT count(name) FROM sqlite_master WHERE type='table' AND name='{self.table_name}'")
+            if cursor.fetchone()[0] == 0:
+                conn.close()
+                return pd.DataFrame()
+
+            df = pd.read_sql(f"SELECT * FROM {self.table_name}", conn, index_col='timestamp', parse_dates=['timestamp'])
+            conn.close()
+            return df
+        except Exception as e:
+            logging.error(f"读取本地数据库失败: {e}")
+            return pd.DataFrame()
+
+    def save_local_data(self, df: pd.DataFrame):
+        if df.empty:
+            return
+        conn = self._get_db_connection()
+        df.to_sql(self.table_name, conn, if_exists='replace', index=True)
+        conn.close()
+        logging.info(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
+
+    def fetch_from_okx(self, limit=100, after_ts=None, max_retries=10) -> pd.DataFrame:
+        """原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)"""
         endpoint = "/api/v5/market/history-candles"
         url = f"{self.base_url}{endpoint}"
 
         all_candles = []
-        after = ""
-
-        logging.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
-
-        # 核心参数：每拉取多少根进行一次深度休眠断点
+        current_after = after_ts
         batch_size_threshold = 1000
 
+        # logging.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
+
         while len(all_candles) < limit:
-            # OKX 每次最大支持 100 根
             fetch_size = min(100, limit - len(all_candles))
             params = {
                 "instId": self.symbol,
-                "bar": self.timeframe,
+                "bar": self.okx_bar,
                 "limit": fetch_size
             }
-            if after:
-                params["after"] = after
+            if current_after:
+                params["after"] = current_after
 
             candles = []
             success = False
 
             for attempt in range(max_retries):
                 try:
-                    # 使用 session 发起请求
                     response = self.session.get(url, params=params, timeout=15)
                     response.raise_for_status()
                     data = response.json()
 
-                    if data["code"] != "0":
-                        raise ValueError(f"OKX 业务报错: {data['msg']}")
+                    if data.get("code") != "0":
+                        raise ValueError(f"OKX 业务报错: {data.get('msg')}")
 
-                    candles = data["data"]
+                    candles = data.get("data", [])
                     if not candles:
                         success = True
                         break
 
                     all_candles.extend(candles)
-                    after = candles[-1][0]
+                    current_after = candles[-1][0]
                     success = True
 
-                    # 打印精细进度
-                    if len(all_candles) % 500 == 0 or len(all_candles) == limit:
+                    if len(all_candles) % 1000 == 0 or len(all_candles) == limit:
                         logging.info(f"拉取进度: {len(all_candles)} / {limit} ...")
 
-                    break  # 成功，跳出重试循环
+                    break
 
                 except Exception as e:
-                    # 【核心机制 1】遭遇代理断开或超时，销毁并重建底层 TCP 连接！
                     logging.warning(
                         f"网络颠簸 (进度 {len(all_candles)}/{limit}) | 第 {attempt + 1}/{max_retries} 次重试... 报错: {e}")
                     self.session.close()
                     self.session = requests.Session()
-
-                    # 【核心机制 2】指数退避休眠：3秒, 5秒, 7秒... 越失败休息越久
                     sleep_time = 3 + (attempt * 2)
                     time.sleep(sleep_time)
 
@@ -88,39 +130,114 @@ class OKXDataLoader:
                 logging.error(f"严重网络故障或无更多数据。停止拉取！将返回已成功获取的 {len(all_candles)} 根数据。")
                 break
 
-            # 【核心机制 3】大批次深度休眠防封锁
             if len(all_candles) > 0 and len(all_candles) % batch_size_threshold == 0:
-                logging.info(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，释放代理与服务器连接压力...")
+                # logging.debug(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，防封锁...")
                 time.sleep(3)
             else:
-                time.sleep(0.15)  # 平时的正常频率保护
+                time.sleep(0.15)
 
         if not all_candles:
-            logging.warning("未拉取到任何数据！")
             return pd.DataFrame()
 
-        # OKX 原始数据格式: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
         df = pd.DataFrame(all_candles,
                           columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'volCcy', 'volCcyQuote',
                                    'confirm'])
-
-        # 只保留量化需要的核心 6 列
         df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
 
-        # 将字符串转为浮点数
         for col in ['open', 'high', 'low', 'close', 'volume']:
             df[col] = df[col].astype(float)
 
-        # 转换时间戳
         df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms')
         if "+" in TIMEZONE:
             df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
         elif "-" in TIMEZONE:
             df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
 
-        # 反转排序，最旧的在前面
         df.sort_values('timestamp', ascending=True, inplace=True)
         df.set_index('timestamp', inplace=True)
 
-        logging.info(f"✅ 成功构建 DataFrame，共 {len(df)} 根 K 线。最旧时间: {df.index[0]} | 最新时间: {df.index[-1]}")
+        current_time = self._get_current_local_time()
+        if not df.empty and (current_time - df.index[-1]).total_seconds() < self._get_seconds(self.timeframe):
+            df = df.iloc[:-1]
+
         return df
+
+    def fetch_historical_data(self, limit=50000) -> pd.DataFrame:
+        """
+        全量智能拼接系统：
+        分离了【增量拉取最新数据】和【追溯拉取历史数据】两个动作
+        """
+        logging.info(f"🔍 准备加载 {self.symbol} ({self.timeframe}) 数据...")
+        local_df = self.load_local_data()
+
+        if local_df.empty:
+            logging.info(f"⚠️ 本地无数据，将从 OKX 全量拉取 {limit} 根...")
+            final_df = self.fetch_from_okx(limit=limit)
+            self.save_local_data(final_df)
+            return final_df.tail(limit)
+
+        local_count = len(local_df)
+        last_local_time = local_df.index[-1]
+        oldest_local_time = local_df.index[0]
+        logging.info(f"📦 本地数据库已命中！现有 {local_count} 根 K 线 | 区间: {oldest_local_time} -> {last_local_time}")
+
+        current_local = self._get_current_local_time()
+        bar_seconds = self._get_seconds(self.timeframe)
+
+        # =======================================
+        # 步骤 1: 向右看！补齐【最新】缺失的 K 线
+        # =======================================
+        time_diff_seconds = (current_local - last_local_time).total_seconds()
+        missing_new_bars = int(time_diff_seconds / bar_seconds)
+
+        new_df = pd.DataFrame()
+        if missing_new_bars > 0:
+            logging.info(f"🔄 准备增量补齐约 {missing_new_bars} 根 最新 K 线...")
+            new_df = self.fetch_from_okx(limit=missing_new_bars + 10)
+
+        if not new_df.empty:
+            combined_df = pd.concat([local_df, new_df])
+            combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+            combined_df = combined_df.sort_index(ascending=True)
+        else:
+            combined_df = local_df
+
+        # =======================================
+        # 步骤 2: 向左看！补齐【更老】的历史 K 线
+        # =======================================
+        current_count = len(combined_df)
+        old_df = pd.DataFrame()
+
+        if current_count < limit:
+            missing_old_bars = limit - current_count
+            logging.info(f"🔄 本地数据总量不足，准备向前追溯补齐 {missing_old_bars} 根 历史 K 线...")
+
+            # 计算当前库中最老一根 K 线的时间，并逆向剥离时区还原为 UTC 毫秒时间戳
+            oldest_local = combined_df.index[0]
+            oldest_utc = oldest_local
+            if "+" in TIMEZONE:
+                oldest_utc -= pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
+            elif "-" in TIMEZONE:
+                oldest_utc += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
+
+            oldest_ts_ms = str(int(oldest_utc.tz_localize('UTC').timestamp() * 1000))
+
+            # 携带 after_ts 拉取更早的数据
+            old_df = self.fetch_from_okx(limit=missing_old_bars + 10, after_ts=oldest_ts_ms)
+
+        if not old_df.empty:
+            combined_df = pd.concat([old_df, combined_df])
+            combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+            combined_df = combined_df.sort_index(ascending=True)
+
+        # =======================================
+        # 步骤 3: 保存至本地数据库并返回
+        # =======================================
+        if not new_df.empty or not old_df.empty:
+            self.save_local_data(combined_df)
+
+        return combined_df.tail(limit)
+
+    def _get_seconds(self, timeframe: str) -> int:
+        mapping = {'15m': 900, '1H': 3600, '4H': 14400, '1D': 86400}
+        return mapping.get(timeframe, 3600)
