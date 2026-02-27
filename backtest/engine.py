@@ -30,37 +30,47 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
         just_closed = False
 
         # ==========================================
-        # 1. 离场逻辑 (加入了目标止盈)
+        # 1. 离场逻辑 (加入了插针/最高价/最低价的精确判定)
         # ==========================================
         if in_position:
             exit_price = 0.0
             is_exiting = False
 
-            # 计算当前的 R乘数 (盈亏比)
-            open_profit = (row['close'] - entry_price) if position_type == 1 else (entry_price - row['close'])
-            current_r = open_profit / initial_risk_per_coin if initial_risk_per_coin > 0 else 0
-
-            # 【核心】：如果设置了目标 R，且当前浮盈达标，立刻强制市价止盈！
-            if target_r is not None and current_r >= target_r:
-                exit_price = row['close']
-                is_exiting = True
+            # 计算绝对止盈目标价 (Limit Order)
+            if position_type == 1:
+                tp_price = entry_price + (initial_risk_per_coin * target_r) if target_r else float('inf')
             else:
-                # 否则继续普通的追踪止损
-                if position_type == 1:
-                    if row['low'] <= stop_loss:
-                        exit_price = stop_loss
-                        is_exiting = True
-                    else:
-                        trailing_sl = row['close'] - (row['ATR'] * atr_multiplier)
-                        if trailing_sl > stop_loss: stop_loss = trailing_sl
-                elif position_type == -1:
-                    if row['high'] >= stop_loss:
-                        exit_price = stop_loss
-                        is_exiting = True
-                    else:
-                        trailing_sl = row['close'] + (row['ATR'] * atr_multiplier)
-                        if trailing_sl < stop_loss: stop_loss = trailing_sl
+                tp_price = entry_price - (initial_risk_per_coin * target_r) if target_r else -float('inf')
 
+            if position_type == 1:  # -- 多头 --
+                # 1. 优先判定：最高价是否打到了止盈位？(实盘限价单瞬间成交)
+                if target_r is not None and row['high'] >= tp_price:
+                    exit_price = tp_price
+                    is_exiting = True
+                # 2. 如果没止盈，最低价是否打穿了止损？
+                elif row['low'] <= stop_loss:
+                    exit_price = stop_loss
+                    is_exiting = True
+                else:
+                    # 3. 如果都没打到，移动止损
+                    trailing_sl = row['close'] - (row['ATR'] * atr_multiplier)
+                    if trailing_sl > stop_loss: stop_loss = trailing_sl
+
+            elif position_type == -1:  # -- 空头 --
+                # 1. 优先判定：最低价是否打到了止盈位？
+                if target_r is not None and row['low'] <= tp_price:
+                    exit_price = tp_price
+                    is_exiting = True
+                # 2. 如果没止盈，最高价是否打穿了止损？
+                elif row['high'] >= stop_loss:
+                    exit_price = stop_loss
+                    is_exiting = True
+                else:
+                    # 3. 如果都没打到，移动止损
+                    trailing_sl = row['close'] + (row['ATR'] * atr_multiplier)
+                    if trailing_sl < stop_loss: stop_loss = trailing_sl
+
+            # 执行平仓与财务结算
             if is_exiting:
                 exit_fee = position_size_coin * exit_price * fee_rate
                 total_trade_fee = accumulated_fee + exit_fee

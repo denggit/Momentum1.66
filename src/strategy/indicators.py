@@ -81,3 +81,29 @@ def add_reversal_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.5, rsi_len=14)
 
     df.dropna(inplace=True)
     return df
+
+
+def add_macd_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    二号引擎专供：MACD 动能背离指标
+    """
+    import pandas_ta as ta
+
+    # 1. 计算标准 MACD (12, 26, 9)
+    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
+    # pandas_ta 默认生成的列名很长，我们把它拼接到 df 并重命名
+    df = pd.concat([df, macd], axis=1)
+    df.rename(columns={
+        'MACD_12_26_9': 'MACD',
+        'MACDh_12_26_9': 'MACD_hist',
+        'MACDs_12_26_9': 'MACD_signal'
+    }, inplace=True)
+
+    # 2. 加入一条 EMA_20 用来判断当前的大趋势（必须在跌势中找背离）
+    df['EMA_20'] = ta.ema(df['close'], length=20)
+
+    # 3. 保留 ATR 用于止损
+    df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+
+    df.dropna(inplace=True)
+    return df
