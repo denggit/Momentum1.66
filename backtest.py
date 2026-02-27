@@ -154,17 +154,17 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         trade_history.append({'entry_time': entry_time, 'exit_time': last_time, 'type': 'LONG' if position_type == 1 else 'SHORT', 'entry': entry_price, 'exit': last_close, 'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital, 'note': '(期末强平)'})
 
     # ==========================================
-    # 4. 打印专业级量化回测报告 (含手续费统计)
+    # 4. 打印专业级量化回测报告 (含 Top 5 极端交易分析)
     # ==========================================
-    print("\n" + "="*50)
-    print(" 📊 Momentum 1.66 - 深度量化绩效报告 (已扣除手续费)")
-    print("="*50)
+    print("\n" + "="*55)
+    print(" 📊 Momentum 1H 引擎 - 深度量化绩效报告")
+    print("="*55)
     
     win_trades = 0
     total_trades = len(trade_history)
     gross_profit = 0.0
     gross_loss = 0.0
-    total_fees_paid = 0.0  # 累计总手续费
+    total_fees_paid = 0.0  
     
     capital_curve = [initial_capital]
     peak_capital = initial_capital
@@ -190,11 +190,27 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         if drawdown > max_drawdown_pct:
             max_drawdown_pct = drawdown
             
-        res = "盈利" if pnl > 0 else "亏损"
-        note = t.get('note', '')
-        # print(f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 净盈亏: {pnl:+.2f} U ({res}) | 磨损: -{t['fee']:.2f} U")
-    
+    # --- 【新增】核心逻辑：计算持仓时间并提取 Top 5 盈亏 ---
     if total_trades > 0:
+        # 为每笔交易计算历时 (Duration)
+        for t in trade_history:
+            try:
+                duration = t['exit_time'] - t['entry_time']
+                total_hours = int(duration.total_seconds() // 3600)
+                days = total_hours // 24
+                hours = total_hours % 24
+                t['duration_str'] = f"{days}天 {hours}小时" if days > 0 else f"{hours}小时"
+            except:
+                t['duration_str'] = "未知"
+
+        # 排序拿到利润最高和亏损最惨的 Top 5
+        sorted_by_pnl = sorted(trade_history, key=lambda x: x['pnl'], reverse=True)
+        top_5_wins = [t for t in sorted_by_pnl if t['pnl'] > 0][:5]
+        
+        sorted_by_loss = sorted(trade_history, key=lambda x: x['pnl'])
+        top_5_losses = [t for t in sorted_by_loss if t['pnl'] < 0][:5]
+
+        # 打印基础指标
         win_rate = win_trades / total_trades
         loss_rate = 1 - win_rate
         avg_win = gross_profit / win_trades if win_trades > 0 else 0
@@ -214,9 +230,9 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         net_profit_pct = (capital - initial_capital) / initial_capital
         calmar_ratio = net_profit_pct / max_drawdown_pct if max_drawdown_pct > 0 else float('inf')
         
-        print("\n" + "-"*50)
+        print("\n" + "-"*55)
         print(" 📈 核心量化指标 (Core Metrics)")
-        print("-"*50)
+        print("-"*55)
         print(f"总交易次数 (Total Trades):  {total_trades}")
         print(f"胜率 (Win Rate):          {win_rate*100:.2f}%")
         print(f"平均净盈利 (Avg Win):     +${avg_win:.2f}")
@@ -224,18 +240,31 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         print(f"净盈亏比 (PnL Ratio):     {pnl_ratio:.2f}")
         print(f"盈利因子 (Profit Factor): {profit_factor:.2f}")
         print(f"单笔期望值 (Expectancy):  +${expected_value_u:.2f}")
-        print("-"*50)
+        
+        print("\n" + "-"*55)
         print(" 🛡️ 风险与财务评估 (Risk & Finance)")
-        print("-"*50)
+        print("-"*55)
         print(f"最大回撤 (Max Drawdown):  {max_drawdown_pct*100:.2f}%")
         print(f"夏普比率 (Sharpe Ratio):  {annualized_sharpe:.2f}")
         print(f"卡玛比率 (Calmar Ratio):  {calmar_ratio:.2f}")
-        print(f"给交易所交的手续费总计:   -${total_fees_paid:.2f} ⚠️")
-        print("-"*50)
+        print(f"给交易所交的手续费总计:   -${total_fees_paid:.2f}")
+        
+        # --- 【新增】打印 Top 5 榜单 ---
+        print("\n" + "🏆"*3 + " 盈利 Top 5 史诗级交易 " + "🏆"*3)
+        print("-"*55)
+        for i, t in enumerate(top_5_wins):
+            print(f"{i+1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +${t['pnl']:.2f}")
+            
+        print("\n" + "🩸"*3 + " 亏损 Top 5 极度考验 " + "🩸"*3)
+        print("-"*55)
+        for i, t in enumerate(top_5_losses):
+            print(f"{i+1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: -${abs(t['pnl']):.2f}")
+
+        print("\n" + "="*55)
         print(f"初始资金 (Initial Cap):   ${initial_capital:.2f}")
         print(f"最终资金 (Final Cap):     ${capital:.2f}")
-        print(f"总净利润 (Net Profit):    ${(capital - initial_capital):.2f} ({net_profit_pct*100:.2f}%)")
-        print("="*50)
+        print(f"总净利润 (Net Profit):    +${(capital - initial_capital):.2f} ({net_profit_pct*100:.2f}%)")
+        print("="*55)
     else:
         print("无交易发生。")
 
