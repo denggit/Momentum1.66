@@ -27,27 +27,31 @@ class SqueezeStrategy:
         # 这个高端的 pandas 写法能统计当前处于连续第几根 Squeeze_On 状态
         df['Squeeze_Count'] = df['Squeeze_On'].groupby((~df['Squeeze_On']).cumsum()).cumsum()
 
-        # 核心参数：弹簧必须至少被压住 5 根 K 线 (75分钟) 才能释放！
+        # 核心参数：弹簧必须至少被压住 5 根 K 线
         min_squeeze_duration = 5
+        # 【新增参数】：ADX 必须大于 20，确认市场具备产生大单边趋势的能量！
+        min_adx_trend_strength = 20.0 
 
         # -- 多头突破 (LONG) --
         long_cond = (
                 (df['Squeeze_On'].shift(1)) &  
-                (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) & # <--- 拒绝早泄，必须深度蓄能！
+                (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) &
                 (df['Squeeze_Off']) &  
                 (df['close'] > df['BB_upper']) &  
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor) &
-                (df['close'] > df['EMA_200'])  
+                (df['close'] > df['EMA_200']) &
+                (df['ADX'] > min_adx_trend_strength)  # <--- 【极度硬核：拒绝死水微澜里的假突破！】
         )
 
         # -- 空头突破 (SHORT) --
         short_cond = (
                 (df['Squeeze_On'].shift(1)) &
-                (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) & # <--- 拒绝早泄！
+                (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) &
                 (df['Squeeze_Off']) &
                 (df['close'] < df['BB_lower']) &  
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor) &
-                (df['close'] < df['EMA_200'])  
+                (df['close'] < df['EMA_200']) &
+                (df['ADX'] > min_adx_trend_strength)  # <--- 【确认空头动能强劲】
         )
 
         df['Signal'] = 0
