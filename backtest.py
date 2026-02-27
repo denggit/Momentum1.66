@@ -12,12 +12,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 LIMIT = 35040
 
-
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     capital = initial_capital
     max_risk = 0.02  # 单笔风险定额 2%
     atr_multiplier = 4.5  
-    fee_rate = 0.0005  # 【新增】单边手续费 0.05% (OKX Taker市价标准)
+    fee_rate = 0.0005  # 单边手续费 0.05% (OKX Taker市价标准)
     
     in_position = False
     position_type = 0  
@@ -25,7 +24,10 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     entry_price = 0.0     
     stop_loss = 0.0
     position_size_coin = 0.0
-    accumulated_fee = 0.0 # 【新增】记录当前持仓累计产生的手续费
+    accumulated_fee = 0.0 
+    
+    # 【新增】用于记录开仓时初始的防守绝对距离，作为计算 R 乘数的基准
+    initial_sl_distance = 0.0 
     
     trade_history = []
     
@@ -33,20 +35,40 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
     for index, row in df.iterrows():
         just_closed = False  
+        current_r = 0.0 # 记录当前 K 线的盈亏 R 乘数
         
         # ==========================================
-        # 1. 离场逻辑 (扣除双边手续费)
+        # 1. 离场逻辑 (扣除双边手续费 + 动态 R 乘数收紧)
         # ==========================================
         if in_position:
             exit_price = 0.0
             is_exiting = False
+            
+            # 【终极厚尾手术 1】：实时计算当前的 R 乘数 (赚了当初风险的几倍)
+            if position_type == 1:
+                floating_profit_per_coin = row['close'] - entry_price
+            else:
+                floating_profit_per_coin = entry_price - row['close']
+                
+            current_r = floating_profit_per_coin / initial_sl_distance if initial_sl_distance > 0 else 0
+            
+            # 【终极厚尾手术 2】：阶梯式防守收紧 (Dynamic Trailing)
+            current_atr_mult = atr_multiplier # 默认 4.5 倍宽容防守
+            
+            if current_r >= 5.0:
+                current_atr_mult = 1.2  # 狂暴期：只要回撤 1.2 个 ATR 立刻落袋 5R+ 利润！
+            elif current_r >= 3.0:
+                current_atr_mult = 2.5  # 爆发期：收紧防守，防止深幅回调吃掉利润
+            elif current_r >= 1.5:
+                current_atr_mult = 3.5  # 脱离成本区：稍微收紧一点点防守
             
             if position_type == 1: # -- 多头 --
                 if row['low'] <= stop_loss:
                     exit_price = stop_loss
                     is_exiting = True
                 else:
-                    trailing_sl = row['close'] - (row['ATR'] * atr_multiplier)
+                    # 【顺手修复】：改回用 high 锚定，彻底解决 close 导致回撤爆表的问题！
+                    trailing_sl = row['high'] - (row['ATR'] * current_atr_mult)
                     if trailing_sl > stop_loss: stop_loss = trailing_sl  
             
             elif position_type == -1: # -- 空头 --
@@ -54,35 +76,35 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                     exit_price = stop_loss
                     is_exiting = True
                 else:
-                    trailing_sl = row['close'] + (row['ATR'] * atr_multiplier)
+                    # 【顺手修复】：改回用 low 锚定！
+                    trailing_sl = row['low'] + (row['ATR'] * current_atr_mult)
                     if trailing_sl < stop_loss: stop_loss = trailing_sl
 
             # 执行平仓与财务结算
             if is_exiting:
-                # 计算总平仓手续费
                 exit_fee = position_size_coin * exit_price * fee_rate
                 total_trade_fee = accumulated_fee + exit_fee
                 
-                # 计算毛利与净利
                 if position_type == 1:
                     gross_pnl = (exit_price - entry_price) * position_size_coin
                 else:
                     gross_pnl = (entry_price - exit_price) * position_size_coin
                     
-                net_pnl = gross_pnl - total_trade_fee # 扣除磨损！
+                net_pnl = gross_pnl - total_trade_fee 
                 capital += net_pnl
                 
                 trade_history.append({
                     'entry_time': entry_time, 'exit_time': index, 
                     'type': 'LONG' if position_type == 1 else 'SHORT', 
                     'entry': entry_price, 'exit': exit_price, 
-                    'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital
+                    'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital,
+                    'max_r': current_r # 记录离场时触及的最大 R
                 })
                 in_position = False
                 just_closed = True
 
         # ==========================================
-        # 2. 进场/加仓逻辑 (累计开仓手续费)
+        # 2. 进场/加仓逻辑 (记录初始止损距离)
         # ==========================================
         if row['Signal'] != 0:
             if not in_position:
@@ -95,10 +117,12 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                     position_type = 1
                     stop_loss = entry_price - (atr_value * atr_multiplier) 
                     sl_distance = entry_price - stop_loss
+                    initial_sl_distance = sl_distance # 【记录】多单初始风险距离
                 elif row['Signal'] == -1: 
                     position_type = -1
                     stop_loss = entry_price + (atr_value * atr_multiplier)
                     sl_distance = stop_loss - entry_price
+                    initial_sl_distance = sl_distance # 【记录】空单初始风险距离
                 
                 if sl_distance > 0:
                     position_size_coin = risk_amount_usdt / sl_distance
@@ -106,38 +130,44 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                         position_size_coin = (capital * RISK_PARAMS['max_leverage']) / entry_price
                     in_position = True
                     
-                    # 【记录手续费】首次开仓的磨损
                     accumulated_fee = position_size_coin * entry_price * fee_rate
             
             elif in_position and row['Signal'] == position_type and not just_closed:
-                new_entry_price = row['close']
-                atr_value = row['ATR']
-                risk_amount_usdt = capital * max_risk
-                
+                # 【终极厚尾手术 3】：山顶加仓熔断机制！
+                # 重新计算一下当前的 R，只有在利润没飞天（R < 2.0）的时候才允许加仓
                 if position_type == 1:
-                    new_stop_loss = new_entry_price - (atr_value * atr_multiplier)
-                    if new_stop_loss > stop_loss: stop_loss = new_stop_loss 
-                    sl_distance = new_entry_price - stop_loss
+                    floating_profit_per_coin = row['close'] - entry_price
                 else:
-                    new_stop_loss = new_entry_price + (atr_value * atr_multiplier)
-                    if new_stop_loss < stop_loss: stop_loss = new_stop_loss
-                    sl_distance = stop_loss - new_entry_price
+                    floating_profit_per_coin = entry_price - row['close']
+                current_r = floating_profit_per_coin / initial_sl_distance if initial_sl_distance > 0 else 0
                 
-                if sl_distance > 0:
-                    new_size = risk_amount_usdt / sl_distance
-                    total_notional = (position_size_coin + new_size) * new_entry_price
-                    if (total_notional / capital) > RISK_PARAMS['max_leverage']:
-                        allowed_total_size = (capital * RISK_PARAMS['max_leverage']) / new_entry_price
-                        new_size = allowed_total_size - position_size_coin
+                if current_r < 2.0:
+                    new_entry_price = row['close']
+                    atr_value = row['ATR']
+                    risk_amount_usdt = capital * max_risk
                     
-                    if new_size > 0:
-                        total_size = position_size_coin + new_size
-                        entry_price = ((entry_price * position_size_coin) + (new_entry_price * new_size)) / total_size
-                        position_size_coin = total_size
+                    if position_type == 1:
+                        new_stop_loss = new_entry_price - (atr_value * atr_multiplier)
+                        if new_stop_loss > stop_loss: stop_loss = new_stop_loss 
+                        sl_distance = new_entry_price - stop_loss
+                    else:
+                        new_stop_loss = new_entry_price + (atr_value * atr_multiplier)
+                        if new_stop_loss < stop_loss: stop_loss = new_stop_loss
+                        sl_distance = stop_loss - new_entry_price
+                    
+                    if sl_distance > 0:
+                        new_size = risk_amount_usdt / sl_distance
+                        total_notional = (position_size_coin + new_size) * new_entry_price
+                        if (total_notional / capital) > RISK_PARAMS['max_leverage']:
+                            allowed_total_size = (capital * RISK_PARAMS['max_leverage']) / new_entry_price
+                            new_size = allowed_total_size - position_size_coin
                         
-                        # 【记录手续费】加仓的磨损叠加
-                        accumulated_fee += new_size * new_entry_price * fee_rate
-                        # print(f"   [+] {index} 触发同向加仓! 最新均价变为: {entry_price:.2f} | 止损推至: {stop_loss:.2f}")
+                        if new_size > 0:
+                            total_size = position_size_coin + new_size
+                            entry_price = ((entry_price * position_size_coin) + (new_entry_price * new_size)) / total_size
+                            position_size_coin = total_size
+                            
+                            accumulated_fee += new_size * new_entry_price * fee_rate
 
     # 期末强平逻辑也加上扣费
     if in_position:
@@ -157,14 +187,14 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     # 4. 打印专业级量化回测报告 (含手续费统计)
     # ==========================================
     print("\n" + "="*50)
-    print(" 📊 Momentum 1.66 - 深度量化绩效报告 (已扣除手续费)")
+    print(" 📊 Momentum 1.66 - 深度量化绩效报告 (动态厚尾版)")
     print("="*50)
     
     win_trades = 0
     total_trades = len(trade_history)
     gross_profit = 0.0
     gross_loss = 0.0
-    total_fees_paid = 0.0  # 累计总手续费
+    total_fees_paid = 0.0  
     
     capital_curve = [initial_capital]
     peak_capital = initial_capital
@@ -189,10 +219,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         drawdown = (peak_capital - t['capital']) / peak_capital
         if drawdown > max_drawdown_pct:
             max_drawdown_pct = drawdown
-            
-        res = "盈利" if pnl > 0 else "亏损"
-        note = t.get('note', '')
-        # print(f"[进 {t['entry_time']} -> 出 {t['exit_time']}] {t['type']} | 均价: {t['entry']:.2f} | 净盈亏: {pnl:+.2f} U ({res}) | 磨损: -{t['fee']:.2f} U")
     
     if total_trades > 0:
         win_rate = win_trades / total_trades
@@ -238,7 +264,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         print("="*50)
     else:
         print("无交易发生。")
-
 
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol=SYMBOL, timeframe=TIMEFRAME)
