@@ -17,7 +17,7 @@ class ReversalStrategy:
         cross_up = df['close'] > df['EMA_200']
         
         # 3. 巨量确认：绝对不能是缩量假突破！成交量必须大于均量的 N 倍
-        vol_surge = df['vol'] > (df['VOL_SMA'] * self.vol_multiplier)
+        vol_surge = df['volume'] > (df['VOL_SMA'] * self.vol_multiplier)
         
         # 4. 实体大阳线：收盘价必须高于开盘价
         is_green = df['close'] > df['open']

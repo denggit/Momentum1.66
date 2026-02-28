@@ -118,7 +118,7 @@ def add_ema_reversal_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['EMA_200'] = ta.ema(df['close'], length=200)
     
     # 2. 成交量基准线：过去 50 根 K 线的平均成交量
-    df['VOL_SMA'] = ta.sma(df['vol'], length=50)
+    df['VOL_SMA'] = ta.sma(df['volume'], length=50)
     
     # 3. ATR 用于追踪止损
     df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
