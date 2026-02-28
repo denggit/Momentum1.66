@@ -107,3 +107,22 @@ def add_macd_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df.dropna(inplace=True)
     return df
+
+def add_ema_reversal_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    二号引擎终极版：EMA 200 龙抬头 + 爆量探测
+    """
+    import pandas_ta as ta
+    
+    # 1. 牛熊分界线：EMA 200
+    df['EMA_200'] = ta.ema(df['close'], length=200)
+    
+    # 2. 成交量基准线：过去 50 根 K 线的平均成交量
+    df['VOL_SMA'] = ta.sma(df['vol'], length=50)
+    
+    # 3. ATR 用于追踪止损
+    df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+    
+    df.dropna(inplace=True)
+    return df
+    
