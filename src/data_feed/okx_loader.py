@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 class OKXDataLoader:
-    def __init__(self, symbol="ETH-USDT-SWAP", timeframe="1H", db_dir="data"):
+    def __init__(self, symbol="ETH-USDT-SWAP", timeframe="1H", db_dir=None):
         self.symbol = symbol
         self.timeframe = timeframe
         self.base_url = "https://www.okx.com"
@@ -36,8 +36,20 @@ class OKXDataLoader:
             raise IndexError(f"没有这个timeframe: {timeframe}")
         self.okx_bar = self.bar_map.get(timeframe)
 
+        # ==========================================
+        # 核心修改：利用 __file__ 动态获取项目根目录
+        # ==========================================
+        if db_dir is None:
+            # 获取 okx_loader.py 的绝对路径
+            current_file = os.path.abspath(__file__)
+            # 向上推三层：okx_loader.py -> data_feed -> src -> 根目录 (Momentum1.66)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            # 强行把数据库目录锁定在项目根目录下的 data 文件夹里
+            db_dir = os.path.join(project_root, 'data')
+
         if not os.path.exists(db_dir):
             os.makedirs(db_dir)
+
         self.db_path = os.path.join(db_dir, 'crypto_history.db')
         self.table_name = f"{symbol.replace('-', '_')}_{timeframe}"
 

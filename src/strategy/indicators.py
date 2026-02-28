@@ -62,67 +62,16 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
         raise e
 
 
-def add_reversal_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.5, rsi_len=14) -> pd.DataFrame:
+def add_smc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    二号引擎专供：计算极端布林带 (2.5标准差) 和 RSI 超买超卖
-    """
-    import pandas_ta as ta
-
-    # 计算极宽的布林带（捕捉极端情绪插针）
-    bbands = ta.bbands(close=df['close'], length=bb_len, std=bb_std)
-    df['BB_lower_rev'] = bbands[bbands.filter(like='BBL').columns[0]]
-    df['BB_upper_rev'] = bbands[bbands.filter(like='BBU').columns[0]]
-
-    # 计算 RSI
-    df['RSI'] = ta.rsi(close=df['close'], length=rsi_len)
-
-    # 依然需要 ATR 作为止损参考
-    df['ATR'] = ta.atr(high=df['high'], low=df['low'], close=df['close'], length=14)
-
-    df.dropna(inplace=True)
-    return df
-
-
-def add_macd_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    二号引擎专供：MACD 动能背离指标
+    SMC 波段猎手专供：大趋势判定与动能基准
     """
     import pandas_ta as ta
 
-    # 1. 计算标准 MACD (12, 26, 9)
-    macd = ta.macd(df['close'], fast=12, slow=26, signal=9)
-    # pandas_ta 默认生成的列名很长，我们把它拼接到 df 并重命名
-    df = pd.concat([df, macd], axis=1)
-    df.rename(columns={
-        'MACD_12_26_9': 'MACD',
-        'MACDh_12_26_9': 'MACD_hist',
-        'MACDs_12_26_9': 'MACD_signal'
-    }, inplace=True)
-
-    # 2. 加入一条 EMA_20 用来判断当前的大趋势（必须在跌势中找背离）
-    df['EMA_20'] = ta.ema(df['close'], length=20)
-
-    # 3. 保留 ATR 用于止损
+    # 用 144 均线作为多空分水岭 (近似 4H 级别的趋势线)
+    df['EMA_144'] = ta.ema(df['close'], length=144)
+    # ATR 用于识别真正的“动能突破 K 线”
     df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
 
     df.dropna(inplace=True)
     return df
-
-def add_ema_reversal_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    二号引擎终极版：EMA 200 龙抬头 + 爆量探测
-    """
-    import pandas_ta as ta
-    
-    # 1. 牛熊分界线：EMA 200
-    df['EMA_200'] = ta.ema(df['close'], length=200)
-    
-    # 2. 成交量基准线：过去 50 根 K 线的平均成交量
-    df['VOL_SMA'] = ta.sma(df['volume'], length=50)
-    
-    # 3. ATR 用于追踪止损
-    df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-    
-    df.dropna(inplace=True)
-    return df
-    
