@@ -5,17 +5,18 @@ import pandas as pd
 
 
 class SMCStrategy:
-    # 增加 sl_buffer 参数，默认给 0.5 倍 ATR 的缓冲空间，防插针！
-    def __init__(self, ema_period=144, lookback=15, atr_mult=1.5, ob_expiry=72, sl_buffer=0.5):
+    # 【新增】entry_buffer=0.3，意思是只要价格靠近订单块边缘 0.3 倍 ATR 的距离，立刻抢跑进场！
+    def __init__(self, ema_period=144, lookback=15, atr_mult=1.5, ob_expiry=72, sl_buffer=0.6, entry_buffer=-0.1):
         self.ema_period = ema_period
         self.lookback = lookback
         self.atr_mult = atr_mult
         self.ob_expiry = ob_expiry
         self.sl_buffer = sl_buffer
+        self.entry_buffer = entry_buffer  # 进场提前量缓冲
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         df['Signal'] = 0
-        df['SL_Price'] = np.nan  # 【新增】用来告诉引擎我们的精确止损位在哪里
+        df['SL_Price'] = np.nan
 
         open_p = df['open'].values
         high = df['high'].values
@@ -28,7 +29,7 @@ class SMCStrategy:
         lowest_low = df['low'].rolling(self.lookback).min().shift(1).values
 
         signals = np.zeros(len(df))
-        sl_prices = np.full(len(df), np.nan)  # 【新增】
+        sl_prices = np.full(len(df), np.nan)
 
         long_ob_top = 0.0
         long_ob_bot = 0.0
@@ -53,20 +54,25 @@ class SMCStrategy:
                 if short_ob_age > self.ob_expiry:
                     short_ob_active = False
 
-                    # 1. 猎杀时刻 (Mitigation)
+                    # 1. 猎杀时刻 (Mitigation - 加上了提前抢跑逻辑)
             if long_ob_active:
-                if low[i] <= long_ob_top and close[i] > long_ob_bot:
+                # 【核心】允许价格在订单块上方 entry_buffer 的位置提前触发！
+                long_entry_trigger = long_ob_top + (atr[i] * self.entry_buffer)
+
+                if low[i] <= long_entry_trigger and close[i] > long_ob_bot:
                     signals[i] = 1
-                    # 【核心】多头止损 = 订单块最底端 - 0.5倍ATR缓冲
+                    # 止损依然放在最底下，加缓冲防插针
                     sl_prices[i] = long_ob_bot - (atr[i] * self.sl_buffer)
                     long_ob_active = False
                 elif close[i] < long_ob_bot:
                     long_ob_active = False
 
             if short_ob_active:
-                if high[i] >= short_ob_bot and close[i] < short_ob_top:
+                # 【核心】允许价格在空头订单块下方 entry_buffer 的位置提前触发！
+                short_entry_trigger = short_ob_bot - (atr[i] * self.entry_buffer)
+
+                if high[i] >= short_entry_trigger and close[i] < short_ob_top:
                     signals[i] = -1
-                    # 【核心】空头止损 = 订单块最顶端 + 0.5倍ATR缓冲
                     sl_prices[i] = short_ob_top + (atr[i] * self.sl_buffer)
                     short_ob_active = False
                 elif close[i] > short_ob_top:
