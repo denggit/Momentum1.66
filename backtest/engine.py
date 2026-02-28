@@ -6,7 +6,7 @@ from src.utils.report import print_full_report
 
 
 def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital=1000.0, max_risk=0.02,
-                           atr_multiplier=7.0, fee_rate=0.0005, target_r=None, reverse_cooldown=24):
+                           atr_multiplier=7.0, fee_rate=0.0005, reverse_cooldown=24, time_stop=None):
     capital = initial_capital
     in_position = False
     position_type, entry_time, entry_price, stop_loss = 0, None, 0.0, 0.0
@@ -27,17 +27,18 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
             exit_note = ""
 
             # --- 【方案 B：48 小时时间止损逻辑】 ---
-            hold_hours = (index - entry_time).total_seconds() / 3600
-            if hold_hours >= 48:
-                # 计算当前 MFE(R)
-                current_mfe_r = (trade_max_price - entry_price) / initial_risk_per_coin if position_type == 1 else (
-                                                                                                                               entry_price - trade_min_price) / initial_risk_per_coin
+            if time_stop:
+                hold_hours = (index - entry_time).total_seconds() / 3600
+                if hold_hours >= time_stop:
+                    # 计算当前 MFE(R)
+                    current_mfe_r = (trade_max_price - entry_price) / initial_risk_per_coin if position_type == 1 else (
+                                                                                                                                   entry_price - trade_min_price) / initial_risk_per_coin
 
-                # 如果 48 小时还没摸到 1.0R，说明动力不足，手动市价平仓
-                if current_mfe_r < 1.0:
-                    exit_price = row['close']
-                    is_exiting = True
-                    exit_note = "Time Stop"
+                    # 如果 48 小时还没摸到 1.0R，说明动力不足，手动市价平仓
+                    if current_mfe_r < 1.0:
+                        exit_price = row['close']
+                        is_exiting = True
+                        exit_note = "Time Stop"
             # --------------------------------------
 
             # 正常离场判定 (ATR 追踪) - 优先级：如果同时触发，时间止损优先，或此处覆盖

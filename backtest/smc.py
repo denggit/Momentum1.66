@@ -39,6 +39,6 @@ if __name__ == "__main__":
                 initial_capital=1000.0,
                 max_risk=0.02,
                 atr_multiplier=7,  # 沿用一号引擎神级参数，死死咬住波段
-                target_r=None,  # 不设止盈，利润奔跑
-                fee_rate=0.0005  # Taker 手续费 (因为我们是在K线收盘确认触发)
+                fee_rate=0.0005,  # Taker 手续费 (因为我们是在K线收盘确认触发)
+                time_stop=48
             )
