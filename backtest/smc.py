@@ -9,7 +9,7 @@ from config.loader import SYMBOL
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-START_DATE = '2020-01-01'
+START_DATE = '2021-01-01'
 END_DATE = '2026-02-27'
 SMC_TIMEFRAME = '1H'  # 波段交易，回归 1H 大气层！
 
