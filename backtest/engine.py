@@ -3,7 +3,9 @@
 import numpy as np
 import pandas as pd
 
-def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital=1000.0, max_risk=0.02, atr_multiplier=4.5, fee_rate=0.0005, target_r=None):
+
+def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital=1000.0, max_risk=0.02,
+                           atr_multiplier=4.5, fee_rate=0.0005, target_r=None):
     capital = initial_capital
     in_position = False
     position_type = 0
@@ -25,6 +27,15 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
 
     for index, row in df.iterrows():
         just_closed = False
+
+        # 【新增】只要在持仓中，实时更新这笔交易经历过的最高价和最低价
+        if in_position:
+            if row['high'] > trade_max_price: trade_max_price = row['high']
+            if row['low'] < trade_min_price: trade_min_price = row['low']
+
+        # ==========================================
+        # 1. 离场逻辑 (带插针识别)
+        # ==========================================
 
         # ==========================================
         # 1. 离场逻辑 (带插针识别)
@@ -60,15 +71,34 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
             if is_exiting:
                 exit_fee = position_size_coin * exit_price * fee_rate
                 total_trade_fee = accumulated_fee + exit_fee
-                gross_pnl = (exit_price - entry_price) * position_size_coin if position_type == 1 else (entry_price - exit_price) * position_size_coin
+                gross_pnl = (exit_price - entry_price) * position_size_coin if position_type == 1 else (
+                                                                                                               entry_price - exit_price) * position_size_coin
                 net_pnl = gross_pnl - total_trade_fee
                 capital += net_pnl
 
+                # 【新增】计算 MFE 和 MAE (单位: R倍数，即赚/亏了初始风控的多少倍)
+                if position_type == 1:
+                    mfe_r = (trade_max_price - entry_price) / initial_risk_per_coin
+                    mae_r = (entry_price - trade_min_price) / initial_risk_per_coin
+                else:
+                    mfe_r = (entry_price - trade_min_price) / initial_risk_per_coin
+                    mae_r = (trade_max_price - entry_price) / initial_risk_per_coin
+
+                # 【新增】计算持仓时间 (小时)
+                hold_hours = round((index - entry_time).total_seconds() / 3600, 1)
+
                 trade_history.append({
-                    'entry_time': entry_time, 'exit_time': index,
+                    'entry_time': entry_time,
+                    'exit_time': index,
                     'type': 'LONG' if position_type == 1 else 'SHORT',
-                    'entry': entry_price, 'exit': exit_price,
-                    'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital
+                    'entry': entry_price,
+                    'exit': exit_price,
+                    'pnl': net_pnl,
+                    'fee': total_trade_fee,
+                    'capital': capital,
+                    'hold_hours': hold_hours,
+                    'mfe_r': round(mfe_r, 2),  # 最大潜在盈利 (R)
+                    'mae_r': round(mae_r, 2)  # 最大潜在亏损 (R)
                 })
                 in_position = False
                 just_closed = True
@@ -108,16 +138,24 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
                 initial_risk_per_coin = sl_distance
                 accumulated_fee = position_size_coin * entry_price * fee_rate
 
+                # 【新增】进场时，初始化这笔交易的极值记录
+                trade_max_price = entry_price
+                trade_min_price = entry_price
+
     # 期末强平
     if in_position:
         last_time = df.index[-1]
         last_close = df.iloc[-1]['close']
         exit_fee = position_size_coin * last_close * fee_rate
         total_trade_fee = accumulated_fee + exit_fee
-        gross_pnl = (last_close - entry_price) * position_size_coin if position_type == 1 else (entry_price - last_close) * position_size_coin
+        gross_pnl = (last_close - entry_price) * position_size_coin if position_type == 1 else (
+                                                                                                           entry_price - last_close) * position_size_coin
         net_pnl = gross_pnl - total_trade_fee
         capital += net_pnl
-        trade_history.append({'entry_time': entry_time, 'exit_time': last_time, 'type': 'LONG' if position_type == 1 else 'SHORT', 'entry': entry_price, 'exit': last_close, 'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital, 'note': '(强平)'})
+        trade_history.append(
+            {'entry_time': entry_time, 'exit_time': last_time, 'type': 'LONG' if position_type == 1 else 'SHORT',
+             'entry': entry_price, 'exit': last_close, 'pnl': net_pnl, 'fee': total_trade_fee, 'capital': capital,
+             'note': '(强平)'})
 
     # ==========================================
     # 3. 打印专业级量化回测报告
@@ -269,3 +307,31 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
     print(f"总净利润 (Net PnL):       +${(capital - initial_capital):.2f} (总收益率: {net_profit_pct * 100:.2f}%)")
     print(f"复合年化收益率 (CAGR):    {cagr * 100:.2f}%")
     print("=" * 65)
+
+    # 【新增】将逐笔交易明细导出为 CSV 文件，供 Excel 深度分析！
+    if len(trade_history) > 0:
+        import os
+        export_df = pd.DataFrame(trade_history)
+
+        # 把代码内部用的全小写 key 重命名为好看的专业表头
+        export_df.rename(columns={
+            'entry_time': 'Entry_Time',
+            'exit_time': 'Exit_Time',
+            'type': 'Type',
+            'entry': 'Entry_Price',
+            'exit': 'Exit_Price',
+            'pnl': 'Net_PnL',
+            'fee': 'Fee',
+            'capital': 'Capital',
+            'hold_hours': 'Hold_Hours',
+            'mfe_r': 'MFE(R)',
+            'mae_r': 'MAE(R)',
+            'note': 'Note'
+        }, inplace=True)
+
+        # 去掉策略名中可能导致文件名非法的字符
+        safe_name = strategy_name.replace(' ', '_').replace('/', '_').replace(':', '')
+        csv_filename = f"{safe_name}_TradeLog.csv"
+        export_df.to_csv(csv_filename, index=False)
+        print(f"\n📂 交易明细已导出至: {os.path.abspath(csv_filename)}")
+        print("💡 建议使用 Excel 打开，重点分析 MFE(R) 和 MAE(R) 列寻找优化灵感！")
