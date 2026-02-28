@@ -84,11 +84,20 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
 
             if row['Signal'] == 1:
                 position_type = 1
-                stop_loss = entry_price - (atr_value * atr_multiplier)
+                # 【新增】：如果有专属止损价，就用专属的！否则用 4.5x ATR 宽止损
+                if 'SL_Price' in df.columns and not pd.isna(row['SL_Price']):
+                    stop_loss = row['SL_Price']
+                else:
+                    stop_loss = entry_price - (atr_value * atr_multiplier)
                 sl_distance = entry_price - stop_loss
+
             elif row['Signal'] == -1:
                 position_type = -1
-                stop_loss = entry_price + (atr_value * atr_multiplier)
+                # 【新增】：同理
+                if 'SL_Price' in df.columns and not pd.isna(row['SL_Price']):
+                    stop_loss = row['SL_Price']
+                else:
+                    stop_loss = entry_price + (atr_value * atr_multiplier)
                 sl_distance = stop_loss - entry_price
 
             if sl_distance > 0:
