@@ -41,7 +41,15 @@ class SMCStrategy:
         short_ob_active = False
         short_ob_age = 0
 
+        atr_rank = df['ATR_Rank'].values  # 获取波动率排名数据
+
         for i in range(self.lookback, len(df)):
+            # --- 【核心：波动率准入补丁】 ---
+            # 如果当前 ATR 不足过去 10 天的 60% 分位，认为市场处于“休眠期”
+            # 这个过滤旨在剔除震荡市中那些“软绵无力”的假突破
+            if atr_rank[i] <= 0.7:
+                continue
+            # -------------------------------
 
             # 0. 订单块老化机制
             if long_ob_active:

@@ -63,15 +63,15 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
 
 
 def add_smc_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    SMC 波段猎手专供：大趋势判定与动能基准
-    """
     import pandas_ta as ta
 
-    # 用 144 均线作为多空分水岭 (近似 4H 级别的趋势线)
-    df['EMA_144'] = ta.ema(df['close'], length=144)
-    # ATR 用于识别真正的“动能突破 K 线”
+    # 1. 基础 ATR 和 EMA
     df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+    df['EMA_144'] = ta.ema(df['close'], length=144)
+
+    # 2. 【新增】计算 ATR 的百分位分位数 (10天窗口)
+    # 这能反映当前波动率相对于最近 10 天的强度
+    df['ATR_Rank'] = df['ATR'].rolling(window=240).rank(pct=True)
 
     df.dropna(inplace=True)
     return df

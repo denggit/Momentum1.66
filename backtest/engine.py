@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import numpy as np
 import pandas as pd
+
 from src.utils.report import print_full_report
 
 
@@ -32,7 +32,7 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
                 if hold_hours >= time_stop:
                     # 计算当前 MFE(R)
                     current_mfe_r = (trade_max_price - entry_price) / initial_risk_per_coin if position_type == 1 else (
-                                                                                                                                   entry_price - trade_min_price) / initial_risk_per_coin
+                                                                                                                               entry_price - trade_min_price) / initial_risk_per_coin
 
                     # 如果 48 小时还没摸到 1.0R，说明动力不足，手动市价平仓
                     if current_mfe_r < 1.0:
@@ -67,9 +67,9 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
 
                 r_dist = initial_risk_per_coin
                 mfe = (trade_max_price - entry_price) / r_dist if position_type == 1 else (
-                                                                                                      entry_price - trade_min_price) / r_dist
+                                                                                                  entry_price - trade_min_price) / r_dist
                 mae = (entry_price - trade_min_price) / r_dist if position_type == 1 else (
-                                                                                                      trade_max_price - entry_price) / r_dist
+                                                                                                  trade_max_price - entry_price) / r_dist
 
                 trade_history.append({
                     'entry_time': entry_time, 'exit_time': index, 'type': 'LONG' if position_type == 1 else 'SHORT',
@@ -90,7 +90,7 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
 
             entry_price, position_type = row['close'], row['Signal']
             stop_loss = row['SL_Price'] if 'SL_Price' in df.columns and not pd.isna(row['SL_Price']) else (
-                        entry_price - row['ATR'] * atr_multiplier * position_type)
+                    entry_price - row['ATR'] * atr_multiplier * position_type)
             initial_risk_per_coin = abs(entry_price - stop_loss)
 
             if initial_risk_per_coin > 0:
