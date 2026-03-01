@@ -5,57 +5,67 @@ from backtest.engine import run_universal_backtest
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
+from config.loader import load_strategy_config  # 【引入新加载器】
 
-# 调低日志级别，让终端输出清爽一点，直接看最终报表
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
 
 START_DATE = '2021-01-01'
 END_DATE = '2026-02-27'
-SMC_TIMEFRAME = '1H'
+STRATEGY_NAME = 'smc'  # 定义当前跑的策略矩阵
 
-# 多品种矩阵四大天王
 PORTFOLIO = [
     'ETH-USDT-SWAP',
     'BTC-USDT-SWAP',
-    'SOL-USDT-SWAP',
-    'DOGE-USDT-SWAP'
+    # 'SOL-USDT-SWAP',
+    # 'DOGE-USDT-SWAP'
 ]
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print(" 🌍 启动宏观矩阵: 聪明钱多品种猎杀编队 (Portfolio Matrix)")
-    print(" 核心参数: 深度刺穿(-0.1) | 宽容防守(0.6) | 终极追踪(7.0x)")
+    print(f" 🌍 启动宏观矩阵: {STRATEGY_NAME.upper()} 多品种猎杀编队")
     print("=" * 70)
 
     for symbol in PORTFOLIO:
         print(f"\n\n>>>>>>>>>> 正在轰炸标的: {symbol} <<<<<<<<<<")
-        loader = OKXDataLoader(symbol=symbol, timeframe=SMC_TIMEFRAME)
+
+        # 1. 动态加载该币种的专属配置
+        try:
+            cfg = load_strategy_config(STRATEGY_NAME, symbol)
+        except FileNotFoundError:
+            print(f"⏩ 跳过 {symbol}: 没有找到 config/{STRATEGY_NAME}/{symbol}.yaml")
+            continue
+
+        timeframe = cfg.get('timeframe', '1H')
+        strat_cfg = cfg.get('strategy', {})
+        engine_cfg = cfg.get('engine', {})
+
+        # 2. 拉取数据
+        loader = OKXDataLoader(symbol=symbol, timeframe=timeframe)
         df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
         if not df.empty:
-            # 1. 挂载指标
+            # 3. 挂载指标
             df = add_smc_indicators(df)
 
-            # 2. 注入你的神级参数！
+            # 4. 注入该币种专属的信号参数
             strategy = SMCStrategy(
-                ema_period=144,
-                lookback=15,
-                atr_mult=1.5,
-                ob_expiry=72,
-                sl_buffer=0.6,  # <--- 你的 0.6 终极防线
-                entry_buffer=-0.1  # <--- 你的 -0.1 深度刺穿
+                ema_period=strat_cfg.get('ema_period', 144),
+                lookback=strat_cfg.get('lookback', 15),
+                atr_mult=strat_cfg.get('atr_mult', 1.5),
+                ob_expiry=strat_cfg.get('ob_expiry', 72),
+                sl_buffer=strat_cfg.get('sl_buffer', 0.6),
+                entry_buffer=strat_cfg.get('entry_buffer', -0.1)
             )
             df = strategy.generate_signals(df)
 
-            # 3. 呼叫全能引擎！每个币种分配独立的 1000 刀初始资金测试它的威力
+            # 5. 注入该币种专属的风控参数
             run_universal_backtest(
                 df=df,
-                strategy_name=f"SMC 终极装甲版 ({symbol})",
-                initial_capital=1000.0,
-                max_risk=0.02,
-                atr_multiplier=7.0,  # 宇宙级厚尾追踪
-                target_r=None,
-                fee_rate=0.0005
+                strategy_name=f"SMC 独立配置版 ({symbol})",
+                initial_capital=engine_cfg.get('initial_capital', 1000.0),
+                max_risk=engine_cfg.get('max_risk', 0.02),
+                atr_multiplier=engine_cfg.get('atr_multiplier', 7.0),
+                fee_rate=engine_cfg.get('fee_rate', 0.0005)
             )
         else:
             print(f"⚠️ {symbol} 在指定时间段内无数据。")

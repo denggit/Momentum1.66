@@ -1,5 +1,5 @@
 # 波动率挤压突破策略 (Squeeze Breakout)
-squeeze:
+strategy:
   bb_length: 20           # 布林带周期
   bb_std: 2.0             # 布林带标准差
   kc_length: 20           # 凯特纳通道周期

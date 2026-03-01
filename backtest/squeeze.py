@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS, RISK_PARAMS, FEE_RATE
+from config.loader import GLOBAL_SETTINGS, load_strategy_config
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_squeeze_indicators
 from src.strategy.squeeze import SqueezeStrategy
@@ -23,10 +23,11 @@ FETCH_LIMIT = 200000
 
 
 def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
+    risk_params = GLOBAL_SETTINGS.get("risk")
     capital = initial_capital
-    max_risk = RISK_PARAMS["max_risk_per_trade"]  # 单笔风险定额 2%
-    atr_multiplier = RISK_PARAMS["atr_multiplier"]
-    fee_rate = FEE_RATE  # 单边手续费 0.05% (OKX Taker市价标准)
+    max_risk = risk_params["max_risk_per_trade"]  # 单笔风险定额 2%
+    atr_multiplier = risk_params["atr_multiplier"]
+    fee_rate = GLOBAL_SETTINGS.get("fee_rate", 0.0005)  # 单边手续费 0.05% (OKX Taker市价标准)
 
     in_position = False
     position_type = 0
@@ -114,8 +115,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
                 if sl_distance > 0:
                     position_size_coin = risk_amount_usdt / sl_distance
-                    if (position_size_coin * entry_price / capital) > RISK_PARAMS['max_leverage']:
-                        position_size_coin = (capital * RISK_PARAMS['max_leverage']) / entry_price
+                    if (position_size_coin * entry_price / capital) > risk_params['max_leverage']:
+                        position_size_coin = (capital * risk_params['max_leverage']) / entry_price
                     in_position = True
 
                     accumulated_fee = position_size_coin * entry_price * fee_rate
@@ -137,8 +138,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                 if sl_distance > 0:
                     new_size = risk_amount_usdt / sl_distance
                     total_notional = (position_size_coin + new_size) * new_entry_price
-                    if (total_notional / capital) > RISK_PARAMS['max_leverage']:
-                        allowed_total_size = (capital * RISK_PARAMS['max_leverage']) / new_entry_price
+                    if (total_notional / capital) > risk_params['max_leverage']:
+                        allowed_total_size = (capital * risk_params['max_leverage']) / new_entry_price
                         new_size = allowed_total_size - position_size_coin
 
                     if new_size > 0:
@@ -168,7 +169,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     # 4. 打印专业级量化回测报告
     # ==========================================
     print("\n" + "=" * 65)
-    print(f" 📊 Momentum {TIMEFRAME} 引擎 - 多年期量化绩效报告")
+    print(f" 📊 Momentum {GLOBAL_SETTINGS.get('timeframe')} 引擎 - 多年期量化绩效报告")
     print("=" * 65)
 
     win_trades = 0
@@ -321,8 +322,9 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
 
 if __name__ == "__main__":
+    sqz_params = load_strategy_config("squeeze", GLOBAL_SETTINGS.get("symbol")).get("strategy", {})
     # 使用智能日期范围拉取数据
-    loader = OKXDataLoader(symbol=SYMBOL, timeframe=TIMEFRAME)
+    loader = OKXDataLoader(symbol=GLOBAL_SETTINGS.get("symbol"), timeframe=GLOBAL_SETTINGS.get("timeframe"))
     df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
     if df.empty:
@@ -330,12 +332,12 @@ if __name__ == "__main__":
     else:
         df = add_squeeze_indicators(
             df=df,
-            bb_len=SQZ_PARAMS['bb_length'],
-            bb_std=SQZ_PARAMS['bb_std'],
-            kc_len=SQZ_PARAMS['kc_length'],
-            kc_mult=SQZ_PARAMS['kc_mult']
+            bb_len=sqz_params['bb_length'],
+            bb_std=sqz_params['bb_std'],
+            kc_len=sqz_params['kc_length'],
+            kc_mult=sqz_params['kc_mult']
         )
-        strategy = SqueezeStrategy(volume_factor=SQZ_PARAMS['volume_factor'])
-        df = strategy.generate_signals(df, SQZ_PARAMS["min_squeeze_duration"], SQZ_PARAMS["min_adx"])
+        strategy = SqueezeStrategy(volume_factor=sqz_params['volume_factor'])
+        df = strategy.generate_signals(df, sqz_params["min_squeeze_duration"], sqz_params["min_adx"])
 
         run_backtest(df, initial_capital=1000.0)

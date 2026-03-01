@@ -5,7 +5,7 @@ from backtest.engine import run_universal_backtest
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
-from config.loader import SYMBOL
+from config.loader import GLOBAL_SETTINGS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -14,7 +14,7 @@ END_DATE = '2025-12-31'
 SMC_TIMEFRAME = '1H'  # 波段交易，回归 1H 大气层！
 
 if __name__ == "__main__":
-    loader = OKXDataLoader(symbol=SYMBOL, timeframe=SMC_TIMEFRAME)
+    loader = OKXDataLoader(symbol=GLOBAL_SETTINGS.get("symbol"), timeframe=SMC_TIMEFRAME)
     df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
     if df.empty:

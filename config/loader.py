@@ -2,31 +2,36 @@
 # -*- coding: utf-8 -*-
 import os
 import yaml
+import logging
 
 
-def load_config():
-    # 获取当前 loader.py 文件所在的绝对目录 (即 config/ 目录)
+def load_strategy_config(strategy_name: str, symbol: str) -> dict:
+    """
+    根据策略名称和交易对，动态加载专属配置文件。
+    示例: strategy_name="smc", symbol="ETH-USDT-SWAP"
+    将读取: config/smc/ETH-USDT-SWAP.yaml
+    """
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_dir, strategy_name, f"{symbol}.yaml")
 
+    if not os.path.exists(config_path):
+        logging.error(f"⚠️ 找不到配置文件: {config_path}")
+        raise FileNotFoundError(f"Missing config for {symbol} under {strategy_name}")
+
+    with open(config_path, 'r', encoding='utf-8') as file:
+        config = yaml.safe_load(file)
+
+    return config
+
+
+# 如果系统还有地方强依赖旧的 settings.yaml (如 API Key)，可以保留这部分：
+def load_global_settings():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     settings_path = os.path.join(current_dir, 'settings.yaml')
-    strategies_path = os.path.join(current_dir, 'strategies.yaml')
-
-    with open(settings_path, 'r') as file:
-        settings = yaml.safe_load(file)
-    with open(strategies_path, 'r') as file:
-        strategies = yaml.safe_load(file)
-
-    return settings, strategies
+    if os.path.exists(settings_path):
+        with open(settings_path, 'r', encoding='utf-8') as file:
+            return yaml.safe_load(file)
+    return {}
 
 
-settings, strategies = load_config()
-
-# settings.yaml 配置
-SYMBOL = settings['symbol']
-TIMEFRAME = settings['timeframe']
-TIMEZONE = settings['timezone']
-RISK_PARAMS = settings['risk']
-FEE_RATE = 0.0005  # 如果 settings 里没配，可以写死在这里或者去 settings 加上
-
-# strategies.yaml 配置
-SQZ_PARAMS = strategies['squeeze']
+GLOBAL_SETTINGS = load_global_settings()
