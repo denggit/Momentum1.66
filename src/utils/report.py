@@ -123,13 +123,13 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     print("-" * 65)
     for i, t in enumerate(wins_top):
         print(
-            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +${t['pnl']:.2f}")
+            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +${t['pnl']:.2f}")
 
     print("\n" + "🩸" * 3 + " 亏损 Top 5 极度考验 " + "🩸" * 3)
     print("-" * 65)
     for i, t in enumerate(loss_top):
         print(
-            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: -${abs(t['pnl']):.2f}")
+            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: -${abs(t['pnl']):.2f}")
 
     # --- 7. 最终结算 ---
     print("\n" + "=" * 65)

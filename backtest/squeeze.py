@@ -321,25 +321,21 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
 
 
 if __name__ == "__main__":
-    # 拉取包含目标日期的大量数据
+    # 使用智能日期范围拉取数据
     loader = OKXDataLoader(symbol=SYMBOL, timeframe=TIMEFRAME)
-    df = loader.fetch_historical_data(limit=FETCH_LIMIT)
+    df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
-    if not df.empty:
-        # 截取指定时间段的数据进行测试
-        df = df[(df.index >= START_DATE) & (df.index <= END_DATE)]
+    if df.empty:
+        print(f"错误：无法获取 {START_DATE} 到 {END_DATE} 的数据，请检查日期或网络连接！")
+    else:
+        df = add_squeeze_indicators(
+            df=df,
+            bb_len=SQZ_PARAMS['bb_length'],
+            bb_std=SQZ_PARAMS['bb_std'],
+            kc_len=SQZ_PARAMS['kc_length'],
+            kc_mult=SQZ_PARAMS['kc_mult']
+        )
+        strategy = SqueezeStrategy(volume_factor=SQZ_PARAMS['volume_factor'])
+        df = strategy.generate_signals(df, SQZ_PARAMS["min_squeeze_duration"], SQZ_PARAMS["min_adx"])
 
-        if df.empty:
-            print(f"错误：截取 {START_DATE} 到 {END_DATE} 后数据为空，请调大 FETCH_LIMIT 或检查日期！")
-        else:
-            df = add_squeeze_indicators(
-                df=df,
-                bb_len=SQZ_PARAMS['bb_length'],
-                bb_std=SQZ_PARAMS['bb_std'],
-                kc_len=SQZ_PARAMS['kc_length'],
-                kc_mult=SQZ_PARAMS['kc_mult']
-            )
-            strategy = SqueezeStrategy(volume_factor=SQZ_PARAMS['volume_factor'])
-            df = strategy.generate_signals(df, SQZ_PARAMS["min_squeeze_duration"], SQZ_PARAMS["min_adx"])
-
-            run_backtest(df, initial_capital=1000.0)
+        run_backtest(df, initial_capital=1000.0)

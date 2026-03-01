@@ -30,35 +30,32 @@ if __name__ == "__main__":
     for symbol in PORTFOLIO:
         print(f"\n\n>>>>>>>>>> 正在轰炸标的: {symbol} <<<<<<<<<<")
         loader = OKXDataLoader(symbol=symbol, timeframe=SMC_TIMEFRAME)
-        df = loader.fetch_historical_data(limit=100000)
+        df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
         if not df.empty:
-            df = df[(df.index >= START_DATE) & (df.index <= END_DATE)]
+            # 1. 挂载指标
+            df = add_smc_indicators(df)
 
-            if len(df) > 0:
-                # 1. 挂载指标
-                df = add_smc_indicators(df)
+            # 2. 注入你的神级参数！
+            strategy = SMCStrategy(
+                ema_period=144,
+                lookback=15,
+                atr_mult=1.5,
+                ob_expiry=72,
+                sl_buffer=0.6,  # <--- 你的 0.6 终极防线
+                entry_buffer=-0.1  # <--- 你的 -0.1 深度刺穿
+            )
+            df = strategy.generate_signals(df)
 
-                # 2. 注入你的神级参数！
-                strategy = SMCStrategy(
-                    ema_period=144,
-                    lookback=15,
-                    atr_mult=1.5,
-                    ob_expiry=72,
-                    sl_buffer=0.6,  # <--- 你的 0.6 终极防线
-                    entry_buffer=-0.1  # <--- 你的 -0.1 深度刺穿
-                )
-                df = strategy.generate_signals(df)
-
-                # 3. 呼叫全能引擎！每个币种分配独立的 1000 刀初始资金测试它的威力
-                run_universal_backtest(
-                    df=df,
-                    strategy_name=f"SMC 终极装甲版 ({symbol})",
-                    initial_capital=1000.0,
-                    max_risk=0.02,
-                    atr_multiplier=7.0,  # 宇宙级厚尾追踪
-                    target_r=None,
-                    fee_rate=0.0005
-                )
-            else:
-                print(f"⚠️ {symbol} 在指定时间段内无数据。")
+            # 3. 呼叫全能引擎！每个币种分配独立的 1000 刀初始资金测试它的威力
+            run_universal_backtest(
+                df=df,
+                strategy_name=f"SMC 终极装甲版 ({symbol})",
+                initial_capital=1000.0,
+                max_risk=0.02,
+                atr_multiplier=7.0,  # 宇宙级厚尾追踪
+                target_r=None,
+                fee_rate=0.0005
+            )
+        else:
+            print(f"⚠️ {symbol} 在指定时间段内无数据。")
