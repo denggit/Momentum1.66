@@ -16,3 +16,9 @@ engine:
   max_risk: 0.09           # ETH 适用 9% 暴利风控
   atr_multiplier: 7.0      # ETH 适用 7.0 追踪
   fee_rate: 0.0005
+
+# 二号引擎引入AI
+ai_filter:
+  enabled: true
+  model_path: "models/smc_eth_xgboost_v1.pkl"
+  threshold: 0.65
