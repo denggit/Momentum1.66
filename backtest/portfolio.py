@@ -10,14 +10,14 @@ from config.loader import load_strategy_config  # 【引入新加载器】
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
 
 START_DATE = '2021-01-01'
-END_DATE = '2026-02-27'
+END_DATE = '2025-12-31'
 STRATEGY_NAME = 'smc'  # 定义当前跑的策略矩阵
 
 PORTFOLIO = [
     'ETH-USDT-SWAP',
     'BTC-USDT-SWAP',
-    # 'SOL-USDT-SWAP',
-    # 'DOGE-USDT-SWAP'
+    'SOL-USDT-SWAP',
+    'DOGE-USDT-SWAP'
 ]
 
 if __name__ == "__main__":
