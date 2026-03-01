@@ -21,4 +21,4 @@ engine:
 ai_filter:
   enabled: true
   model_path: "models/smc_eth_xgboost_v1.pkl"
-  threshold: 0.65
+  threshold: 0.50

@@ -75,7 +75,8 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
                     'entry_time': entry_time, 'exit_time': index, 'type': 'LONG' if position_type == 1 else 'SHORT',
                     'entry': entry_price, 'exit': exit_price, 'pnl': net_pnl,
                     'fee': accumulated_fee + position_size_coin * exit_price * fee_rate,
-                    'capital': capital, 'mfe_r': round(mfe, 2), 'mae_r': round(mae, 2), 'note': exit_note
+                    'capital': capital, 'mfe_r': round(mfe, 2), 'mae_r': round(mae, 2),
+                    'sl_pct': round((initial_risk_per_coin / entry_price) * 100, 4), 'note': exit_note
                 })
                 in_position = False
 

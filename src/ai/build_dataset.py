@@ -81,7 +81,8 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
         'Entry_Time', 'Type', 'Net_PnL', 'Label',  # 交易基础信息与目标 Y
         'Hour', 'DayOfWeek',  # X1, X2: 时空特征
         'Dist_to_EMA', 'ADX', 'RSI',  # X3, X4, X5: 动能偏离特征
-        'ATR_Rank', 'ATR_Slope', 'Body_Ratio'  # X6, X7, X8: 波动与形态特征
+        'ATR_Rank', 'ATR_Slope', 'Body_Ratio',  # X6, X7, X8: 波动与形态特征
+        'sl_pct'
     ]
 
     df_final = dataset[feature_cols].copy()

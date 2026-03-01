@@ -3,3 +3,5 @@ pandas
 pandas-ta
 pyyaml
 requests
+xgboost
+scikit-learn
