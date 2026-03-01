@@ -63,15 +63,33 @@ def add_squeeze_indicators(df: pd.DataFrame, bb_len=20, bb_std=2.0, kc_len=20, k
 
 
 def add_smc_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    import pandas_ta as ta
-
-    # 1. 基础 ATR 和 EMA
+    # ==========================================
+    # 1. 原始 SMC 基础指标
+    # ==========================================
     df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
-    df['EMA_144'] = ta.ema(df['close'], length=144)
-
-    # 2. 【新增】计算 ATR 的百分位分位数 (10天窗口)
-    # 这能反映当前波动率相对于最近 10 天的强度
     df['ATR_Rank'] = df['ATR'].rolling(window=240).rank(pct=True)
+
+    # ==========================================
+    # 2. 🤖 AI 风控官所需的 8 大特征
+    # ==========================================
+    # 特征1&2: 时空特征
+    df['Hour'] = df.index.hour
+    df['DayOfWeek'] = df.index.dayofweek
+
+    # 特征3: 均线偏离度
+    df['EMA_144'] = ta.ema(df['close'], length=144)
+    df['Dist_to_EMA'] = (df['close'] - df['EMA_144']) / df['EMA_144'] * 100
+
+    # 特征4&5: 动能特征
+    adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
+    df['ADX'] = adx_df['ADX_14'] if adx_df is not None else 0
+    df['RSI'] = ta.rsi(df['close'], length=14)
+
+    # 特征6&7: 波动率微观结构
+    df['ATR_Slope'] = df['ATR'].pct_change(periods=3)
+
+    # 特征8: K线实体比例 (进场那一瞬间的形态)
+    df['Body_Ratio'] = abs(df['close'] - df['open']) / (df['high'] - df['low'] + 1e-8)
 
     df.dropna(inplace=True)
     return df

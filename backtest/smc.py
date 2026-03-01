@@ -1,17 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import logging
+
 from backtest.engine import run_universal_backtest
+from config.loader import GLOBAL_SETTINGS, load_strategy_config
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
-from config.loader import GLOBAL_SETTINGS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-START_DATE = '2020-01-01'
-END_DATE = '2025-12-31'
+START_DATE = '2026-01-01'
+END_DATE = '2026-02-28'
 SMC_TIMEFRAME = '1H'  # 波段交易，回归 1H 大气层！
+SYMBOL = 'ETH-USDT-SWAP'
+cfg = load_strategy_config("smc", SYMBOL)
+strat_cfg = cfg.get('strategy', {})
 
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol=GLOBAL_SETTINGS.get("symbol"), timeframe=SMC_TIMEFRAME)
@@ -24,7 +28,18 @@ if __name__ == "__main__":
         df = add_smc_indicators(df)
 
         # 2. 生成聪明的订单块回踩信号
-        strategy = SMCStrategy(ema_period=144, lookback=15, atr_mult=1.5)
+        strategy = SMCStrategy(ema_period=strat_cfg.get('ema_period', 144),
+                               lookback=strat_cfg.get('lookback', 15),
+                               atr_mult=strat_cfg.get('atr_mult', 1.5),
+                               ob_expiry=strat_cfg.get('ob_expiry', 72),
+                               sl_buffer=strat_cfg.get('sl_buffer', 0.6),
+                               entry_buffer=strat_cfg.get('entry_buffer', -0.1),
+                               ai_config={
+                                   'enabled': True,
+                                   'model_path': 'data/models/smc_eth_v1.json',
+                                   'threshold': 0.15  # 只要 AI 觉得这单有 35% 以上可能不是杀猪盘，就干！
+                               }
+                               )
         df = strategy.generate_signals(df)
 
         # 3. 呼叫全能引擎！

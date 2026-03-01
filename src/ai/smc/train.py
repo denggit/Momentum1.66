@@ -13,16 +13,22 @@ import xgboost as xgb
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
-ML_DATASET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "reports",
+ML_DATASET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "reports",
                                "SMC", 'SMC_ML_Dataset.csv')
 # 1. 加载数据
 df = pd.read_csv(ML_DATASET_FILE)
+df['Entry_Time'] = pd.to_datetime(df['Entry_Time'])
+
+# 🔪 【核心切分】：只用 2023 年 12 月 31 日之前的数据训练！
+df_train = df[df['Entry_Time'] < '2025-12-31']['2022-01-01' < df['Entry_Time']].copy()
+# 剩下的留给引擎去盲测
+print(f"训练集样本数: {len(df_train)}")
 
 # 2. 区分 X (考题) 和 Y (答案)
 # 严禁泄露未来函数：把时间、PnL、Type等结果列全部丢弃，只留下当时那一瞬间的特征！
 features = ['Hour', 'DayOfWeek', 'Dist_to_EMA', 'ADX', 'RSI', 'ATR_Rank', 'ATR_Slope', 'Body_Ratio', 'sl_pct']
-X = df[features]
-y = df['Label']
+X = df_train[features]
+y = df_train['Label']
 
 # 3. 划分训练集 (80%) 和 测试集 (20%)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
@@ -58,7 +64,7 @@ print("\n👑 核心破案线索 (特征重要性排行榜):")
 print(feature_imp)
 
 # 保存模型
-model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "models")
+model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "models")
 os.makedirs(model_dir, exist_ok=True)
 model.save_model(os.path.join(model_dir, "smc_eth_v1.json"))
 print("💾 模型已保存至: src/ai/models/smc_eth_v1.json")

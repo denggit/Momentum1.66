@@ -54,7 +54,12 @@ if __name__ == "__main__":
                 atr_mult=strat_cfg.get('atr_mult', 1.5),
                 ob_expiry=strat_cfg.get('ob_expiry', 72),
                 sl_buffer=strat_cfg.get('sl_buffer', 0.6),
-                entry_buffer=strat_cfg.get('entry_buffer', -0.1)
+                entry_buffer=strat_cfg.get('entry_buffer', -0.1),
+                ai_config={
+                    'enabled': True,
+                    'model_path': 'data/models/smc_eth_v1.json',
+                    'threshold': 0.35  # 只要 AI 觉得这单有 35% 以上可能不是杀猪盘，就干！
+                }
             )
             df = strategy.generate_signals(df)
 

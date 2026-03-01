@@ -105,7 +105,8 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
 
 if __name__ == "__main__":
     # 请确保这个路径指向你刚刚跑出来的那个 1H SMC 纯净版的 TradeLog.csv
-    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "reports", "SMC",
+    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                            "data", "reports", "SMC",
                             "SMC_聪明钱波段猎手_(1H_Order_Block)_2020-01-11_2025-12-31.csv")
     # 执行构建
     build_ml_dataset(
