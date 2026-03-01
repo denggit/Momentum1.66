@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 
-def print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days):
+def print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, symbol=None):
     """
     1:1 还原用户最喜爱的深度量化报告格式，包含所有量化维度与详细时间戳
     """
@@ -57,6 +57,20 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     start_str = df.index[0].strftime('%Y-%m-%d')
     end_str = df.index[-1].strftime('%Y-%m-%d')
     print(f"\n=== 🚀 启动 {strategy_name} | {start_str} 至 {end_str} ({total_days:.1f} 天) ===")
+
+    # 创建报告目录结构
+    if symbol is None:
+        symbol = "unknown"
+    safe_symbol = symbol.replace('-', '_')
+
+    # 获取项目根目录下的 data/reports 目录
+    current_file = os.path.abspath(__file__)
+    # 向上推三层：report.py -> utils -> src -> 根目录 (Momentum1.66)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    # 使用项目根目录下的 data/reports 目录
+    data_reports_dir = os.path.join(project_root, 'data', 'reports')
+    report_dir = os.path.join(data_reports_dir, strategy_name.split(" ")[0])
+    os.makedirs(report_dir, exist_ok=True)
 
     print("\n" + "=" * 65)
     print(f" 📊 {strategy_name} - 深度量化绩效报告")
@@ -149,6 +163,6 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     }, inplace=True)
 
     safe_name = strategy_name.replace(' ', '_').replace('/', '_').replace(':', '')
-    csv_filename = f"{safe_name}_TradeLog.csv"
+    csv_filename = os.path.join(report_dir, f"{safe_name}_{start_str}_{end_str}.csv")
     export_df.to_csv(csv_filename, index=False)
     print(f"\n📂 交易明细已导出至: {os.path.abspath(csv_filename)}")

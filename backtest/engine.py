@@ -6,7 +6,7 @@ from src.utils.report import print_full_report
 
 
 def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital=1000.0, max_risk=0.02,
-                           atr_multiplier=7.0, fee_rate=0.0005, reverse_cooldown=24, time_stop=None):
+                           atr_multiplier=7.0, fee_rate=0.0005, reverse_cooldown=24, time_stop=None, symbol=None):
     capital = initial_capital
     in_position = False
     position_type, entry_time, entry_price, stop_loss = 0, None, 0.0, 0.0
@@ -99,4 +99,4 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
                 accumulated_fee = position_size_coin * entry_price * fee_rate
                 trade_max_price = trade_min_price = entry_price
 
-    print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days)
+    print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, symbol=symbol)

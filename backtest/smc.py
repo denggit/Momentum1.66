@@ -33,6 +33,7 @@ if __name__ == "__main__":
         run_universal_backtest(
             df=df,
             strategy_name="SMC 聪明钱波段猎手 (1H Order Block)",
+            symbol=GLOBAL_SETTINGS.get("symbol"),
             initial_capital=1000.0,
             max_risk=0.07,
             atr_multiplier=7,  # 沿用一号引擎神级参数，死死咬住波段

@@ -61,7 +61,8 @@ if __name__ == "__main__":
             # 5. 注入该币种专属的风控参数
             run_universal_backtest(
                 df=df,
-                strategy_name=f"SMC 独立配置版 ({symbol})",
+                strategy_name=f"SMC ({symbol})",
+                symbol=symbol,
                 initial_capital=engine_cfg.get('initial_capital', 1000.0),
                 max_risk=engine_cfg.get('max_risk', 0.02),
                 atr_multiplier=engine_cfg.get('atr_multiplier', 7.0),
