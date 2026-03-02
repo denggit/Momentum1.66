@@ -29,18 +29,28 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     for t in trade_history:
         pnl = t['pnl']
         cap_before = t['capital'] - pnl
-        trade_returns.append(pnl / cap_before if cap_before > 0 else 0)
+        t['return_pct'] = pnl / cap_before if cap_before > 0 else 0
+        trade_returns.append(t['return_pct'])
         if t['capital'] > peak_capital: peak_capital = t['capital']
         dd = (peak_capital - t['capital']) / peak_capital if peak_capital > 0 else 0
         max_drawdown_pct = max(max_drawdown_pct, dd)
 
+    win_returns = [t['return_pct'] for t in trade_history if t['return_pct'] > 0]
+    loss_returns = [t['return_pct'] for t in trade_history if t['return_pct'] < 0]
+
     win_rate = win_trades / total_trades
     loss_rate = 1 - win_rate
-    avg_win = gross_profit / win_trades if win_trades > 0 else 0
-    avg_loss = gross_loss / (total_trades - win_trades) if (total_trades - win_trades) > 0 else 0
-    pnl_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
-    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
-    expectancy = (win_rate * avg_win) - (loss_rate * avg_loss)
+
+    avg_win_pct = sum(win_returns) / len(win_returns) if win_returns else 0
+    avg_loss_pct = sum(abs(r) for r in loss_returns) / len(loss_returns) if loss_returns else 0
+
+    pnl_ratio = avg_win_pct / avg_loss_pct if avg_loss_pct > 0 else float('inf')
+
+    gross_win_pct = sum(win_returns)
+    gross_loss_pct = sum(abs(r) for r in loss_returns)
+    profit_factor = gross_win_pct / gross_loss_pct if gross_loss_pct > 0 else float('inf')
+
+    expectancy_pct = (win_rate * avg_win_pct) - (loss_rate * avg_loss_pct)
 
     years = total_days / 365.25
     cagr = ((capital / initial_capital) ** (1 / years) - 1) if years > 0 and capital > 0 else 0
@@ -109,11 +119,13 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     print(f"测试跨度 (Duration):      {total_days:.1f} 天 ({years:.2f} 年)")
     print(f"总交易次数 (Total Trades):  {total_trades}")
     print(f"胜率 (Win Rate):          {win_rate * 100:.2f}%")
-    print(f"平均净盈利 (Avg Win):     +${avg_win:.2f}")
-    print(f"平均净亏损 (Avg Loss):    -${avg_loss:.2f}")
+    print(f"平均净盈利 (Avg Win):     +{avg_win_pct * 100:.2f}%")
+    print(f"平均净亏损 (Avg Loss):    -{avg_loss_pct * 100:.2f}%")
     print(f"净盈亏比 (PnL Ratio):     {pnl_ratio:.2f}")
     print(f"盈利因子 (Profit Factor): {profit_factor:.2f}")
-    print(f"单笔期望值 (Expectancy):  +${expectancy:.2f}")
+
+    sign = "+" if expectancy_pct > 0 else ""
+    print(f"单笔期望值 (Expectancy):  {sign}{expectancy_pct * 100:.2f}%")
 
     # --- 5. 风险与财务评估 ---
     print("\n" + "-" * 65)
@@ -130,20 +142,21 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
         h = int(dur.total_seconds() // 3600)
         t['duration_str'] = f"{h // 24}天 {h % 24}小时" if h >= 24 else f"{h}小时"
 
-    wins_top = sorted([t for t in trade_history if t['pnl'] > 0], key=lambda x: x['pnl'], reverse=True)[:5]
-    loss_top = sorted([t for t in trade_history if t['pnl'] < 0], key=lambda x: x['pnl'])[:5]
+    wins_top = sorted([t for t in trade_history if t['return_pct'] > 0], key=lambda x: x['return_pct'], reverse=True)[
+               :5]
+    loss_top = sorted([t for t in trade_history if t['return_pct'] < 0], key=lambda x: x['return_pct'])[:5]
 
     print("\n" + "🏆" * 3 + " 盈利 Top 5 史诗级交易 " + "🏆" * 3)
     print("-" * 65)
     for i, t in enumerate(wins_top):
         print(
-            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +${t['pnl']:.2f}")
+            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +{t['return_pct'] * 100:.2f}%")
 
     print("\n" + "🩸" * 3 + " 亏损 Top 5 极度考验 " + "🩸" * 3)
     print("-" * 65)
     for i, t in enumerate(loss_top):
         print(
-            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: -${abs(t['pnl']):.2f}")
+            f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%Y-%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%Y-%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: {t['return_pct'] * 100:.2f}%")
 
     # --- 7. 最终结算 ---
     print("\n" + "=" * 65)

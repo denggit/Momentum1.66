@@ -31,12 +31,12 @@ if __name__ == "__main__":
         df = add_smc_indicators(df)
 
         # 2. 生成聪明的订单块回踩信号
-        strategy = SMCStrategy(ema_period=strat_cfg.get('ema_period', 144),
-                               lookback=strat_cfg.get('lookback', 15),
-                               atr_mult=strat_cfg.get('atr_mult', 1.5),
-                               ob_expiry=strat_cfg.get('ob_expiry', 72),
-                               sl_buffer=strat_cfg.get('sl_buffer', 0.6),
-                               entry_buffer=strat_cfg.get('entry_buffer', -0.1),
+        strategy = SMCStrategy(ema_period=strat_cfg.get('ema_period'),
+                               lookback=strat_cfg.get('lookback'),
+                               atr_mult=strat_cfg.get('atr_mult'),
+                               ob_expiry=strat_cfg.get('ob_expiry'),
+                               sl_buffer=strat_cfg.get('sl_buffer'),
+                               entry_buffer=strat_cfg.get('entry_buffer'),
                                ai_config={
                                    'enabled': ai_enabled,
                                    'model_path': ai_cfg.get("model_path"),
