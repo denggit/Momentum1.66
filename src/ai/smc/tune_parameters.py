@@ -42,9 +42,11 @@ def objective(trial):
     ob_expiry = trial.suggest_int('ob_expiry', 24, 120, step=12)
     sl_buffer = trial.suggest_float('sl_buffer', 0.1, 1.0, step=0.1)
     entry_buffer = trial.suggest_float('entry_buffer', -0.5, 0.5, step=0.1)
-    max_risk = trial.suggest_float('max_risk', 0.01, 0.1, step=0.01)
     atr_multiplier = trial.suggest_float('atr_multiplier', 3.0, 9.0, step=0.5)
     time_stop = trial.suggest_int('time_stop', 24, 120, step=12)
+
+    # 最大风险控制好
+    max_risk = 0.07
 
     # ==========================================
     # ⚙️ 带着参数实例化策略并生成信号
@@ -109,21 +111,20 @@ def objective(trial):
     final_cap = equity[-1]
     cagr = ((final_cap / initial_cap) ** (1 / total_years) - 1) * 100  # 转换成百分比
 
+    # 评分公式：标准卡玛比率 (年化收益 / 最大回撤)
+    calmar_ratio = cagr / max_dd if max_dd > 0 else 0
+
     # 🌟 关键动作：把额外指标存进 Optuna 的记忆里
     trial.set_user_attr("CAGR(%)", cagr)
     trial.set_user_attr("Max_DD(%)", max_dd)
     trial.set_user_attr("Win_Rate(%)", win_rate)
     trial.set_user_attr("Trades", len(trades))
-
-    # 评分公式：标准卡玛比率 (年化收益 / 最大回撤)
-    calmar_ratio = cagr / max_dd if max_dd > 0 else 0
+    trial.set_user_attr("Calmar_Ratio", calmar_ratio)
 
     return calmar_ratio
 
 
 if __name__ == "__main__":
-    # sampler = optuna.samplers.TPESampler(seed=888)
-    # study = optuna.create_study(direction='maximize', sampler=sampler)
     study = optuna.create_study(direction='maximize')
 
     print("🚀 开始暴力搜参，请耐心等待...")
@@ -141,15 +142,15 @@ if __name__ == "__main__":
     # 按照评分 (Calmar Ratio) 从高到低排序
     complete_trials.sort(key=lambda t: t.value, reverse=True)
 
-    # 截取前 50 名
-    top_50 = complete_trials[:50]
+    # 截取前 100 名
+    top_50 = complete_trials[:100]
 
     output_data = []
     for i, t in enumerate(top_50):
         # 提取我们在 objective 里塞进去的附加指标
         row_data = {
             "Rank": i + 1,
-            "Calmar_Ratio": round(t.value, 2),
+            "Calmar_Ratio": round(t.user_attrs.get("Calmar_Ratio"), 2),
             "CAGR(%)": round(t.user_attrs.get("CAGR(%)", 0), 2),
             "Max_DD(%)": round(t.user_attrs.get("Max_DD(%)", 0), 2),
             "Win_Rate(%)": round(t.user_attrs.get("Win_Rate(%)", 0), 2),

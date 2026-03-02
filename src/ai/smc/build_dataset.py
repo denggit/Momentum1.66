@@ -104,14 +104,15 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
 
 
 if __name__ == "__main__":
+    SYMBOL = "SOL-USDT-SWAP"
     # 请确保这个路径指向你刚刚跑出来的那个 1H SMC 纯净版的 TradeLog.csv
     log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
                             "data", "reports", "SMC",
-                            "SMC_聪明钱波段猎手_(1H_Order_Block)_2020-01-11_2025-12-31_False.csv")
+                            f"SMC_(1H_Order_Block)_{SYMBOL}_2021-02-02_2025-12-31_False.csv")
     # 执行构建
     build_ml_dataset(
         trade_log_path=log_path,
-        symbol="ETH-USDT-SWAP",
+        symbol=SYMBOL,
         timeframe="1H",
         start_date="2020-01-01",
         end_date="2025-12-31"

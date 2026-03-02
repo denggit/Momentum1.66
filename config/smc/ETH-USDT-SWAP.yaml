@@ -21,5 +21,5 @@ engine:
 # 二号引擎引入AI
 ai_filter:
   enabled: false
-  model_path: "data/models/smc_eth_v1.json"
+  model_path: "data/models/smc_combine_v1.json"
   threshold: 0.15

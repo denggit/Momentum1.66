@@ -14,13 +14,13 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 
 ML_DATASET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "reports",
-                               "SMC", 'SMC_ML_Dataset.csv')
+                               "SMC", 'SMC_ML_Dataset_COMBINE.csv')
 # 1. 加载数据
 df = pd.read_csv(ML_DATASET_FILE)
 df['Entry_Time'] = pd.to_datetime(df['Entry_Time'])
 
 # 🔪 【核心切分】：只用 2023 年 12 月 31 日之前的数据训练！
-df_train = df[(df['Entry_Time'] >= '2021-01-01') & (df['Entry_Time'] < '2024-12-31')].copy()
+df_train = df[(df['Entry_Time'] >= '2020-01-01') & (df['Entry_Time'] < '2023-12-31')].copy()
 # 剩下的留给引擎去盲测
 print(f"训练集样本数: {len(df_train)}")
 
@@ -66,5 +66,6 @@ print(feature_imp)
 # 保存模型
 model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "models")
 os.makedirs(model_dir, exist_ok=True)
-model.save_model(os.path.join(model_dir, "smc_eth_v1.json"))
-print("💾 模型已保存至: src/ai/models/smc_eth_v1.json")
+model_name = "smc_combine_v1.json"
+model.save_model(os.path.join(model_dir, model_name))
+print(f"💾 模型已保存至: src/ai/models/{model_name}")

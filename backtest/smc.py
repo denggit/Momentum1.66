@@ -50,7 +50,7 @@ if __name__ == "__main__":
         # 出场：极其广阔的 4.5 倍 ATR 吊灯追踪，一口吃穿整个趋势！
         run_universal_backtest(
             df=df,
-            strategy_name="SMC 聪明钱波段猎手 (1H Order Block)",
+            strategy_name=f"SMC ({SMC_TIMEFRAME} Order Block) {SYMBOL}",
             symbol=SYMBOL,
             initial_capital=engine_cfg.get("initial_capital"),
             max_risk=engine_cfg.get("max_risk"),
