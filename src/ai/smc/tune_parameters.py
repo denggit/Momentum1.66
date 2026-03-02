@@ -19,7 +19,7 @@ logging.getLogger().setLevel(logging.ERROR)  # 关闭回测过程中的海量打
 START_DATE = '2020-01-01'
 END_DATE = '2025-12-31'
 SMC_TIMEFRAME = '1H'
-SYMBOL = 'BTC-USDT-SWAP'
+SYMBOL = 'ETH-USDT-SWAP'
 
 # 加载基础配置 (用于保持那些不需要调的参数不变)
 cfg = load_strategy_config("smc", SYMBOL)
@@ -83,7 +83,7 @@ def objective(trial):
     # ==========================================
     # 🎯 核心评分机制 (Fitness Function)
     # ==========================================
-    if not trades or len(trades) < 30:
+    if not trades or len(trades) < 60:
         return -9999.0
 
     df_res = pd.DataFrame(trades)
@@ -122,10 +122,12 @@ def objective(trial):
 
 
 if __name__ == "__main__":
+    # sampler = optuna.samplers.TPESampler(seed=888)
+    # study = optuna.create_study(direction='maximize', sampler=sampler)
     study = optuna.create_study(direction='maximize')
 
     print("🚀 开始暴力搜参，请耐心等待...")
-    study.optimize(objective, n_trials=100, n_jobs=-1)
+    study.optimize(objective, n_trials=1000, n_jobs=-1)
 
     # ==========================================
     # 💾 终极收尾：将 Top 10 参数保存到 CSV
@@ -139,11 +141,11 @@ if __name__ == "__main__":
     # 按照评分 (Calmar Ratio) 从高到低排序
     complete_trials.sort(key=lambda t: t.value, reverse=True)
 
-    # 截取前 10 名
-    top_10 = complete_trials[:10]
+    # 截取前 50 名
+    top_50 = complete_trials[:50]
 
     output_data = []
-    for i, t in enumerate(top_10):
+    for i, t in enumerate(top_50):
         # 提取我们在 objective 里塞进去的附加指标
         row_data = {
             "Rank": i + 1,
@@ -162,7 +164,7 @@ if __name__ == "__main__":
         # 导出为 CSV 文件
         dir_name = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                                 "data", "reports", "Optuna")
-        os.makedirs(dir_name)
+        os.makedirs(dir_name, exist_ok=True)
         csv_filename = os.path.join(dir_name, f"optuna_top10_params_{SYMBOL.split('-')[0]}.csv")
 
         df_top10.to_csv(csv_filename, index=False)

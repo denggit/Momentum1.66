@@ -48,7 +48,7 @@ class OKXDataLoader:
             db_dir = os.path.join(project_root, 'data')
 
         if not os.path.exists(db_dir):
-            os.makedirs(db_dir)
+            os.makedirs(db_dir, exist_ok=True)
 
         self.db_path = os.path.join(db_dir, 'crypto_history.db')
         self.table_name = f"{symbol.replace('-', '_')}_{timeframe}"

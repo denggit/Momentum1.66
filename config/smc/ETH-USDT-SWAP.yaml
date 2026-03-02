@@ -3,23 +3,23 @@ timeframe: '1H'
 
 # SMC 信号生成参数
 strategy:
-  ema_period: 150
-  lookback: 23
-  atr_mult: 1.0
-  ob_expiry: 72
-  sl_buffer: 1
-  entry_buffer: 0.1
+  ema_period: 190
+  lookback: 12
+  atr_mult: 1.1
+  ob_expiry: 60
+  sl_buffer: 0.9
+  entry_buffer: 0.5
 
 # 回测/实盘引擎风控参数
 engine:
   initial_capital: 1000.0
-  max_risk: 0.08           # ETH 适用 9% 暴利风控
-  atr_multiplier: 9.0      # ETH 适用 7.0 追踪
+  max_risk: 0.07           # ETH 适用 9% 暴利风控
+  atr_multiplier: 8      # ETH 适用 7.0 追踪
   fee_rate: 0.0005
-  time_stop: 60
+  time_stop: 84
 
 # 二号引擎引入AI
 ai_filter:
-  enabled: true
+  enabled: false
   model_path: "data/models/smc_eth_v1.json"
   threshold: 0.15
