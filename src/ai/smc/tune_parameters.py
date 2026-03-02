@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import logging
+import os
+import warnings
+
 import optuna
 import pandas as pd
-import warnings
 
 from backtest.engine import run_universal_backtest
 from config.loader import load_strategy_config
@@ -41,10 +43,8 @@ def objective(trial):
     sl_buffer = trial.suggest_float('sl_buffer', 0.1, 1.0, step=0.1)
     entry_buffer = trial.suggest_float('entry_buffer', -0.5, 0.5, step=0.1)
     max_risk = trial.suggest_float('max_risk', 0.01, 0.1, step=0.01)
-    time_stop = trial.suggest_int('time_stop', 24, 120, step=12)
-
-    # 出场追踪止损宽松度
     atr_multiplier = trial.suggest_float('atr_multiplier', 3.0, 9.0, step=0.5)
+    time_stop = trial.suggest_int('time_stop', 24, 120, step=12)
 
     # ==========================================
     # ⚙️ 带着参数实例化策略并生成信号
@@ -59,11 +59,10 @@ def objective(trial):
         ai_config={'enabled': False}  # 纯调参阶段关闭 AI
     )
 
-    # 注意：使用 copy() 防止污染全局数据
     df_signals = strategy.generate_signals(df_global.copy())
 
     # ==========================================
-    # 🚀 呼叫你的全能引擎 (完美对齐 smc.py 参数)
+    # 🚀 呼叫你的全能引擎
     # ==========================================
     try:
         trades = run_universal_backtest(
@@ -72,55 +71,107 @@ def objective(trial):
             symbol=SYMBOL,
             initial_capital=engine_cfg.get("initial_capital", 1000.0),
             max_risk=max_risk,
-            atr_multiplier=atr_multiplier,  # 这里用 Optuna 猜出的追踪止损值
+            atr_multiplier=atr_multiplier,
             fee_rate=engine_cfg.get("fee_rate", 0.0005),
-            time_stop=time_stop
+            time_stop=time_stop,
+            out_logs=False
         )
     except Exception as e:
-        # 如果某组极端参数导致引擎报错，直接给这组参数打最低分
+        print(f"❌ 引擎运行报错: {e}")
         return -9999.0
 
     # ==========================================
     # 🎯 核心评分机制 (Fitness Function)
     # ==========================================
-    # 如果没产生足够的交易次数（比如少于30次），直接淘汰，防止过拟合
     if not trades or len(trades) < 30:
         return -9999.0
 
     df_res = pd.DataFrame(trades)
-    net_pnl = df_res['Net_PnL'].sum()
+    net_pnl = df_res['pnl'].sum()
 
-    # 如果是亏钱的，淘汰
     if net_pnl <= 0:
         return -9999.0
 
-    # 计算最大回撤 (基于 1000U 单利/复利累加估算)
+    # 计算胜率
+    win_rate = (df_res['pnl'] > 0).mean() * 100
+
+    # 计算最大回撤
     initial_cap = engine_cfg.get("initial_capital", 1000.0)
     equity = [initial_cap]
-    for pnl in df_res['Net_PnL']:
+    for pnl in df_res['pnl']:
         equity.append(equity[-1] + pnl)
 
     eq_s = pd.Series(equity)
     max_dd = ((eq_s.cummax() - eq_s) / eq_s.cummax()).max() * 100
 
-    # 评分公式：Calmar Ratio (收益回撤比)
-    calmar_ratio = (net_pnl / initial_cap) / (max_dd / 100) if max_dd > 0 else 0
+    # 计算年化收益率 (CAGR)
+    total_years = 6.0  # 2020-2025 约为 6 年
+    final_cap = equity[-1]
+    cagr = ((final_cap / initial_cap) ** (1 / total_years) - 1) * 100  # 转换成百分比
+
+    # 🌟 关键动作：把额外指标存进 Optuna 的记忆里
+    trial.set_user_attr("CAGR(%)", cagr)
+    trial.set_user_attr("Max_DD(%)", max_dd)
+    trial.set_user_attr("Win_Rate(%)", win_rate)
+    trial.set_user_attr("Trades", len(trades))
+
+    # 评分公式：标准卡玛比率 (年化收益 / 最大回撤)
+    calmar_ratio = cagr / max_dd if max_dd > 0 else 0
 
     return calmar_ratio
 
 
 if __name__ == "__main__":
-    # 创建追求分数最大化的学习计划
     study = optuna.create_study(direction='maximize')
 
     print("🚀 开始暴力搜参，请耐心等待...")
-    # 跑 100 轮测试 (视你的电脑配置，通常几分钟跑完)
     study.optimize(objective, n_trials=100, n_jobs=-1)
 
+    # ==========================================
+    # 💾 终极收尾：将 Top 10 参数保存到 CSV
+    # ==========================================
     print("\n" + "=" * 50)
-    print("🏆 调参结束！宇宙最强 BTC SMC 参数组合：")
-    print("=" * 50)
-    for key, value in study.best_params.items():
-        print(f"  {key}: {value}")
-    print(f"\n📈 最佳评分 (Calmar Ratio): {study.best_value:.2f}")
-    print("=" * 50)
+    print("💾 正在将 Top 10 最强参数组合保存至 CSV...")
+
+    # 获取所有成功跑完并没有被打 -9999 分的 trial
+    complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and t.value != -9999.0]
+
+    # 按照评分 (Calmar Ratio) 从高到低排序
+    complete_trials.sort(key=lambda t: t.value, reverse=True)
+
+    # 截取前 10 名
+    top_10 = complete_trials[:10]
+
+    output_data = []
+    for i, t in enumerate(top_10):
+        # 提取我们在 objective 里塞进去的附加指标
+        row_data = {
+            "Rank": i + 1,
+            "Calmar_Ratio": round(t.value, 2),
+            "CAGR(%)": round(t.user_attrs.get("CAGR(%)", 0), 2),
+            "Max_DD(%)": round(t.user_attrs.get("Max_DD(%)", 0), 2),
+            "Win_Rate(%)": round(t.user_attrs.get("Win_Rate(%)", 0), 2),
+            "Trades": t.user_attrs.get("Trades", 0)
+        }
+        # 将参数列表也合并进这一行
+        row_data.update(t.params)
+        output_data.append(row_data)
+
+    if output_data:
+        df_top10 = pd.DataFrame(output_data)
+        # 导出为 CSV 文件
+        dir_name = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                                "data", "reports", "Optuna")
+        os.makedirs(dir_name)
+        csv_filename = os.path.join(dir_name, f"optuna_top10_params_{SYMBOL.split('-')[0]}.csv")
+
+        df_top10.to_csv(csv_filename, index=False)
+        print(f"✅ 大功告成！Top 10 参数已成功保存至项目根目录: {csv_filename}")
+
+        # 顺便在终端打印第一名瞻仰一下
+        print("=" * 50)
+        print("🏆 本次比赛第一名参数概览：")
+        print(df_top10.iloc[0].to_string())
+        print("=" * 50)
+    else:
+        print("⚠️ 没找到有效结果，可能所有参数都亏损或没达到 30 笔交易要求。")

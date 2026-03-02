@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 START_DATE = '2020-01-01'
 END_DATE = '2025-12-31'
 SMC_TIMEFRAME = '1H'  # 波段交易，回归 1H 大气层！
-SYMBOL = 'BTC-USDT-SWAP'
+SYMBOL = 'ETH-USDT-SWAP'
 cfg = load_strategy_config("smc", SYMBOL)
 strat_cfg = cfg.get('strategy', {})
 engine_cfg = cfg.get("engine", {})
