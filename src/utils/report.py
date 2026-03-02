@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 
-def print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, symbol=None):
+def print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, ai_enabled, symbol=None):
     """
     1:1 还原用户最喜爱的深度量化报告格式，包含所有量化维度与详细时间戳
     """
@@ -163,6 +163,6 @@ def print_full_report(trade_history, df, initial_capital, capital, strategy_name
     }, inplace=True)
 
     safe_name = strategy_name.replace(' ', '_').replace('/', '_').replace(':', '')
-    csv_filename = os.path.join(report_dir, f"{safe_name}_{start_str}_{end_str}.csv")
+    csv_filename = os.path.join(report_dir, f"{safe_name}_{start_str}_{end_str}_{ai_enabled}.csv")
     export_df.to_csv(csv_filename, index=False)
     print(f"\n📂 交易明细已导出至: {os.path.abspath(csv_filename)}")

@@ -20,7 +20,7 @@ df = pd.read_csv(ML_DATASET_FILE)
 df['Entry_Time'] = pd.to_datetime(df['Entry_Time'])
 
 # 🔪 【核心切分】：只用 2023 年 12 月 31 日之前的数据训练！
-df_train = df[df['Entry_Time'] < '2025-12-31']['2022-01-01' < df['Entry_Time']].copy()
+df_train = df[(df['Entry_Time'] >= '2021-01-01') & (df['Entry_Time'] < '2024-12-31')].copy()
 # 剩下的留给引擎去盲测
 print(f"训练集样本数: {len(df_train)}")
 

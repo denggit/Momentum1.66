@@ -88,7 +88,7 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
     df_final = dataset[feature_cols].copy()
 
     # 保存数据集
-    output_path = os.path.join(os.path.dirname(trade_log_path), 'SMC_ML_Dataset.csv')
+    output_path = os.path.join(os.path.dirname(trade_log_path), f'SMC_ML_Dataset_{symbol}.csv')
     df_final.to_csv(output_path, index=False)
 
     print("\n" + "=" * 50)
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     # 请确保这个路径指向你刚刚跑出来的那个 1H SMC 纯净版的 TradeLog.csv
     log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
                             "data", "reports", "SMC",
-                            "SMC_聪明钱波段猎手_(1H_Order_Block)_2020-01-11_2025-12-31.csv")
+                            "SMC_聪明钱波段猎手_(1H_Order_Block)_2020-01-11_2025-12-31_False.csv")
     # 执行构建
     build_ml_dataset(
         trade_log_path=log_path,
