@@ -5,3 +5,4 @@ pyyaml
 requests
 xgboost
 scikit-learn
+optuna
