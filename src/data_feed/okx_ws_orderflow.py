@@ -23,7 +23,7 @@ class OrderFlowSniper:
     def __init__(self, symbol="ETH-USDT-SWAP"):
         self.symbol = symbol
         # 使用 AWS 专线域名，在东京节点极其稳定
-        self.ws_url = "wss://wsaws.okx.com:8443/ws/v5/public"
+        self.ws_url = "wss://ws.okx.com:8443/ws/v5/public"
 
         # 实时状态
         self.cvd = 0.0
