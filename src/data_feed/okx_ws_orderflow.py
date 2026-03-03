@@ -4,6 +4,8 @@ import logging
 import websockets
 from collections import deque
 import time
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
@@ -127,4 +129,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(sniper.connect_and_listen())
     except KeyboardInterrupt:
-        print("\n⏹️ 订单流狙击手已安全撤离。")
+        logger.info("\n⏹️ 订单流狙击手已安全撤离。")
