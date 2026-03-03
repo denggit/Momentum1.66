@@ -293,57 +293,68 @@ class OKXDataLoader:
 
     def fetch_data_by_date_range(self, start_date, end_date):
         """
-        智能获取指定日期范围内的数据
-        优先使用本地数据库，只拉取缺失的部分
+        智能且精准获取指定日期范围内的数据 (狙击版)
+        绝不多拉一根不必要的 K 线
         """
         if isinstance(start_date, str):
             start_date = pd.Timestamp(start_date)
         if isinstance(end_date, str):
             end_date = pd.Timestamp(end_date)
 
-        # 首先加载本地数据
+        # 1. 首先加载本地数据
         local_df = self.load_local_data()
 
         if not local_df.empty:
-            # 过滤本地数据在时间段内的部分
             mask = (local_df.index >= start_date) & (local_df.index <= end_date)
             local_in_range = local_df[mask]
 
-            # 检查是否有缺失
             if len(local_in_range) > 0:
-                # 计算时间段内预期的K线数量
                 expected_bars = self._calculate_bars_needed(start_date, end_date)
-
-                # 如果本地数据已经足够，直接返回
-                if len(local_in_range) >= expected_bars:
-                    logging.info(f"✅ 本地数据库已完全覆盖 {start_date} 到 {end_date} 的数据，共 {len(local_in_range)} 根 K 线")
+                # 容错 5% 的缺失，如果够了直接返回
+                if len(local_in_range) >= expected_bars * 0.95:
+                    logging.info(f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
                     return local_in_range
 
-        # 本地数据不足，使用现有的增量逻辑拉取数据
-        # 计算需要的总K线数量（稍微多拉一些以确保覆盖）
+        # 2. 本地数据不足，进行精准【定向拉取】
         bars_needed = self._calculate_bars_needed(start_date, end_date)
         if bars_needed == 0:
-            logging.warning(f"时间段 {start_date} 到 {end_date} 无效或过短")
             return pd.DataFrame()
 
-        # 多拉10%的缓冲，确保完全覆盖
-        buffer_bars = int(bars_needed * 1.1) + 10
-        logging.info(f"🔄 准备拉取约 {buffer_bars} 根 K 线以覆盖 {start_date} 到 {end_date}")
+        buffer_bars = int(bars_needed * 1.05) + 10  # 只需要 5% 的极小缓冲
+        logging.info(f"🔄 准备【定向拉取】约 {buffer_bars} 根 K 线 (目标区间: {start_date.date()} -> {end_date.date()})")
 
-        # 使用现有的增量逻辑拉取数据
-        fetched_df = self._fetch_historical_data_with_limit(limit=buffer_bars)
+        # 核心修复：把 end_date 转换为 OKX 认识的 UTC 毫秒时间戳，作为拉取起点！
+        end_utc = end_date
+        if "+" in TIMEZONE:
+            end_utc -= pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
+        elif "-" in TIMEZONE:
+            end_utc += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
+            
+        # 加上 1000 毫秒的冗余，确保能拿到 end_date 那个周期本身的 K 线
+        end_ts_ms = str(int(end_utc.timestamp() * 1000) + 1000)
+
+        # 🎯 直接调用底层接口，强行从 end_date 往回拉！指哪打哪！
+        fetched_df = self.fetch_from_okx(limit=buffer_bars, after_ts=end_ts_ms)
 
         if fetched_df.empty:
-            logging.error("拉取数据失败")
+            logging.error("❌ 定向拉取数据失败，请检查网络或 OKX 接口状态。")
             return pd.DataFrame()
 
-        # 过滤到指定时间范围
-        mask = (fetched_df.index >= start_date) & (fetched_df.index <= end_date)
-        result_df = fetched_df[mask]
+        # 3. 将新拉取的数据合并进本地数据库并持久化
+        if not local_df.empty:
+            combined_df = pd.concat([local_df, fetched_df])
+            combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+            combined_df = combined_df.sort_index(ascending=True)
+        else:
+            combined_df = fetched_df
+
+        self.save_local_data(combined_df)
+
+        # 4. 再次切片返回
+        mask = (combined_df.index >= start_date) & (combined_df.index <= end_date)
+        result_df = combined_df[mask]
 
         if not result_df.empty:
-            logging.info(f"✅ 成功获取 {start_date} 到 {end_date} 的数据，共 {len(result_df)} 根 K 线")
-        else:
-            logging.warning(f"⚠️ 拉取的数据中未找到 {start_date} 到 {end_date} 范围内的数据")
-
+            logging.info(f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
+        
         return result_df
