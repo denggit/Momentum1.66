@@ -6,6 +6,7 @@ import sys
 import websockets
 from collections import deque
 import time
+import datetime
 
 # 添加项目根目录到 Python 路径
 current_file = os.path.abspath(__file__)
@@ -14,6 +15,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.utils.log import get_logger
+from src.utils.email_sender import send_trading_signal_email
 logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -33,6 +35,10 @@ class OrderFlowSniper:
         self.snapshots = deque(maxlen=300)
         self.last_snapshot_time = time.time()
         self.last_heartbeat = time.time()
+
+        # 邮件发送频率控制 (至少间隔10分钟，避免重复报警)
+        self._last_email_sent_time = 0
+        self._email_cooldown = 600  # 10分钟，单位秒
 
     async def connect_and_listen(self):
         subscribe_msg = {
@@ -136,9 +142,72 @@ class OrderFlowSniper:
             logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
             logger.warning("🟢" * 25 + "\n")
 
+            # 异步发送邮件通知
+            asyncio.create_task(self._send_bottom_fishing_email(
+                symbol=self.symbol,
+                price=current_snap['price'],
+                cvd_delta_usdt=recent_cvd_delta_usdt,
+                time_window_minutes=3.0
+            ))
+
             # 冷却：清空一半的数据，防止一波行情里反复报警
             for _ in range(150):
                 if self.snapshots: self.snapshots.popleft()
+
+    async def _send_bottom_fishing_email(self, symbol: str, price: float,
+                                        cvd_delta_usdt: float, time_window_minutes: float):
+        """
+        发送抄底机会邮件通知。
+
+        Args:
+            symbol: 交易对符号
+            price: 当前价格
+            cvd_delta_usdt: CVD 变化的 USDT 金额（负值表示净卖出）
+            time_window_minutes: 检测时间窗口（分钟）
+        """
+        # 频率控制：至少间隔指定时间才能再次发送邮件
+        current_time = time.time()
+        if current_time - self._last_email_sent_time < self._email_cooldown:
+            logger.debug(f"邮件发送频率限制，跳过本次发送。还需等待 {self._email_cooldown - (current_time - self._last_email_sent_time):.0f} 秒")
+            return
+
+        try:
+            signal_type = "流速级抄底绝杀"
+            # 获取当前时间戳
+            detection_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            details = f"""
+🚨 检测到机构恐慌吸收信号！
+
+📊 交易对: {symbol}
+🕐 检测时间: {detection_time}
+💰 当前价格: {price:.2f}
+📉 3分钟内净卖出: ${abs(cvd_delta_usdt):,.0f} USDT
+⏱️ 时间窗口: {time_window_minutes} 分钟
+📈 信号类型: {signal_type}
+
+💡 核心逻辑:
+1. 价格被压制在近期低点附近
+2. 散户在短时间内疯狂抛售 {abs(cvd_delta_usdt)/10000:.1f} 万美金
+3. 价格未能继续下跌，显示机构在限价吸收
+
+🎯 操作建议: 准备抢反弹，关注短期反转机会
+            """
+
+            success = await send_trading_signal_email(
+                symbol=symbol,
+                signal_type=signal_type,
+                price=price,
+                details=details
+            )
+
+            if success:
+                self._last_email_sent_time = time.time()
+                logger.info("✅ 抄底机会邮件发送成功")
+            else:
+                logger.warning("⚠️ 抄底机会邮件发送失败")
+
+        except Exception as e:
+            logger.error(f"发送抄底机会邮件时发生错误: {e}")
 
 
 if __name__ == "__main__":
