@@ -93,38 +93,50 @@ class OrderFlowSniper:
         })
 
     def _detect_absorption_divergence(self):
-        """🌟 核心武器：检测机构恐慌吸收 (散户血洗，机构抄底)"""
-        if len(self.snapshots) < 30:
+        """🌟 核心武器：带有【流速检测】的恐慌吸收狙击"""
+        if len(self.snapshots) < 30:  # 确保有足够的数据
             return
 
         past_snapshots = list(self.snapshots)[:-1]
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
-        # 条件 A: 价格在低位摩擦 (没有暴跌下去)
+        # 1. 位置确认：当前价格被压制在过去 50 分钟内的极低点附近 (差价在 1 刀以内)
         price_is_near_low = current_snap['price'] <= (lowest_snap['price'] + 1.0)
 
-        # 条件 B: 真实的 USDT 净流出量！
-        cvd_delta_contracts = current_snap['cvd'] - lowest_snap['cvd']
+        # ==========================================
+        # 🧠 Zijun的超神优化：加入“流速（Velocity）”限制！
+        # ==========================================
+        # 我们不再取“历史最低点到现在的总 CVD 差”
+        # 而是严苛地只取“最近 3 分钟（18个快照）”的 CVD 净增量！
+        # 彻底过滤掉“70万慢跌 + 10万真跌”的伪突破。
+
+        RECENT_WINDOW = 18  # 18 * 10秒 = 180秒 (3分钟)
+        snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
+
+        recent_cvd_delta_contracts = current_snap['cvd'] - snapshot_3min_ago['cvd']
         CONTRACT_SIZE = 0.1
-        cvd_delta_usdt = cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
 
-        # 🌟 抄底核心逻辑：CVD 出现巨额负数 (散户疯狂市价抛售)
-        # 设定阈值：-80 万美金！说明散户砸了 80万美金的市价空单，但价格居然没跌穿！
-        massive_selling_absorbed = cvd_delta_usdt < -800_000
+        # 计算这短短 3 分钟内的真实 USDT 砸盘量
+        recent_cvd_delta_usdt = recent_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
 
+        # 2. 瞬间爆量确认：就在这短短 3 分钟内，散户疯狂砸出了 50 万美金以上的市价单！
+        # (因为时间窗口缩短到了 3 分钟，所以阈值可以适当从 80 万调回 50 万美金)
+        massive_selling_absorbed = recent_cvd_delta_usdt < -500_000
+
+        # 距离上次创低点至少过了一小段时间（防止同一个瞬间反复报警）
         time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
 
         if price_is_near_low and massive_selling_absorbed and time_passed:
-            time_diff = int(current_snap['ts'] - lowest_snap['ts']) / 60
             logger.warning("\n" + "🟢" * 25)
-            logger.warning(f"🚨 [抄底绝杀] 发现深海冰山！散户正在被血洗！")
+            logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
             logger.warning(
-                f"💥 异动数据: 在过去 {time_diff:.1f} 分钟内，市场涌入了 ${abs(cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
-            logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近没有崩盘。")
-            logger.warning("🎯 战术结论: 机构正在用限价买单疯狂吸收带血的筹码，随时准备反抽！")
+                f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
+            logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
+            logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
             logger.warning("🟢" * 25 + "\n")
 
+            # 冷却：清空一半的数据，防止一波行情里反复报警
             for _ in range(150):
                 if self.snapshots: self.snapshots.popleft()
 
