@@ -6,6 +6,8 @@ from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
 from config.loader import load_strategy_config  # 【引入新加载器】
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
 
@@ -21,18 +23,18 @@ PORTFOLIO = [
 ]
 
 if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print(f" 🌍 启动宏观矩阵: {STRATEGY_NAME.upper()} 多品种猎杀编队")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info(f" 🌍 启动宏观矩阵: {STRATEGY_NAME.upper()} 多品种猎杀编队")
+    logger.info("=" * 70)
 
     for symbol in PORTFOLIO:
-        print(f"\n\n>>>>>>>>>> 正在轰炸标的: {symbol} <<<<<<<<<<")
+        logger.info(f"\n\n>>>>>>>>>> 正在轰炸标的: {symbol} <<<<<<<<<<")
 
         # 1. 动态加载该币种的专属配置
         try:
             cfg = load_strategy_config(STRATEGY_NAME, symbol)
         except FileNotFoundError:
-            print(f"⏩ 跳过 {symbol}: 没有找到 config/{STRATEGY_NAME}/{symbol}.yaml")
+            logger.info(f"⏩ 跳过 {symbol}: 没有找到 config/{STRATEGY_NAME}/{symbol}.yaml")
             continue
 
         timeframe = cfg.get('timeframe', '1H')
@@ -74,4 +76,4 @@ if __name__ == "__main__":
                 fee_rate=engine_cfg.get('fee_rate', 0.0005)
             )
         else:
-            print(f"⚠️ {symbol} 在指定时间段内无数据。")
+            logger.info(f"⚠️ {symbol} 在指定时间段内无数据。")

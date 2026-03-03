@@ -13,6 +13,8 @@ from backtest.engine import run_universal_backtest
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 # ==========================================
 # 填入你 Optuna 跑出来的 TOP 1 神级参数
@@ -30,11 +32,11 @@ BASE_PARAMS = {
 SYMBOL = 'BTC-USDT-SWAP'
 # ==========================================
 
-print("📥 正在加载全局数据...")
+logger.info("📥 正在加载全局数据...")
 loader = OKXDataLoader(symbol=SYMBOL, timeframe='1H')
 df_raw = loader.fetch_data_by_date_range('2020-01-01', '2025-12-31')
 df_global = add_smc_indicators(df_raw)
-print("✅ 数据加载完成，开始鲁棒性压力测试！\n")
+logger.info("✅ 数据加载完成，开始鲁棒性压力测试！\n")
 
 # 定义我们要“微调”的邻域参数
 test_cases = [
@@ -54,7 +56,7 @@ for case in test_cases:
     current_params = BASE_PARAMS.copy()
     current_params.update(case["tweaks"])
 
-    print(f"🔄 正在测试: [{case['name']}] ...")
+    logger.info(f"🔄 正在测试: [{case['name']}] ...")
 
     strategy = SMCStrategy(
         ema_period=current_params['ema_period'],
@@ -103,9 +105,9 @@ for case in test_cases:
             "测试项": case['name'], "净利润($)": 0, "胜率(%)": 0, "最大回撤(%)": 0, "交易次数": 0
         })
 
-print("\n" + "=" * 60)
-print("🛡️ 鲁棒性压力测试报告 (Robustness Report)")
-print("=" * 60)
+logger.info("\n" + "=" * 60)
+logger.info("🛡️ 鲁棒性压力测试报告 (Robustness Report)")
+logger.info("=" * 60)
 df_report = pd.DataFrame(results)
-print(df_report.to_string(index=False))
-print("=" * 60)
+logger.info(df_report.to_string(index=False))
+logger.info("=" * 60)

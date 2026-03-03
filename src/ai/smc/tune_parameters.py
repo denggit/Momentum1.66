@@ -12,6 +12,8 @@ from config.loader import load_strategy_config
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 warnings.filterwarnings('ignore')
 logging.getLogger().setLevel(logging.ERROR)  # 关闭回测过程中的海量打印，只看 Optuna 进度
@@ -25,11 +27,11 @@ SYMBOL = 'ETH-USDT-SWAP'
 cfg = load_strategy_config("smc", SYMBOL)
 engine_cfg = cfg.get("engine", {})
 
-print(f"📥 正在加载全局数据 {SYMBOL} ({START_DATE} 至 {END_DATE})...")
+logger.info(f"📥 正在加载全局数据 {SYMBOL} ({START_DATE} 至 {END_DATE})...")
 loader = OKXDataLoader(symbol=SYMBOL, timeframe=SMC_TIMEFRAME)
 df_raw = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 df_global = add_smc_indicators(df_raw)
-print("✅ 数据加载完成，启动 Optuna 智能调参引擎！\n")
+logger.info("✅ 数据加载完成，启动 Optuna 智能调参引擎！\n")
 
 
 def objective(trial):
@@ -79,7 +81,7 @@ def objective(trial):
             out_logs=False
         )
     except Exception as e:
-        print(f"❌ 引擎运行报错: {e}")
+        logger.error(f"❌ 引擎运行报错: {e}")
         return -9999.0
 
     # ==========================================
@@ -127,14 +129,14 @@ def objective(trial):
 if __name__ == "__main__":
     study = optuna.create_study(direction='maximize')
 
-    print("🚀 开始暴力搜参，请耐心等待...")
+    logger.info("🚀 开始暴力搜参，请耐心等待...")
     study.optimize(objective, n_trials=1000, n_jobs=-1)
 
     # ==========================================
     # 💾 终极收尾：将 Top 10 参数保存到 CSV
     # ==========================================
-    print("\n" + "=" * 50)
-    print("💾 正在将 Top 10 最强参数组合保存至 CSV...")
+    logger.info("\n" + "=" * 50)
+    logger.info("💾 正在将 Top 10 最强参数组合保存至 CSV...")
 
     # 获取所有成功跑完并没有被打 -9999 分的 trial
     complete_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and t.value != -9999.0]
@@ -169,12 +171,12 @@ if __name__ == "__main__":
         csv_filename = os.path.join(dir_name, f"optuna_top10_params_{SYMBOL.split('-')[0]}.csv")
 
         df_top10.to_csv(csv_filename, index=False)
-        print(f"✅ 大功告成！Top 10 参数已成功保存至项目根目录: {csv_filename}")
+        logger.info(f"✅ 大功告成！Top 10 参数已成功保存至项目根目录: {csv_filename}")
 
         # 顺便在终端打印第一名瞻仰一下
-        print("=" * 50)
-        print("🏆 本次比赛第一名参数概览：")
-        print(df_top10.iloc[0].to_string())
-        print("=" * 50)
+        logger.info("=" * 50)
+        logger.info("🏆 本次比赛第一名参数概览：")
+        logger.info(df_top10.iloc[0].to_string())
+        logger.info("=" * 50)
     else:
-        print("⚠️ 没找到有效结果，可能所有参数都亏损或没达到 30 笔交易要求。")
+        logger.info("⚠️ 没找到有效结果，可能所有参数都亏损或没达到 30 笔交易要求。")

@@ -7,6 +7,8 @@ from config.loader import load_strategy_config
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -25,7 +27,7 @@ if __name__ == "__main__":
     df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
     if df.empty:
-        print(f"数据为空！")
+        logger.info(f"数据为空！")
     else:
         # 1. 挂载 SMC 需要的均线和 ATR
         df = add_smc_indicators(df)

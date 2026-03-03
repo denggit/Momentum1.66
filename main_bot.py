@@ -8,12 +8,14 @@
 """
 # 伪代码示例
 from engines.engine_2_smc import run_engine_2
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 if __name__ == "__main__":
-    print("🚀 量化总控系统启动...")
+    logger.info("🚀 量化总控系统启动...")
     # engine_1.start()  # 暂未开发，注释掉
 
-    print("⚔️ 启动二号主力引擎: SMC 波段猎手")
+    logger.info("⚔️ 启动二号主力引擎: SMC 波段猎手")
     run_engine_2(symbol="ETH-USDT-SWAP")
 
     # engine_3.start()  # 暂未开发，注释掉

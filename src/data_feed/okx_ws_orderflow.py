@@ -33,10 +33,10 @@ class OrderFlowSniper:
 
         while True:
             try:
-                logging.info(f"🚀 正在连接 OKX 订单流极速通道 ({self.symbol})...")
+                logger.info(f"🚀 正在连接 OKX 订单流极速通道 ({self.symbol})...")
                 async with websockets.connect(self.ws_url) as ws:
                     await ws.send(json.dumps(subscribe_msg))
-                    logging.info("✅ 接入成功！开启微观多空肉搏监控 (静默模式)...")
+                    logger.info("✅ 接入成功！开启微观多空肉搏监控 (静默模式)...")
 
                     while True:
                         response = await ws.recv()
@@ -46,7 +46,7 @@ class OrderFlowSniper:
                             self._process_ticks(data['data'])
 
             except Exception as e:
-                logging.error(f"❌ 链路断开，准备重连: {e}")
+                logger.error(f"❌ 链路断开，准备重连: {e}")
                 await asyncio.sleep(3)
 
     def _process_ticks(self, trades):
@@ -71,7 +71,7 @@ class OrderFlowSniper:
 
         # 2. 心跳日志 (每 1 分钟报备一次，让你知道它没死机)
         if current_ts - self.last_heartbeat >= 60:
-            logging.info(
+            logger.info(
                 f"💓 [雷达扫掠中] 现价: {self.current_price} | 当前 CVD: {self.cvd:.1f} | 已存快照: {len(self.snapshots)}/300")
             self.last_heartbeat = current_ts
 
@@ -95,28 +95,35 @@ class OrderFlowSniper:
         current_snap = self.snapshots[-1]
 
         # ==========================================
-        # 🧠 极度严苛的背离触发逻辑 (防假报警)
+        # 🧠 V3 进阶版：真实购买力（USDT）动态背离逻辑
         # ==========================================
-        # 条件 A: 当前价格比前低还要低（或几乎持平），说明行情在向下“插针”
         price_is_lower = current_snap['price'] <= (lowest_snap['price'] + 0.5)
 
-        # 条件 B: CVD 极度背离！当前 CVD 比前低点的 CVD 至少高出 2000 张合约
-        # 说明这期间散户在疯狂砸盘，但价格根本跌不下去，机构在用冰山单吃货！
-        cvd_is_higher = current_snap['cvd'] > (lowest_snap['cvd'] + 2000)
+        # 1. 计算这期间 CVD 增加了多少“张”
+        cvd_delta_contracts = current_snap['cvd'] - lowest_snap['cvd']
 
-        # 条件 C: 距离前低点至少过去 30 秒了 (过滤掉同一瞬间的乱跳)
+        # 2. 🌟 核心升维：转化为真实的 USDT 净买入金额！
+        # 在 OKX，ETH 永续合约单张面值为 0.1 ETH (如果你以后换 BTC，这里改成对应的面值)
+        CONTRACT_SIZE = 0.1
+        cvd_delta_usdt = cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
+
+        # 3. 设定动态美元阈值：底背离必须伴随至少 "50万美金" 的真金白银净流入！
+        cvd_is_higher = cvd_delta_usdt > 500_000
+
         time_passed = (current_snap['ts'] - lowest_snap['ts']) > 30
 
         if price_is_lower and cvd_is_higher and time_passed:
             time_diff = int(current_snap['ts'] - lowest_snap['ts']) / 60
-            logging.warning("\n" + "🔥" * 25)
-            logging.warning(f"🚨 [绝杀时刻 - 发现机构冰山吸筹！]")
-            logging.warning(
+            logger.warning("\n" + "🔥" * 25)
+            # 报警日志里，打印出真实的美元异动！
+            logger.warning(
+                f"🚨 发现冰山！前低点已被砸穿，但主力在此期间净买入了 ${cvd_delta_usdt / 10000:.1f} 万美金的筹码！")
+            logger.warning(
                 f"📍 前低点 ({time_diff:.1f}分钟前): 价格 {lowest_snap['price']} | CVD {lowest_snap['cvd']:.1f}")
-            logging.warning(
+            logger.warning(
                 f"💥 当前点 (插针中): 价格 {current_snap['price']} | CVD {current_snap['cvd']:.1f} (CVD 强劲抬升!)")
-            logging.warning("🎯 战术结论: 散户砸盘被全部吸收，随时可能爆拉！")
-            logging.warning("🔥" * 25 + "\n")
+            logger.warning("🎯 战术结论: 散户砸盘被全部吸收，随时可能爆拉！")
+            logger.warning("🔥" * 25 + "\n")
 
             # 找到一次背离后，为了防止余震疯狂报警，清空一半的队列进入“冷却期”
             for _ in range(150):

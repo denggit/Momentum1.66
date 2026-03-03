@@ -3,6 +3,8 @@ import xgboost as xgb
 import numpy as np
 import os
 from dateutil.relativedelta import relativedelta
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 
 # ==========================================
@@ -10,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 # ==========================================
 def print_fair_report(trade_list, strategy_name, initial_cap=1000.0):
     if trade_list.empty:
-        print(f"⚠️ {strategy_name} 无交易记录。")
+        logger.info(f"⚠️ {strategy_name} 无交易记录。")
         return
 
     df_res = pd.DataFrame(trade_list)
@@ -27,16 +29,16 @@ def print_fair_report(trade_list, strategy_name, initial_cap=1000.0):
         current_cap += trade_pnl
         equity_curve.append(current_cap)
 
-    print("\n" + "=" * 70)
-    print(f" 📊 {strategy_name} - 深度量化绩效报告")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info(f" 📊 {strategy_name} - 深度量化绩效报告")
+    logger.info("=" * 70)
 
     # 1. 逐年拆解
-    print("\n" + "=" * 70)
-    print(" 📅 逐年绩效拆解 (Yearly Breakdown)")
-    print("-" * 70)
-    print(f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<11} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
-    print("-" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info(" 📅 逐年绩效拆解 (Yearly Breakdown)")
+    logger.info("-" * 70)
+    logger.info(f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<11} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
+    logger.info("-" * 70)
 
     df_res['Year'] = df_res['Entry_Time'].dt.year
     temp_cap = initial_cap
@@ -53,22 +55,22 @@ def print_fair_report(trade_list, strategy_name, initial_cap=1000.0):
         y_eq_s = pd.Series(y_equity)
         y_dd = (y_eq_s.cummax() - y_eq_s) / y_eq_s.cummax() * 100
 
-        print(
+        logger.info(
             f"{year:<6} | ${temp_cap:<10.2f} | ${y_pnl:<+10.2f} | {y_ret:>+9.2f}% | {y_win_rate:>5.1f}% | -{y_dd.max():>6.2f}%")
         temp_cap = y_equity[-1]
 
     # 2. 核心指标
-    print("\n" + "-" * 70)
-    print(" 📈 核心量化指标 (Core Metrics)")
-    print("-" * 70)
+    logger.info("\n" + "-" * 70)
+    logger.info(" 📈 核心量化指标 (Core Metrics)")
+    logger.info("-" * 70)
     total_trades = len(df_res)
     win_rate = (df_res['Label'] == 1).mean() * 100
 
-    print(f"总交易次数 (Total Trades):  {total_trades}")
-    print(f"胜率 (Win Rate):          {win_rate:.2f}%")
-    print(f"最终资金 (Final Cap):      ${current_cap:,.2f}")
-    print(f"总净收益率:               {((current_cap - initial_cap) / initial_cap * 100):.2f}%")
-    print("=" * 70 + "\n")
+    logger.info(f"总交易次数 (Total Trades):  {total_trades}")
+    logger.info(f"胜率 (Win Rate):          {win_rate:.2f}%")
+    logger.info(f"最终资金 (Final Cap):      ${current_cap:,.2f}")
+    logger.info(f"总净收益率:               {((current_cap - initial_cap) / initial_cap * 100):.2f}%")
+    logger.info("=" * 70 + "\n")
 
 
 # ==========================================
@@ -97,7 +99,7 @@ def main():
     ai_threshold = 0.15
     ai_trades = []
 
-    print("🔄 正在进行季度滚动训练 (Walking Forward)...")
+    logger.info("🔄 正在进行季度滚动训练 (Walking Forward)...")
     while current_start <= final_end:
         train_start = current_start - relativedelta(years=4)
         test_end = current_start + relativedelta(months=3)

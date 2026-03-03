@@ -8,10 +8,12 @@ import sys
 # 确保能导入 src 目录下的模块
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.data_feed.okx_loader import OKXDataLoader
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 
 def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_date: str, end_date: str):
-    print(f"🚀 正在为 {symbol} 构建 AI 训练集...")
+    logger.info(f"🚀 正在为 {symbol} 构建 AI 训练集...")
 
     # 1. 加载交易日志 (你的错题本)
     if not os.path.exists(trade_log_path):
@@ -24,14 +26,14 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
     df_trades['Label'] = (df_trades['Net_PnL'] > 0).astype(int)
 
     # 2. 拉取全量 K 线数据 (考卷源文件)
-    print(f"📥 正在从本地/OKX拉取 {symbol} 的 K 线数据...")
+    logger.info(f"📥 正在从本地/OKX拉取 {symbol} 的 K 线数据...")
     loader = OKXDataLoader(symbol=symbol, timeframe=timeframe)
     df_klines = loader.fetch_data_by_date_range(start_date, end_date)
 
     if df_klines.empty:
         raise ValueError("K线数据拉取失败，请检查时间范围或网络！")
 
-    print("🧠 正在计算高维 AI 特征 (Feature Engineering)...")
+    logger.info("🧠 正在计算高维 AI 特征 (Feature Engineering)...")
 
     # ==========================================
     # 构造 AI 专属特征向量 (X)
@@ -64,7 +66,7 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
     df_klines.dropna(inplace=True)
 
     # 3. 拼图：将 K 线特征“左连接”到交易日志中
-    print("🔗 正在对齐交易时间轴与 K 线特征...")
+    logger.info("🔗 正在对齐交易时间轴与 K 线特征...")
     # 去除 K 线索引的时区以便与 TradeLog 对齐
     df_klines.index = df_klines.index.tz_localize(None)
 
@@ -91,16 +93,16 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
     output_path = os.path.join(os.path.dirname(trade_log_path), f'SMC_ML_Dataset_{symbol}.csv')
     df_final.to_csv(output_path, index=False)
 
-    print("\n" + "=" * 50)
-    print(f"✅ AI 训练集构建成功！共 {len(df_final)} 条有效样本。")
-    print(f"📁 文件已保存至: {output_path}")
+    logger.info("\n" + "=" * 50)
+    logger.info(f"✅ AI 训练集构建成功！共 {len(df_final)} 条有效样本。")
+    logger.info(f"📁 文件已保存至: {output_path}")
 
     # 打印正负样本比例（极度重要，关乎模型能否学到东西）
     win_rate = df_final['Label'].mean() * 100
     count_0 = len(df_final[df_final['Label'] == 0])
     count_1 = len(df_final[df_final['Label'] == 1])
-    print(f"⚖️ 样本分布: 假突破(0) 有 {count_0} 笔 | 真突破(1) 有 {count_1} 笔 (原始胜率 {win_rate:.1f}%)")
-    print("=" * 50)
+    logger.info(f"⚖️ 样本分布: 假突破(0) 有 {count_0} 笔 | 真突破(1) 有 {count_1} 笔 (原始胜率 {win_rate:.1f}%)")
+    logger.info("=" * 50)
 
 
 if __name__ == "__main__":

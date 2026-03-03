@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import xgboost as xgb  # 引入 XGBoost
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 
 class SMCStrategy:
@@ -26,9 +28,9 @@ class SMCStrategy:
             try:
                 self.ai_model = xgb.XGBClassifier()
                 self.ai_model.load_model(model_path)
-                print(f"🤖 [系统就绪] AI 风控模型加载成功! (拦截阈值: {self.ai_threshold})")
+                logger.info(f"🤖 [系统就绪] AI 风控模型加载成功! (拦截阈值: {self.ai_threshold})")
             except Exception as e:
-                print(f"⚠️ [警告] AI 模型加载失败，已自动降级为传统规则模式。错误: {e}")
+                logger.info(f"⚠️ [警告] AI 模型加载失败，已自动降级为传统规则模式。错误: {e}")
                 self.ai_enabled = False
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:

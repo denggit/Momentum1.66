@@ -9,6 +9,8 @@ from config.loader import GLOBAL_SETTINGS, load_strategy_config
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_squeeze_indicators
 from src.strategy.squeeze import SqueezeStrategy
+from src.utils.log import get_logger
+logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -43,8 +45,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     end_time_str = df.index[-1].strftime('%Y-%m-%d')
     total_days = (df.index[-1] - df.index[0]).total_seconds() / (24 * 3600)
 
-    print(f"\n=== 🚀 启动实盘级回测 | {start_time_str} 至 {end_time_str} ({total_days:.1f} 天) ===")
-    print(f"初始资金: ${capital} | 风险定额: {max_risk * 100}% | 手续费: {fee_rate * 100}%")
+    logger.info(f"\n=== 🚀 启动实盘级回测 | {start_time_str} 至 {end_time_str} ({total_days:.1f} 天) ===")
+    logger.info(f"初始资金: ${capital} | 风险定额: {max_risk * 100}% | 手续费: {fee_rate * 100}%")
 
     for index, row in df.iterrows():
         just_closed = False
@@ -168,9 +170,9 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
     # ==========================================
     # 4. 打印专业级量化回测报告
     # ==========================================
-    print("\n" + "=" * 65)
-    print(f" 📊 Momentum {GLOBAL_SETTINGS.get('timeframe')} 引擎 - 多年期量化绩效报告")
-    print("=" * 65)
+    logger.info("\n" + "=" * 65)
+    logger.info(f" 📊 Momentum {GLOBAL_SETTINGS.get('timeframe')} 引擎 - 多年期量化绩效报告")
+    logger.info("=" * 65)
 
     win_trades = 0
     total_trades = len(trade_history)
@@ -228,11 +230,11 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         calmar_ratio = cagr / max_drawdown_pct if max_drawdown_pct > 0 else float('inf')
 
         # --- 【新增】逐年绩效拆解逻辑 ---
-        print("\n" + "=" * 65)
-        print(" 📅 逐年绩效拆解 (Yearly Breakdown)")
-        print("=" * 65)
-        print(f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<10} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
-        print("-" * 65)
+        logger.info("\n" + "=" * 65)
+        logger.info(" 📅 逐年绩效拆解 (Yearly Breakdown)")
+        logger.info("=" * 65)
+        logger.info(f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<10} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
+        logger.info("-" * 65)
 
         current_year_cap = initial_capital
         for y in sorted(df.index.year.unique()):
@@ -258,30 +260,30 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
                 if dd > y_max_dd:
                     y_max_dd = dd
 
-            print(
+            logger.info(
                 f"{y:<6} | ${current_year_cap:<9.2f} | ${y_net_pnl:<+9.2f} | {y_roi * 100:>+8.2f}%  | {y_win_rate * 100:>5.1f}% | {-y_max_dd * 100:>6.2f}%")
 
             # 更新下一年的初始资金
             current_year_cap += y_net_pnl
 
-        print("\n" + "-" * 65)
-        print(" 📈 核心量化指标 (Core Metrics)")
-        print("-" * 65)
-        print(f"测试跨度 (Duration):      {total_days:.1f} 天 ({years:.2f} 年)")
-        print(f"总交易次数 (Total Trades):  {total_trades}")
-        print(f"胜率 (Win Rate):          {win_rate * 100:.2f}%")
-        print(f"平均净盈利 (Avg Win):     +${avg_win:.2f}")
-        print(f"平均净亏损 (Avg Loss):    -${avg_loss:.2f}")
-        print(f"净盈亏比 (PnL Ratio):     {pnl_ratio:.2f}")
-        print(f"盈利因子 (Profit Factor): {profit_factor:.2f}")
+        logger.info("\n" + "-" * 65)
+        logger.info(" 📈 核心量化指标 (Core Metrics)")
+        logger.info("-" * 65)
+        logger.info(f"测试跨度 (Duration):      {total_days:.1f} 天 ({years:.2f} 年)")
+        logger.info(f"总交易次数 (Total Trades):  {total_trades}")
+        logger.info(f"胜率 (Win Rate):          {win_rate * 100:.2f}%")
+        logger.info(f"平均净盈利 (Avg Win):     +${avg_win:.2f}")
+        logger.info(f"平均净亏损 (Avg Loss):    -${avg_loss:.2f}")
+        logger.info(f"净盈亏比 (PnL Ratio):     {pnl_ratio:.2f}")
+        logger.info(f"盈利因子 (Profit Factor): {profit_factor:.2f}")
 
-        print("\n" + "-" * 65)
-        print(" 🛡️ 风险与财务评估 (Risk & Finance)")
-        print("-" * 65)
-        print(f"最大回撤 (Max Drawdown):  {max_drawdown_pct * 100:.2f}%")
-        print(f"夏普比率 (Sharpe Ratio):  {annualized_sharpe:.2f}")
-        print(f"卡玛比率 (Calmar Ratio):  {calmar_ratio:.2f}")
-        print(f"给交易所交的手续费总计:   -${total_fees_paid:.2f}")
+        logger.info("\n" + "-" * 65)
+        logger.info(" 🛡️ 风险与财务评估 (Risk & Finance)")
+        logger.info("-" * 65)
+        logger.info(f"最大回撤 (Max Drawdown):  {max_drawdown_pct * 100:.2f}%")
+        logger.info(f"夏普比率 (Sharpe Ratio):  {annualized_sharpe:.2f}")
+        logger.info(f"卡玛比率 (Calmar Ratio):  {calmar_ratio:.2f}")
+        logger.info(f"给交易所交的手续费总计:   -${total_fees_paid:.2f}")
 
         # 计算 Top 5 交易
         for t in trade_history:
@@ -299,26 +301,26 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         sorted_by_loss = sorted(trade_history, key=lambda x: x['pnl'])
         top_5_losses = [t for t in sorted_by_loss if t['pnl'] < 0][:5]
 
-        print("\n" + "🏆" * 3 + " 盈利 Top 5 史诗级交易 " + "🏆" * 3)
-        print("-" * 65)
+        logger.info("\n" + "🏆" * 3 + " 盈利 Top 5 史诗级交易 " + "🏆" * 3)
+        logger.info("-" * 65)
         for i, t in enumerate(top_5_wins):
-            print(
+            logger.info(
                 f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净赚: +${t['pnl']:.2f}")
 
-        print("\n" + "🩸" * 3 + " 亏损 Top 5 极度考验 " + "🩸" * 3)
-        print("-" * 65)
+        logger.info("\n" + "🩸" * 3 + " 亏损 Top 5 极度考验 " + "🩸" * 3)
+        logger.info("-" * 65)
         for i, t in enumerate(top_5_losses):
-            print(
+            logger.info(
                 f"{i + 1}. [{t['type']}] 进: {t['entry_time'].strftime('%m-%d %H:%M')} | 出: {t['exit_time'].strftime('%m-%d %H:%M')} | 历时: {t['duration_str']} | 净亏: -${abs(t['pnl']):.2f}")
 
-        print("\n" + "=" * 65)
-        print(f"初始资金 (Initial Cap):   ${initial_capital:.2f}")
-        print(f"最终资金 (Final Cap):     ${capital:.2f}")
-        print(f"总净利润 (Net PnL):       +${(capital - initial_capital):.2f} (总收益率: {net_profit_pct * 100:.2f}%)")
-        print(f"复合年化收益率 (CAGR):    {cagr * 100:.2f}%  <--- 🚀 华尔街核心考核指标")
-        print("=" * 65)
+        logger.info("\n" + "=" * 65)
+        logger.info(f"初始资金 (Initial Cap):   ${initial_capital:.2f}")
+        logger.info(f"最终资金 (Final Cap):     ${capital:.2f}")
+        logger.info(f"总净利润 (Net PnL):       +${(capital - initial_capital):.2f} (总收益率: {net_profit_pct * 100:.2f}%)")
+        logger.info(f"复合年化收益率 (CAGR):    {cagr * 100:.2f}%  <--- 🚀 华尔街核心考核指标")
+        logger.info("=" * 65)
     else:
-        print("无交易发生。")
+        logger.info("无交易发生。")
 
 
 if __name__ == "__main__":
@@ -328,7 +330,7 @@ if __name__ == "__main__":
     df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
 
     if df.empty:
-        print(f"错误：无法获取 {START_DATE} 到 {END_DATE} 的数据，请检查日期或网络连接！")
+        logger.info(f"错误：无法获取 {START_DATE} 到 {END_DATE} 的数据，请检查日期或网络连接！")
     else:
         df = add_squeeze_indicators(
             df=df,
