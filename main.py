@@ -1,3 +1,12 @@
+import os
+import sys
+
+# 添加项目根目录到 Python 路径
+current_file = os.path.abspath(__file__)
+project_root = os.path.dirname(current_file)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_squeeze_indicators

@@ -1,9 +1,18 @@
 import asyncio
 import json
 import logging
+import os
+import sys
 import websockets
 from collections import deque
 import time
+
+# 添加项目根目录到 Python 路径
+current_file = os.path.abspath(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from src.utils.log import get_logger
 logger = get_logger(__name__)
 
@@ -84,51 +93,40 @@ class OrderFlowSniper:
         })
 
     def _detect_absorption_divergence(self):
-        """🌟 核心武器：检测机构底背离 (吸收)"""
-        # 数据太少时先不计算，攒够至少 5 分钟 (30个快照) 再开始巡逻
+        """🌟 核心武器：检测机构恐慌吸收 (散户血洗，机构抄底)"""
         if len(self.snapshots) < 30:
             return
 
-            # 找出过去 50 分钟内，价格最低的那个瞬间 (前低点)
         past_snapshots = list(self.snapshots)[:-1]
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
-        # ==========================================
-        # 🧠 V3 进阶版：真实购买力（USDT）动态背离逻辑
-        # ==========================================
-        price_is_lower = current_snap['price'] <= (lowest_snap['price'] + 0.5)
+        # 条件 A: 价格在低位摩擦 (没有暴跌下去)
+        price_is_near_low = current_snap['price'] <= (lowest_snap['price'] + 1.0)
 
-        # 1. 计算这期间 CVD 增加了多少“张”
+        # 条件 B: 真实的 USDT 净流出量！
         cvd_delta_contracts = current_snap['cvd'] - lowest_snap['cvd']
-
-        # 2. 🌟 核心升维：转化为真实的 USDT 净买入金额！
-        # 在 OKX，ETH 永续合约单张面值为 0.1 ETH (如果你以后换 BTC，这里改成对应的面值)
         CONTRACT_SIZE = 0.1
         cvd_delta_usdt = cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
 
-        # 3. 设定动态美元阈值：底背离必须伴随至少 "50万美金" 的真金白银净流入！
-        cvd_is_higher = cvd_delta_usdt > 500_000
+        # 🌟 抄底核心逻辑：CVD 出现巨额负数 (散户疯狂市价抛售)
+        # 设定阈值：-80 万美金！说明散户砸了 80万美金的市价空单，但价格居然没跌穿！
+        massive_selling_absorbed = cvd_delta_usdt < -800_000
 
-        time_passed = (current_snap['ts'] - lowest_snap['ts']) > 30
+        time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
 
-        if price_is_lower and cvd_is_higher and time_passed:
+        if price_is_near_low and massive_selling_absorbed and time_passed:
             time_diff = int(current_snap['ts'] - lowest_snap['ts']) / 60
-            logger.warning("\n" + "🔥" * 25)
-            # 报警日志里，打印出真实的美元异动！
+            logger.warning("\n" + "🟢" * 25)
+            logger.warning(f"🚨 [抄底绝杀] 发现深海冰山！散户正在被血洗！")
             logger.warning(
-                f"🚨 发现冰山！前低点已被砸穿，但主力在此期间净买入了 ${cvd_delta_usdt / 10000:.1f} 万美金的筹码！")
-            logger.warning(
-                f"📍 前低点 ({time_diff:.1f}分钟前): 价格 {lowest_snap['price']} | CVD {lowest_snap['cvd']:.1f}")
-            logger.warning(
-                f"💥 当前点 (插针中): 价格 {current_snap['price']} | CVD {current_snap['cvd']:.1f} (CVD 强劲抬升!)")
-            logger.warning("🎯 战术结论: 散户砸盘被全部吸收，随时可能爆拉！")
-            logger.warning("🔥" * 25 + "\n")
+                f"💥 异动数据: 在过去 {time_diff:.1f} 分钟内，市场涌入了 ${abs(cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
+            logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近没有崩盘。")
+            logger.warning("🎯 战术结论: 机构正在用限价买单疯狂吸收带血的筹码，随时准备反抽！")
+            logger.warning("🟢" * 25 + "\n")
 
-            # 找到一次背离后，为了防止余震疯狂报警，清空一半的队列进入“冷却期”
             for _ in range(150):
-                if self.snapshots:
-                    self.snapshots.popleft()
+                if self.snapshots: self.snapshots.popleft()
 
 
 if __name__ == "__main__":

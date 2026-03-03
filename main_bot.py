@@ -4,8 +4,17 @@
 @Author     : Zijun Deng
 @Date       : 3/2/26 11:25 PM
 @File       : main_bot.py
-@Description: 
+@Description:
 """
+import os
+import sys
+
+# 添加项目根目录到 Python 路径
+current_file = os.path.abspath(__file__)
+project_root = os.path.dirname(current_file)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # 伪代码示例
 from engines.engine_2_smc import run_engine_2
 from src.utils.log import get_logger
