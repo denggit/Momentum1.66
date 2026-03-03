@@ -6,3 +6,4 @@ requests
 xgboost
 scikit-learn
 optuna
+websockets
