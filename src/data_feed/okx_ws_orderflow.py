@@ -1,3 +1,4 @@
+import signal
 import asyncio
 import json
 import logging
@@ -305,8 +306,42 @@ class OrderFlowSniper:
 
 
 if __name__ == "__main__":
+    # 🌟 新增：信号转换器。当收到 kill -15 (SIGTERM) 时，主动抛出 KeyboardInterrupt
+    def handle_sigterm(*args):
+        logger.warning("🔔 收到 kill -15 (SIGTERM) 信号！转换为安全迫降指令...")
+        raise KeyboardInterrupt()
+
+    # 监听 kill -15 信号
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
     sniper = OrderFlowSniper(symbol="ETH-USDT-SWAP")
     try:
         asyncio.run(sniper.connect_and_listen())
     except KeyboardInterrupt:
-        logger.info("\n⏹️ 订单流狙击手已安全撤离。")
+        logger.info("\n⚠️ 准备执行安全迫降，保存内存数据...")
+        
+        # 强行结算还没追踪完的订单
+        if sniper.active_trackings:
+            current_ts = time.time()
+            for track in sniper.active_trackings:
+                bounce_pct = (track['max_price'] - track['entry_price']) / track['entry_price'] * 100
+                duration = current_ts - track['entry_time']
+                
+                try:
+                    with open(sniper.csv_file, mode='a', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
+                            round(track['cvd_delta_usdt'] / 10000, 2),
+                            round(track['price_diff'], 2),
+                            track['entry_price'],
+                            track['max_price'],
+                            round(bounce_pct, 4),
+                            round(duration, 1),
+                            "程序重启中断(强制结算)"  # 🌟 专属结束标记
+                        ])
+                except Exception as e:
+                    pass
+            logger.info(f"✅ 完美！已将 {len(sniper.active_trackings)} 个未完成的追踪记录抢救至 CSV！")
+            
+        logger.info("⏹️ 订单流狙击手已安全撤离。可以放心重启了！")
