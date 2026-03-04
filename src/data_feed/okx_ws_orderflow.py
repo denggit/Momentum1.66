@@ -120,17 +120,14 @@ class OrderFlowSniper:
         massive_selling_absorbed = recent_cvd_delta_usdt < -500_000 
 
         # ==========================================
-        # 🧠 V5 极光雷达：加入【拐点反击确认】防瀑布！
+        # 🧠 V5.1 极光雷达：要求极其明确的多头主力反击！
         # ==========================================
-        # 提取最近的 1 到 2 个快照（过去 10~20 秒）
         last_snap = self.snapshots[-2]
+        micro_cvd_delta_contracts = current_snap['cvd'] - last_snap['cvd']
+        micro_cvd_delta_usdt = micro_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
         
-        # 计算这最后 10 秒钟内的微观 CVD 变化
-        micro_cvd_delta = current_snap['cvd'] - last_snap['cvd']
-        
-        # 核心防御：这最后的 10 秒钟，CVD 必须是【正数】（或者跌势极度枯竭趋近于0）！
-        # 也就是说，前面 3 分钟砸了 50 万，但这最后的 10 秒，有人开始市价向上买了！敌人的子弹停了！
-        is_turning_around = micro_cvd_delta > 0 
+        # 核心防御：最后的 10 秒钟，不能仅仅是跌停了，必须有多头主动砸进至少 5 万美金的市价买单拉升！
+        is_turning_around = micro_cvd_delta_usdt > 50_000
         
         time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
 
