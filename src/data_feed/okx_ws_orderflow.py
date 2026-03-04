@@ -107,33 +107,35 @@ class OrderFlowSniper:
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
-        # 1. 位置确认：当前价格被压制在过去 50 分钟内的极低点附近 (差价在 1 刀以内)
-        price_is_near_low = current_snap['price'] <= (lowest_snap['price'] + 1.0)
-
-        # ==========================================
-        # 🧠 Zijun的超神优化：加入“流速（Velocity）”限制！
-        # ==========================================
-        # 我们不再取“历史最低点到现在的总 CVD 差”
-        # 而是严苛地只取“最近 3 分钟（18个快照）”的 CVD 净增量！
-        # 彻底过滤掉“70万慢跌 + 10万真跌”的伪突破。
-
-        RECENT_WINDOW = 18  # 18 * 10秒 = 180秒 (3分钟)
+        # 1. 位置确认（底线箱体）
+        price_diff = current_snap['price'] - lowest_snap['price']
+        price_is_near_low = -2.0 <= price_diff <= 1.0
+        
+        # 2. 宏观爆量确认（3分钟流速）
+        RECENT_WINDOW = 18 # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
-
         recent_cvd_delta_contracts = current_snap['cvd'] - snapshot_3min_ago['cvd']
-        CONTRACT_SIZE = 0.1
-
-        # 计算这短短 3 分钟内的真实 USDT 砸盘量
+        CONTRACT_SIZE = 0.1 
         recent_cvd_delta_usdt = recent_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
+        massive_selling_absorbed = recent_cvd_delta_usdt < -500_000 
 
-        # 2. 瞬间爆量确认：就在这短短 3 分钟内，散户疯狂砸出了 50 万美金以上的市价单！
-        # (因为时间窗口缩短到了 3 分钟，所以阈值可以适当从 80 万调回 50 万美金)
-        massive_selling_absorbed = recent_cvd_delta_usdt < -500_000
-
-        # 距离上次创低点至少过了一小段时间（防止同一个瞬间反复报警）
+        # ==========================================
+        # 🧠 V5 极光雷达：加入【拐点反击确认】防瀑布！
+        # ==========================================
+        # 提取最近的 1 到 2 个快照（过去 10~20 秒）
+        last_snap = self.snapshots[-2]
+        
+        # 计算这最后 10 秒钟内的微观 CVD 变化
+        micro_cvd_delta = current_snap['cvd'] - last_snap['cvd']
+        
+        # 核心防御：这最后的 10 秒钟，CVD 必须是【正数】（或者跌势极度枯竭趋近于0）！
+        # 也就是说，前面 3 分钟砸了 50 万，但这最后的 10 秒，有人开始市价向上买了！敌人的子弹停了！
+        is_turning_around = micro_cvd_delta > 0 
+        
         time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
 
-        if price_is_near_low and massive_selling_absorbed and time_passed:
+        # 把这把安全锁加进终极判定里！
+        if price_is_near_low and massive_selling_absorbed and is_turning_around and time_passed:
             logger.warning("\n" + "🟢" * 25)
             logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
             logger.warning(
