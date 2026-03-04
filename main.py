@@ -1,53 +1,117 @@
-import os
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@Author     : Zijun Deng
+@Date       : 3/4/26
+@File       : main.py
+@Description: 多引擎集群总司令。负责拉起所有子引擎、进程隔离、统一下发模式、独立故障恢复。
+"""
+import subprocess
+import time
 import sys
+import os
+import asyncio
+import signal
 
-# 添加项目根目录到 Python 路径
-current_file = os.path.abspath(__file__)
-project_root = os.path.dirname(current_file)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
-from config.loader import SYMBOL, TIMEFRAME, SQZ_PARAMS
-from src.data_feed.okx_loader import OKXDataLoader
-from src.strategy.indicators import add_squeeze_indicators
-from src.strategy.squeeze import SqueezeStrategy
 from src.utils.log import get_logger
-logger = get_logger(__name__)
+from src.utils.email_sender import send_trading_signal_email
+
+logger = get_logger("main_commander")
+
+# ==========================================
+# 🚀 舰队编制表：在这里注册你未来所有的引擎
+# ==========================================
+ENGINES = [
+    {
+        "name": "Engine_3_OrderFlow",
+        "script": os.path.join(current_dir, "engines", "engine_3_orderflow", "strategy.py")
+    },
+    # 未来你想加一号引擎，只需要去掉注释：
+    # {
+    #     "name": "Engine_1_SMC_Swing",
+    #     "script": os.path.join(current_dir, "engines", "engine_1", "strategy.py")
+    # },
+]
+
+
+async def notify_crash(engine_name, exit_code):
+    details = f"""
+🚨 警告：Momentum 1.66 子引擎崩溃！
+🤖 崩溃模块: {engine_name}
+💀 退出状态码: {exit_code}
+⏳ Main总司令正在尝试为您重新拉起该引擎，其他引擎不受影响！
+"""
+    try:
+        await send_trading_signal_email("SYSTEM", f"⚠️ {engine_name} 崩溃重启", 0.0, details)
+    except:
+        pass
+
+
+def main():
+    # 接收来自 watchdog 的参数 (默认 collect)
+    mode = "collect"
+    if len(sys.argv) > 1 and sys.argv[1] in ['live', 'collect']:
+        mode = sys.argv[1]
+
+    logger.warning(f"👑 [Main总司令] 上线！全军将进入【{mode.upper()}】模式！")
+
+    active_processes = {}
+    restart_delay = 5
+
+    # 1. 初始列队：为每个引擎分配独立的子进程
+    for engine in ENGINES:
+        cmd = [sys.executable, engine["script"], "--mode", mode]
+        logger.info(f"🚀 [Main总司令] 正在点火: {engine['name']}")
+        p = subprocess.Popen(cmd)
+        active_processes[engine['name']] = {"process": p, "cmd": cmd}
+
+    # 优雅退出处理函数 (传递 kill 信号给所有子进程)
+    def handle_sigterm(*args):
+        logger.warning("\n🛑 [Main总司令] 收到全军撤退指令！正在向所有子引擎下达安全迫降指令...")
+        for name, info in active_processes.items():
+            p = info["process"]
+            if p.poll() is None:
+                p.terminate()  # 相当于向子引擎发送 kill -15
+        logger.warning("✅ [Main总司令] 全军迫降指令下达完毕，Main进程退出。")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    signal.signal(signal.SIGINT, handle_sigterm)
+
+    # 2. 永不休眠的雷达监控循环
+    try:
+        while True:
+            for name, info in active_processes.items():
+                p = info["process"]
+
+                # 如果 poll() 不是 None，说明这个引擎的子进程死了
+                if p.poll() is not None:
+                    exit_code = p.returncode
+
+                    if exit_code != 0:
+                        logger.error(f"❌ [Main总司令] 发现 {name} 意外阵亡！(退出码: {exit_code})")
+                        asyncio.run(notify_crash(name, exit_code))
+                    else:
+                        logger.warning(f"🛑 [Main总司令] 发现 {name} 正常退出。")
+
+                    logger.info(f"⏳ [Main总司令] {restart_delay} 秒后尝试重新部署 {name}...")
+                    time.sleep(restart_delay)
+
+                    # 重新拉起死掉的那个引擎，绝对不影响其他活着的引擎
+                    logger.info(f"🔄 [Main总司令] 正在重新拉起: {name}")
+                    new_p = subprocess.Popen(info["cmd"])
+                    active_processes[name]["process"] = new_p
+
+            time.sleep(2)  # 每 2 秒巡视一圈
+
+    except Exception as e:
+        logger.error(f"❌ [Main总司令] 监控循环发生异常: {e}")
+        handle_sigterm()
+
 
 if __name__ == "__main__":
-    # 1. 加载配置
-    symbol = SYMBOL
-    timeframe = TIMEFRAME
-
-    # 策略参数
-    sqz_params = SQZ_PARAMS
-
-    # 2. 拉取数据 (这里我们多拉一点，拉 1000 根，方便看历史信号)
-    loader = OKXDataLoader(symbol=symbol, timeframe=timeframe)
-    df = loader.fetch_historical_data(limit=5000)
-
-    if not df.empty:
-        # 3. 计算技术指标
-        df = add_squeeze_indicators(
-            df=df,
-            bb_len=sqz_params['bb_length'],
-            bb_std=sqz_params['bb_std'],
-            kc_len=sqz_params['kc_length'],
-            kc_mult=sqz_params['kc_mult']
-        )
-
-        # 4. 生成交易信号
-        strategy = SqueezeStrategy(volume_factor=sqz_params['volume_factor'])
-        df = strategy.generate_signals(df)
-
-        # 5. 打印出所有出现开仓信号的时间点！
-        signals_df = df[df['Signal'] != 0].copy()
-
-        logger.info("\n=== 历史触发的 Squeeze 突破信号清单 ===")
-        if not signals_df.empty:
-            for index, row in signals_df.iterrows():
-                direction = "🟢 做多 (LONG)" if row['Signal'] == 1 else "🔴 做空 (SHORT)"
-                logger.info(
-                    f"时间: {index} | 方向: {direction} | 突破价格: {row['close']} | 放量确认: {row['volume']:.2f} > 均量 {row['Vol_SMA']:.2f}")
-        else:
-            logger.info("这段时间内没有触发完美的挤压突破信号 (市场太震荡或者没有放量)。")
+    main()
