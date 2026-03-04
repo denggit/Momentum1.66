@@ -36,7 +36,7 @@ class CSVTracker:
             'entry_price': signal['price'],
             'cvd_delta_usdt': signal['cvd_delta_usdt'],
             'micro_cvd_delta_usdt': signal['micro_cvd'],
-            'price_diff': signal['price_diff'],
+            'price_diff_pct': signal['price_diff_pct'],
             'max_price': signal['price']
         })
         logger.info(f"📊 已将信号加入科考船追踪队列，当前追踪任务数: {len(self.active_trackings)}")
@@ -77,7 +77,7 @@ class CSVTracker:
                     datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
                     round(track['cvd_delta_usdt'] / 10000, 2),
                     round(track['micro_cvd_delta_usdt'] / 10000, 2),
-                    round(track['price_diff'], 2),
+                    round(track['price_diff_pct'], 2),
                     track['entry_price'],
                     track['max_price'],
                     round(bounce_pct, 4),

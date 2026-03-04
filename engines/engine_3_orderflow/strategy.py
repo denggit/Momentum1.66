@@ -23,6 +23,7 @@ from src.strategy.orderflow import OrderFlowMath
 from engines.engine_3_orderflow.tracker import CSVTracker
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
+from engines.engine_2_smc.strategy import MicroSMCRadar
 
 logger = get_logger(__name__)
 
@@ -30,9 +31,12 @@ logger = get_logger(__name__)
 class Engine3Commander:
     def __init__(self, symbol="ETH-USDT-SWAP", mode="collect"):
         self.symbol = symbol
-        self.mode = mode  # 记录当前运行模式
+        self.mode = mode
         self.math_brain = OrderFlowMath()
         self.tracker = CSVTracker(project_root)
+
+        # 🌟 雇佣二号引擎雷达兵！
+        self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)
@@ -49,20 +53,28 @@ class Engine3Commander:
         # 2. 如果有信号，判断级别并执行动作
         if signal_data:
             if signal_data['level'] == "STRICT":
-                logger.warning("\n" + "🟢" * 25)
-                logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
+                # ========================================================
+                # 🌟 宏观结构大审查！问问二号引擎
+                is_safe, smc_msg = self.smc_radar.is_in_poi(signal_data['price'])
+                # ========================================================
 
-                # 🌟 核心开关：只有在 live 模式下，才去执行实盘下单！
-                if self.mode == "live":
-                    logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
-                    # ========================================================
-                    # if Engine2.is_in_poi(tick['price']):
-                    #     self.execute_real_trade(...)
-                    # ========================================================
+                if is_safe:
+                    logger.warning("\n" + "🟢" * 25)
+                    logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
+                    logger.warning(f"🗺️ 宏观支持: {smc_msg}")
+                    logger.warning(
+                        f"💥 微观盘口: 砸盘 ${abs(signal_data['cvd_delta_usdt']) / 10000:.1f}万，反转 ${signal_data['micro_cvd'] / 10000:.1f}万")
+
+                    if self.mode == "live":
+                        logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
+                        # self.execute_real_trade(...)
+
+                    asyncio.create_task(self.send_email_alert(signal_data))
                 else:
-                    logger.warning("🛡️ [科考模式] 满足绝杀条件，但当前为收集模式，不执行真实下单。")
+                    # 价格悬空，虽然出了大量砸盘，但二号引擎警告不要接刀！
+                    logger.debug(f"🛡️ [防撞墙启动] 发现500万砸盘，但下方 {smc_msg}，大概率是半山腰瀑布，已拦截该次开火！")
 
-                asyncio.create_task(self.send_email_alert(signal_data))
+                # 无论是否通过 SMC 审核，都丢进科考船记录下来，以便对比
                 self.tracker.add_tracking(signal_data)
 
             elif signal_data['level'] == "BROAD":

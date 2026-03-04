@@ -145,7 +145,7 @@ class OrderFlowSniper:
                             datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
                             round(track['cvd_delta_usdt'] / 10000, 2),
                             round(track['micro_cvd_delta_usdt'] / 10000, 2),  # 🌟 新增：写入反转量(万刀)
-                            round(track['price_diff'], 2),
+                            round(track['price_diff_pct'], 2),
                             track['entry_price'],
                             track['max_price'],
                             round(bounce_pct, 4),
@@ -185,8 +185,8 @@ class OrderFlowSniper:
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
-        # 共同基础参数提取
-        price_diff = current_snap['price'] - lowest_snap['price']
+        # 🌟 升级为跨币种通用的百分比算法：
+        price_diff_pct = (current_snap['price'] - lowest_snap['price']) / lowest_snap['price'] * 100
 
         RECENT_WINDOW = 18  # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
@@ -205,7 +205,7 @@ class OrderFlowSniper:
         # 🧪 外层网：科考船宽口径 (时间锁：300秒内不重复建档)
         # ==========================================
         # 🌟 调整：上限放宽至 +5.0，容纳长下影线
-        broad_price_ok = -3.0 <= price_diff <= 5.0
+        broad_price_ok = -3.0 <= price_diff_pct <= 5.0
         broad_cvd_ok = recent_cvd_delta_usdt < -2_000_000
         broad_turn_ok = micro_cvd_delta_usdt > 50_000
 
@@ -216,14 +216,14 @@ class OrderFlowSniper:
 
         if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed and broad_cooldown_ok:
             logger.warning(
-                f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt) / 10000:.1f}万，偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万。加入CSV追踪队列...")
+                f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt) / 10000:.1f}万，偏离前低: {price_diff_pct:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万。加入CSV追踪队列...")
 
             self.active_trackings.append({
                 'entry_time': current_snap['ts'],
                 'entry_price': current_snap['price'],
                 'cvd_delta_usdt': recent_cvd_delta_usdt,
                 'micro_cvd_delta_usdt': micro_cvd_delta_usdt,  # 🌟 新增：把反转量塞进字典
-                'price_diff': price_diff,
+                'price_diff_pct': price_diff_pct,
                 'max_price': current_snap['price']
             })
 
@@ -235,7 +235,7 @@ class OrderFlowSniper:
         # ⚔️ 内层网：实盘严口径 (独立时间锁：300秒内不重复发邮件)
         # ==========================================
         # 🌟 调整：上限放宽至 +4.0，绝不放过极速拉升的黄金坑
-        strict_price_ok = -2.0 <= price_diff <= 4.0
+        strict_price_ok = -2.0 <= price_diff_pct <= 4.0
         strict_cvd_ok = recent_cvd_delta_usdt < -5_000_000
         strict_turn_ok = micro_cvd_delta_usdt > 150_000
 
@@ -249,7 +249,7 @@ class OrderFlowSniper:
             logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
             logger.warning(
                 f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
-            logger.warning(f"偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万")
+            logger.warning(f"偏离前低: {price_diff_pct:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万")
             logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
             logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
             logger.warning("🟢" * 25 + "\n")
@@ -342,7 +342,7 @@ if __name__ == "__main__":
                             datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
                             round(track['cvd_delta_usdt'] / 10000, 2),
                             round(track['micro_cvd_delta_usdt'] / 10000, 2),  # 🌟 新增：强行结算时也写入
-                            round(track['price_diff'], 2),
+                            round(track['price_diff_pct'], 2),
                             track['entry_price'],
                             track['max_price'],
                             round(bounce_pct, 4),

@@ -51,7 +51,8 @@ class OrderFlowMath:
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
-        price_diff = current_snap['price'] - lowest_snap['price']
+        # 🌟 升级为跨币种通用的百分比算法：
+        price_diff_pct = (current_snap['price'] - lowest_snap['price']) / lowest_snap['price'] * 100
 
         RECENT_WINDOW = 18  # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
@@ -67,10 +68,13 @@ class OrderFlowMath:
         if not time_passed:
             return None
 
-        # ⚔️ 严口径 (STRICT) - 优先判定
-        strict_price_ok = -2.0 <= price_diff <= 4.0
-        strict_cvd_ok = recent_cvd_delta_usdt < -5_000_000  # -500万巨量砸盘
-        strict_turn_ok = micro_cvd_delta_usdt > 150_000  # 15万买盘反抽
+        # ==========================================
+        # ⚔️ 内层网：实盘严口径 (STRICT)
+        # ==========================================
+        # 只要从最低点反弹不超过 0.2%，就不算追高！
+        strict_price_ok = price_diff_pct <= 0.20
+        strict_cvd_ok = recent_cvd_delta_usdt < -1_500_000  # -500万巨量砸盘
+        strict_turn_ok = micro_cvd_delta_usdt > 100_000  # 15万买盘反抽
 
         strict_time_ok = (current_ts - self.last_strict_trigger_time) > 300
         strict_price_override = current_snap['price'] < (self.last_strict_trigger_price - 3.0)
@@ -83,14 +87,17 @@ class OrderFlowMath:
                 "price": current_snap['price'],
                 "cvd_delta_usdt": recent_cvd_delta_usdt,
                 "micro_cvd": micro_cvd_delta_usdt,
-                "price_diff": price_diff,
+                "price_diff_pct": price_diff_pct,
                 "ts": current_ts
             }
 
-        # 🧪 宽口径 (BROAD)
-        broad_price_ok = -3.0 <= price_diff <= 5.0
-        broad_cvd_ok = recent_cvd_delta_usdt < -2_000_000  # -200万砸盘
-        broad_turn_ok = micro_cvd_delta_usdt > 50_000  # 5万买盘反抽
+        # ==========================================
+        # 🧪 外层网：科考船宽口径 (BROAD)
+        # ==========================================
+        # 宽口径容忍度放宽到 0.3%
+        broad_price_ok = price_diff_pct <= 0.30
+        broad_cvd_ok = recent_cvd_delta_usdt < -1_000_000  # -200万砸盘
+        broad_turn_ok = micro_cvd_delta_usdt > 30_000  # 5万买盘反抽
 
         broad_time_ok = (current_ts - self.last_broad_trigger_time) > 300
         broad_price_override = current_snap['price'] < (self.last_broad_trigger_price - 2.0)
@@ -103,7 +110,7 @@ class OrderFlowMath:
                 "price": current_snap['price'],
                 "cvd_delta_usdt": recent_cvd_delta_usdt,
                 "micro_cvd": micro_cvd_delta_usdt,
-                "price_diff": price_diff,
+                "price_diff_pct": price_diff_pct,
                 "ts": current_ts
             }
 
