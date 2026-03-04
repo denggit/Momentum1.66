@@ -1,14 +1,15 @@
-import signal
 import asyncio
+import csv  # 新增 csv 模块
+import datetime
 import json
 import logging
 import os
+import signal
 import sys
-import csv  # 新增 csv 模块
-import websockets
-from collections import deque
 import time
-import datetime
+from collections import deque
+
+import websockets
 
 # 添加项目根目录到 Python 路径
 current_file = os.path.abspath(__file__)
@@ -18,6 +19,7 @@ if project_root not in sys.path:
 
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
+
 logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -45,22 +47,24 @@ class OrderFlowSniper:
         # ==========================================
         # 📊 数据科考船：CSV 归档配置
         # ==========================================
-        self.active_trackings = []  
+        self.active_trackings = []
         self.csv_file = os.path.join(project_root, "data", "bounce_records.csv")
-        
+
         # 🌟 新增：独立的时间锁与价格记忆
-        self.last_broad_trigger_time = 0  
-        self.last_broad_trigger_price = 0.0 # 新增：记忆宽口径触发时的价格
-        
-        self.last_strict_trigger_time = 0 
-        self.last_strict_trigger_price = 0.0 # 新增：记忆严口径触发时的价格
-        
+        self.last_broad_trigger_time = 0
+        self.last_broad_trigger_price = 0.0  # 新增：记忆宽口径触发时的价格
+
+        self.last_strict_trigger_time = 0
+        self.last_strict_trigger_price = 0.0  # 新增：记忆严口径触发时的价格
+
         # 确保目录存在，并初始化 CSV 表头
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
         if not os.path.exists(self.csv_file):
             with open(self.csv_file, mode='w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['触发时间', 'CVD砸盘量(万刀)', '偏离前低(刀)', '触发价格', '反弹最高价', '最大反弹幅度(%)', '追踪耗时(秒)', '结束原因'])
+                writer.writerow(
+                    ['触发时间', 'CVD砸盘量(万刀)', 'CVD反转量(万刀)', '偏离前低(刀)', '触发价格', '反弹最高价',
+                     '最大反弹幅度(%)', '追踪耗时(秒)', '结束原因'])
 
     async def connect_and_listen(self):
         subscribe_msg = {
@@ -129,17 +133,18 @@ class OrderFlowSniper:
             # 结束条件 2: 追踪时间满 15 分钟
             elif current_ts - track['entry_time'] > 900:
                 end_reason = "时间到了(15分钟)"
-            
+
             if end_reason:
                 bounce_pct = (track['max_price'] - track['entry_price']) / track['entry_price'] * 100
                 duration = current_ts - track['entry_time']
-                
+
                 try:
                     with open(self.csv_file, mode='a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
                         writer.writerow([
                             datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
                             round(track['cvd_delta_usdt'] / 10000, 2),
+                            round(track['micro_cvd_delta_usdt'] / 10000, 2),  # 🌟 新增：写入反转量(万刀)
                             round(track['price_diff'], 2),
                             track['entry_price'],
                             track['max_price'],
@@ -147,10 +152,11 @@ class OrderFlowSniper:
                             round(duration, 1),
                             end_reason
                         ])
-                    logger.info(f"📊 记录归档 [{end_reason}] -> CVD砸盘: {track['cvd_delta_usdt']/10000:.1f}万 | 反弹幅度: {bounce_pct:.3f}% | 已写入CSV")
+                    logger.info(
+                        f"📊 记录归档 [{end_reason}] -> CVD砸盘: {track['cvd_delta_usdt'] / 10000:.1f}万 | 反弹幅度: {bounce_pct:.3f}% | 已写入CSV")
                 except Exception as e:
                     logger.error(f"CSV写入失败: {e}")
-                
+
                 self.active_trackings.remove(track)
 
     def _take_snapshot(self, ts):
@@ -163,12 +169,12 @@ class OrderFlowSniper:
 
     def _detect_absorption_divergence(self):
         """🌟 双轨制核心武器：非破坏性独立时间锁 + 局部前低修复"""
-        
+
         # ==========================================
         # 🐛 Bug修复 1：冷启动防御
         # ==========================================
         # 强制系统至少收集 15 分钟（90个快照）的数据后，雷达才允许开机！
-        if len(self.snapshots) < 90:  
+        if len(self.snapshots) < 90:
             return
 
         # ==========================================
@@ -181,13 +187,13 @@ class OrderFlowSniper:
 
         # 共同基础参数提取
         price_diff = current_snap['price'] - lowest_snap['price']
-        
-        RECENT_WINDOW = 18 # 180秒
+
+        RECENT_WINDOW = 18  # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
         recent_cvd_delta_contracts = current_snap['cvd'] - snapshot_3min_ago['cvd']
-        CONTRACT_SIZE = 0.1 
+        CONTRACT_SIZE = 0.1
         recent_cvd_delta_usdt = recent_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
-        
+
         last_snap = self.snapshots[-2]
         micro_cvd_delta_contracts = current_snap['cvd'] - last_snap['cvd']
         micro_cvd_delta_usdt = micro_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
@@ -199,51 +205,51 @@ class OrderFlowSniper:
         # 🧪 外层网：科考船宽口径 (时间锁：300秒内不重复建档)
         # ==========================================
         # 🌟 调整：上限放宽至 +5.0，容纳长下影线
-        broad_price_ok = -3.0 <= price_diff <= 5.0         
-        broad_cvd_ok = recent_cvd_delta_usdt < -300_000    
-        broad_turn_ok = micro_cvd_delta_usdt > 0           
-        
+        broad_price_ok = -3.0 <= price_diff <= 5.0
+        broad_cvd_ok = recent_cvd_delta_usdt < -2_000_000
+        broad_turn_ok = micro_cvd_delta_usdt > 50_000
+
         # 🌟 智能冷却锁：过了5分钟，或者价格比上次报警低了至少 2 刀（二次探底）
         broad_time_ok = (current_snap['ts'] - self.last_broad_trigger_time) > 300
         broad_price_override = current_snap['price'] < (self.last_broad_trigger_price - 2.0)
         broad_cooldown_ok = broad_time_ok or broad_price_override
 
         if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed and broad_cooldown_ok:
-            
-            logger.warning(f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt)/10000:.1f}万，偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt/10000:.2f}万。加入CSV追踪队列...")
-            
+            logger.warning(
+                f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt) / 10000:.1f}万，偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万。加入CSV追踪队列...")
+
             self.active_trackings.append({
                 'entry_time': current_snap['ts'],
                 'entry_price': current_snap['price'],
                 'cvd_delta_usdt': recent_cvd_delta_usdt,
+                'micro_cvd_delta_usdt': micro_cvd_delta_usdt,  # 🌟 新增：把反转量塞进字典
                 'price_diff': price_diff,
                 'max_price': current_snap['price']
             })
-            
+
             # 更新时间和价格记忆
             self.last_broad_trigger_time = current_snap['ts']
             self.last_broad_trigger_price = current_snap['price']
-
 
         # ==========================================
         # ⚔️ 内层网：实盘严口径 (独立时间锁：300秒内不重复发邮件)
         # ==========================================
         # 🌟 调整：上限放宽至 +4.0，绝不放过极速拉升的黄金坑
         strict_price_ok = -2.0 <= price_diff <= 4.0
-        strict_cvd_ok = recent_cvd_delta_usdt < -500_000
-        strict_turn_ok = micro_cvd_delta_usdt > 50_000
-        
+        strict_cvd_ok = recent_cvd_delta_usdt < -5_000_000
+        strict_turn_ok = micro_cvd_delta_usdt > 150_000
+
         # 🌟 智能冷却锁：过了5分钟，或者价格比上次报警低了至少 3 刀（代表散户止损被真实击穿）
         strict_time_ok = (current_snap['ts'] - self.last_strict_trigger_time) > 300
         strict_price_override = current_snap['price'] < (self.last_strict_trigger_price - 3.0)
         strict_cooldown_ok = strict_time_ok or strict_price_override
-        
+
         if strict_price_ok and strict_cvd_ok and strict_turn_ok and time_passed and strict_cooldown_ok:
             logger.warning("\n" + "🟢" * 25)
             logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
             logger.warning(
                 f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
-            logger.warning(f"偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt/10000:.2f}万")
+            logger.warning(f"偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt / 10000:.2f}万")
             logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
             logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
             logger.warning("🟢" * 25 + "\n")
@@ -254,17 +260,18 @@ class OrderFlowSniper:
                 cvd_delta_usdt=recent_cvd_delta_usdt,
                 time_window_minutes=3.0
             ))
-            
+
             # 更新时间和价格记忆
             self.last_strict_trigger_time = current_snap['ts']
             self.last_strict_trigger_price = current_snap['price']
 
     async def _send_bottom_fishing_email(self, symbol: str, price: float,
-                                        cvd_delta_usdt: float, time_window_minutes: float):
+                                         cvd_delta_usdt: float, time_window_minutes: float):
         """发送抄底机会邮件通知"""
         current_time = time.time()
         if current_time - self._last_email_sent_time < self._email_cooldown:
-            logger.debug(f"邮件发送频率限制，跳过本次发送。还需等待 {self._email_cooldown - (current_time - self._last_email_sent_time):.0f} 秒")
+            logger.debug(
+                f"邮件发送频率限制，跳过本次发送。还需等待 {self._email_cooldown - (current_time - self._last_email_sent_time):.0f} 秒")
             return
 
         try:
@@ -282,7 +289,7 @@ class OrderFlowSniper:
 
 💡 核心逻辑:
 1. 价格被压制在近期低点附近，或已完成极限插针V反！
-2. 散户在短时间内疯狂抛售 {abs(cvd_delta_usdt)/10000:.1f} 万美金
+2. 散户在短时间内疯狂抛售 {abs(cvd_delta_usdt) / 10000:.1f} 万美金
 3. 价格未能继续下跌，并且主力已拍出 >5 万美金的市价单反击！
 
 🎯 操作建议: 准备抢反弹，关注短期反转机会 (建议止损设置在 -4.0 刀)
@@ -311,6 +318,7 @@ if __name__ == "__main__":
         logger.warning("🔔 收到 kill -15 (SIGTERM) 信号！转换为安全迫降指令...")
         raise KeyboardInterrupt()
 
+
     # 监听 kill -15 信号
     signal.signal(signal.SIGTERM, handle_sigterm)
 
@@ -319,29 +327,30 @@ if __name__ == "__main__":
         asyncio.run(sniper.connect_and_listen())
     except KeyboardInterrupt:
         logger.info("\n⚠️ 准备执行安全迫降，保存内存数据...")
-        
+
         # 强行结算还没追踪完的订单
         if sniper.active_trackings:
             current_ts = time.time()
             for track in sniper.active_trackings:
                 bounce_pct = (track['max_price'] - track['entry_price']) / track['entry_price'] * 100
                 duration = current_ts - track['entry_time']
-                
+
                 try:
                     with open(sniper.csv_file, mode='a', newline='', encoding='utf-8') as f:
                         writer = csv.writer(f)
                         writer.writerow([
                             datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
                             round(track['cvd_delta_usdt'] / 10000, 2),
+                            round(track['micro_cvd_delta_usdt'] / 10000, 2),  # 🌟 新增：强行结算时也写入
                             round(track['price_diff'], 2),
                             track['entry_price'],
                             track['max_price'],
                             round(bounce_pct, 4),
                             round(duration, 1),
-                            "程序重启中断(强制结算)"  # 🌟 专属结束标记
+                            "程序重启中断(强制结算)"
                         ])
                 except Exception as e:
                     pass
             logger.info(f"✅ 完美！已将 {len(sniper.active_trackings)} 个未完成的追踪记录抢救至 CSV！")
-            
+
         logger.info("⏹️ 订单流狙击手已安全撤离。可以放心重启了！")
