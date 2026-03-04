@@ -1,4 +1,3 @@
-# src/strategy/orderflow.py
 import time
 from collections import deque
 
@@ -7,111 +6,108 @@ class OrderFlowMath:
     def __init__(self):
         self.cvd = 0.0
         self.current_price = 0.0
-        self.snapshots = deque(maxlen=300)
+
+        # 仅仅作为历史锚点使用，不再用于遍历寻找最低价（大大减轻 CPU 压力）
+        self.snapshots = deque(maxlen=30)  # 只存过去 5 分钟 (30个10秒快照)
         self.last_snapshot_time = time.time()
 
-        # 冷却锁与价格破局记忆
-        self.last_broad_trigger_time = 0
-        self.last_broad_trigger_price = 0.0
-        self.last_strict_trigger_time = 0
-        self.last_strict_trigger_price = 0.0
+        # ==========================================
+        # 🔫 极速状态机 (Event-Driven State Machine)
+        # ==========================================
+        self.state = "IDLE"  # 状态：IDLE (空闲) -> ARMED (上膛)
+        self.armed_time = 0.0  # 上膛的时间戳
+        self.local_low = 0.0  # 上膛后的局部最低价 (坑底价格)
+        self.local_low_cvd = 0.0  # 局部最低价那一瞬间的 CVD 值
+
+        # 防止连续开火的冷却锁
+        self.last_fire_time = 0.0
 
     def process_tick(self, tick: dict):
-        """处理逐笔交易，更新CVD。每10秒计算一次信号"""
+        """每秒可能接收几十上百个tick，全速 O(1) 运算"""
         self.current_price = tick['price']
         size = tick['size']
         side = tick['side']
         current_ts = tick['ts']
 
-        # CVD 核心累计
+        # 1. 极速更新全局 CVD
         if side == 'buy':
             self.cvd += size
         else:
             self.cvd -= size
 
-        # 每 10 秒拍一次快照并检测背离
+        # 2. 维护历史锚点 (仅为了获取"3分钟前"的CVD基准，极低频操作)
         if current_ts - self.last_snapshot_time >= 10:
             self.snapshots.append({
                 'ts': current_ts,
-                'price': self.current_price,
                 'cvd': self.cvd
             })
             self.last_snapshot_time = current_ts
-            return self._detect_absorption(current_ts)
 
-        return None
-
-    def _detect_absorption(self, current_ts):
-        """核心检测算法：返回 BROAD（宽口径）或 STRICT（严口径）信号字典"""
-        if len(self.snapshots) < 90:  # 冷启动防御 15 分钟
-            return None
-
-        LOOKBACK_WINDOW = 90
-        past_snapshots = list(self.snapshots)[-LOOKBACK_WINDOW:-1]
-        lowest_snap = min(past_snapshots, key=lambda x: x['price'])
-        current_snap = self.snapshots[-1]
-
-        # 🌟 升级为跨币种通用的百分比算法：
-        price_diff_pct = (current_snap['price'] - lowest_snap['price']) / lowest_snap['price'] * 100
-
-        RECENT_WINDOW = 18  # 180秒
-        snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
-        recent_cvd_delta_contracts = current_snap['cvd'] - snapshot_3min_ago['cvd']
-        CONTRACT_SIZE = 0.1
-        recent_cvd_delta_usdt = recent_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
-
-        last_snap = self.snapshots[-2]
-        micro_cvd_delta_contracts = current_snap['cvd'] - last_snap['cvd']
-        micro_cvd_delta_usdt = micro_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
-
-        time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
-        if not time_passed:
+        # 刚开机，数据不够 3 分钟 (18个快照)，保持沉默防飞刀
+        if len(self.snapshots) < 18:
             return None
 
         # ==========================================
-        # ⚔️ 内层网：实盘严口径 (STRICT)
+        # 🧠 毫秒级状态机逻辑开始
         # ==========================================
-        # 只要从最低点反弹不超过 0.2%，就不算追高！
-        strict_price_ok = price_diff_pct <= 0.20
-        strict_cvd_ok = recent_cvd_delta_usdt < -1_500_000  # -500万巨量砸盘
-        strict_turn_ok = micro_cvd_delta_usdt > 100_000  # 15万买盘反抽
+        # 获取 3 分钟前的 CVD 作为基准
+        snapshot_3m_ago = self.snapshots[-18]
+        CONTRACT_SIZE = 0.1  # ETH 每张合约 0.1 个币，如果你做大饼记得在配置里改这里
+        recent_cvd_delta_usdt = (self.cvd - snapshot_3m_ago['cvd']) * CONTRACT_SIZE * self.current_price
 
-        strict_time_ok = (current_ts - self.last_strict_trigger_time) > 300
-        strict_price_override = current_snap['price'] < (self.last_strict_trigger_price - 3.0)
+        # 阶段 1：触发上膛 (ARMED)
+        # 只要 3 分钟内被砸了 100 万刀，系统立刻进入备战状态，死死盯住盘口
+        if self.state == "IDLE":
+            if recent_cvd_delta_usdt < -1_000_000 and (current_ts - self.last_fire_time > 300):
+                self.state = "ARMED"
+                self.armed_time = current_ts
+                self.local_low = self.current_price
+                self.local_low_cvd = self.cvd
+                return None
 
-        if strict_price_ok and strict_cvd_ok and strict_turn_ok and (strict_time_ok or strict_price_override):
-            self.last_strict_trigger_time = current_ts
-            self.last_strict_trigger_price = current_snap['price']
-            return {
-                "level": "STRICT",
-                "price": current_snap['price'],
-                "cvd_delta_usdt": recent_cvd_delta_usdt,
-                "micro_cvd": micro_cvd_delta_usdt,
-                "price_diff_pct": price_diff_pct,
-                "ts": current_ts
-            }
+        # 阶段 2：让子弹飞 (Tracking Bottom) & 击发 (FIRE)
+        elif self.state == "ARMED":
+            # 动作 A：价格还在创新低！说明没跌完，绝对不开火！不断下移防线！
+            if self.current_price < self.local_low:
+                self.local_low = self.current_price
+                self.local_low_cvd = self.cvd  # 更新坑底的 CVD 坐标
+                self.armed_time = current_ts  # 刷新上膛时间，重新倒计时
 
-        # ==========================================
-        # 🧪 外层网：科考船宽口径 (BROAD)
-        # ==========================================
-        # 宽口径容忍度放宽到 0.3%
-        broad_price_ok = price_diff_pct <= 0.30
-        broad_cvd_ok = recent_cvd_delta_usdt < -1_000_000  # -200万砸盘
-        broad_turn_ok = micro_cvd_delta_usdt > 30_000  # 5万买盘反抽
+            # 动作 B：解除武装 (如果 120 秒内都在坑底横盘，没有买盘反抽，说明死水一潭，放弃)
+            elif current_ts - self.armed_time > 120:
+                self.state = "IDLE"
 
-        broad_time_ok = (current_ts - self.last_broad_trigger_time) > 300
-        broad_price_override = current_snap['price'] < (self.last_broad_trigger_price - 2.0)
+            # 动作 C：绝地反击！(微观价格开始反弹，计算从【绝对坑底】到【此时此刻】的主动买盘量)
+            else:
+                micro_cvd_usdt = (self.cvd - self.local_low_cvd) * CONTRACT_SIZE * self.current_price
+                bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
-        if broad_price_ok and broad_cvd_ok and broad_turn_ok and (broad_time_ok or broad_price_override):
-            self.last_broad_trigger_time = current_ts
-            self.last_broad_trigger_price = current_snap['price']
-            return {
-                "level": "BROAD",
-                "price": current_snap['price'],
-                "cvd_delta_usdt": recent_cvd_delta_usdt,
-                "micro_cvd": micro_cvd_delta_usdt,
-                "price_diff_pct": price_diff_pct,
-                "ts": current_ts
-            }
+                # ⚔️ 严口径击发：反弹拐头 > 0.05% (不过分追高)，且主力买入 > 10万，且总砸盘 > 150万
+                if micro_cvd_usdt > 100_000 and 0.05 < bounce_pct <= 0.20 and recent_cvd_delta_usdt < -1_500_000:
+                    self.state = "IDLE"  # 开火后重置状态机
+                    self.last_fire_time = current_ts
+                    return {
+                        "level": "STRICT",
+                        "price": self.current_price,  # 触发时的现价
+                        "local_low": self.local_low,  # 🌟 真正探明的局部最低价
+                        "cvd_delta_usdt": recent_cvd_delta_usdt,
+                        "micro_cvd": micro_cvd_usdt,
+                        "price_diff_pct": bounce_pct,  # 为了兼容之前的 tracker，键名依然叫 price_diff，但存的是百分比
+                        "ts": current_ts
+                    }
+
+                # 🧪 宽口径击发：反弹拐头 > 0.02%，且买入 > 3万 (收集数据用)
+                elif micro_cvd_usdt > 30_000 and 0.02 < bounce_pct <= 0.30:
+                    self.state = "IDLE"
+                    self.last_fire_time = current_ts
+                    return {
+                        "level": "BROAD",
+                        "price": self.current_price,
+                        "local_low": self.local_low,
+                        "cvd_delta_usdt": recent_cvd_delta_usdt,
+                        "micro_cvd": micro_cvd_usdt,
+                        "price_diff_pct": bounce_pct,
+                        "ts": current_ts
+                    }
 
         return None

@@ -54,16 +54,16 @@ class Engine3Commander:
         if signal_data:
             if signal_data['level'] == "STRICT":
                 # ========================================================
-                # 🌟 宏观结构大审查！问问二号引擎
-                is_safe, smc_msg = self.smc_radar.is_in_poi(signal_data['price'])
+                # 🌟 宏观结构大审查！拿刚刚探明的“坑底价 local_low”去问二号引擎
+                is_safe, smc_msg = self.smc_radar.is_in_poi(signal_data['local_low'])
                 # ========================================================
 
                 if is_safe:
                     logger.warning("\n" + "🟢" * 25)
                     logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
-                    logger.warning(f"🗺️ 宏观支持: {smc_msg}")
+                    logger.warning(f"🗺️ 宏观支持: {smc_msg} (完美命中坑底 {signal_data['local_low']})")
                     logger.warning(
-                        f"💥 微观盘口: 砸盘 ${abs(signal_data['cvd_delta_usdt']) / 10000:.1f}万，反转 ${signal_data['micro_cvd'] / 10000:.1f}万")
+                        f"💥 微观盘口: 砸盘 ${abs(signal_data['cvd_delta_usdt']) / 10000:.1f}万，反转 ${signal_data['micro_cvd'] / 10000:.1f}万，反弹了 {signal_data['price_diff_pct']:.3f}%")
 
                     if self.mode == "live":
                         logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
@@ -71,10 +71,9 @@ class Engine3Commander:
 
                     asyncio.create_task(self.send_email_alert(signal_data))
                 else:
-                    # 价格悬空，虽然出了大量砸盘，但二号引擎警告不要接刀！
-                    logger.debug(f"🛡️ [防撞墙启动] 发现500万砸盘，但下方 {smc_msg}，大概率是半山腰瀑布，已拦截该次开火！")
+                    logger.debug(
+                        f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")
 
-                # 无论是否通过 SMC 审核，都丢进科考船记录下来，以便对比
                 self.tracker.add_tracking(signal_data)
 
             elif signal_data['level'] == "BROAD":
@@ -91,18 +90,17 @@ class Engine3Commander:
             return
 
         details = f"""
-🚨 检测到机构恐慌吸收信号！
-💰 触发价格: {signal['price']}
+🚨 检测到机构恐慌吸收与绝地反击！
+💰 开火现价: {signal['price']}
+🕳️ 探明底价: {signal['local_low']}
 📉 CVD砸盘: ${abs(signal['cvd_delta_usdt']):,.0f} USDT
 📈 主力反抽: ${signal['micro_cvd']:,.0f} USDT
+🚀 坑底反弹: {signal['price_diff_pct']:.3f}%
 """
-        success = await send_trading_signal_email(self.symbol, "流速级抄底绝杀", signal['price'], details)
+        success = await send_trading_signal_email(self.symbol, "流速级抄底绝杀 (SMC装甲版)", signal['price'],
+                                                  details)
         if success:
             self._last_email_sent_time = current_ts
-
-    async def run(self):
-        logger.info("🚀 启动 Engine 3 订单流总指挥部...")
-        await self.streamer.connect()
 
 
 if __name__ == "__main__":
