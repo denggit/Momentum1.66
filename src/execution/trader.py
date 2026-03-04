@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 
 class OKXTrader:
-    def __init__(self, symbol="ETH-USDT-SWAP", leverage=20, td_mode="cross"):
+    def __init__(self, symbol="ETH-USDT-SWAP", leverage=20, td_mode="cross", risk_pct=0.5):
         self.symbol = symbol
         self.api_key = OKX_CONFIG.get('api_key')
         self.secret_key = OKX_CONFIG.get('secret_key')
@@ -35,7 +35,9 @@ class OKXTrader:
         self.base_url = "https://www.okx.com"
 
         self.leverage = leverage
-        self.td_mode = td_mode  # 默认全仓 cross (逐仓为 isolated)
+        self.td_mode = td_mode
+        self.risk_pct = risk_pct  # 🌟 比如 0.5 表示每次下注可用余额的 50%
+        self.available_usdt = 0.0  # 🌟 缓存在本地的可用余额
 
         # 简单合约面值表 (1张合约等于多少个币)
         self.ct_val_map = {
@@ -88,13 +90,20 @@ class OKXTrader:
 
         return await asyncio.to_thread(do_request)
 
-    async def execute_snipe(self, price: float, local_low: float, risk_usdt: float = 200.0):
+    async def execute_snipe(self, price: float, local_low: float):
         """
         极速三连发执行器：市价开多 -> Maker止盈 -> 条件市价止损
         """
         if not self.api_key:
             logger.error("❌ 实盘 API 未配置，拒绝下单。")
             return
+
+        # 🌟 动态计算本次应下注的本金
+        if self.available_usdt <= 0:
+            logger.error("❌ 本地缓存余额不足或未获取到余额，放弃本次开火！")
+            return
+
+        risk_usdt = self.available_usdt * self.risk_pct
 
         # ==========================================
         # 1. 计算仓位大小 (合约张数)
@@ -181,3 +190,24 @@ class OKXTrader:
             logger.error(f"❌ 止损单架设失败: {res_sl}")
 
         logger.warning("🏁 [三连发完毕] 交易已托管给交易所，等待止盈或止损触发！")
+
+        # 🌟 (可选) 刚开完仓，余额肯定变了，直接主动触发一次查账
+        asyncio.create_task(self.fetch_balance())
+
+    async def update_balance_loop(self):
+        """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地"""
+        logger.info("💰 [财务官] 已上线！将在后台默默监控账户余额...")
+        while True:
+            await self.fetch_balance()
+            await asyncio.sleep(60)  # 闲时每分钟查一次
+
+    async def fetch_balance(self):
+        """请求 OKX 获取 USDT 可用余额"""
+        res = await self._request("GET", "/api/v5/account/balance")
+        if res and res.get('code') == '0':
+            details = res['data'][0]['details']
+            for asset in details:
+                if asset['ccy'] == 'USDT':
+                    self.available_usdt = float(asset['availEq'])
+                    logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
+                    break

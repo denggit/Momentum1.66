@@ -40,7 +40,7 @@ class Engine3Commander:
         self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
 
         # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
-        self.trader = OKXTrader(symbol=symbol, leverage=20)
+        self.trader = OKXTrader(symbol=symbol, leverage=20, risk_pct=0.5) # 每次用 50% 的仓位
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)
@@ -76,7 +76,6 @@ class Engine3Commander:
                         asyncio.create_task(self.trader.execute_snipe(
                             price=signal_data['price'],
                             local_low=signal_data['local_low'],
-                            risk_usdt=200.0
                         ))
 
                     asyncio.create_task(self.send_email_alert(signal_data))
@@ -114,6 +113,15 @@ class Engine3Commander:
 
     async def run(self):
         logger.info("🚀 启动 Engine 3 订单流总指挥部...")
+
+        # 🌟 1. 启动 SMC 雷达后台静默扫描 (严格对齐 00 秒)
+        asyncio.create_task(self.smc_radar.background_update_loop())
+
+        # 🌟 2. 如果是实盘模式，启动后台闲时查账功能
+        if self.mode == "live":
+            asyncio.create_task(self.trader.update_balance_loop())
+
+        # 3. 启动极速数据流连接
         await self.streamer.connect()
 
 
