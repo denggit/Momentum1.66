@@ -77,8 +77,9 @@ class Engine3Commander:
                             price=signal_data['price'],
                             local_low=signal_data['local_low'],
                         ))
-
-                    asyncio.create_task(self.send_email_alert(signal_data))
+                    else:
+                        # 🌟 只有在 collect (科考) 模式下，才发送邮件报警
+                        asyncio.create_task(self.send_email_alert(signal_data))
                 else:
                     logger.debug(
                         f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")

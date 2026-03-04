@@ -57,6 +57,13 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ['live', 'collect']:
         mode = sys.argv[1]
 
+    # 🌟 核心改动：只有在 live 模式下，总司令才会拉起“财务审计员”微服务！
+    if mode == "live":
+        ENGINES.append({
+            "name": "Financial_Auditor",
+            "script": os.path.join(current_dir, "src", "execution", "auditor.py")
+        })
+
     logger.warning(f"👑 [Main总司令] 上线！全军将进入【{mode.upper()}】模式！")
 
     active_processes = {}
