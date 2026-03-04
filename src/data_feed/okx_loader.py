@@ -87,7 +87,7 @@ class OKXDataLoader:
         conn = self._get_db_connection()
         df.to_sql(self.table_name, conn, if_exists='replace', index=True)
         conn.close()
-        logging.info(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
+        logging.debug(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
 
     def fetch_from_okx(self, limit=100, after_ts=None, max_retries=10) -> pd.DataFrame:
         """原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)"""
@@ -132,7 +132,7 @@ class OKXDataLoader:
                     success = True
 
                     if len(all_candles) % 10000 == 0 or len(all_candles) == limit:
-                        logging.info(f"拉取进度: {len(all_candles)} / {limit} ...")
+                        logging.debug(f"拉取进度: {len(all_candles)} / {limit} ...")
 
                     break
 
@@ -185,7 +185,7 @@ class OKXDataLoader:
         内部方法：使用现有逻辑拉取指定数量的K线
         这是原 fetch_historical_data 的核心逻辑，但不包含日期范围过滤
         """
-        logging.info(f"🔍 准备加载 {self.symbol} ({self.timeframe}) 数据...")
+        logging.debug(f"🔍 准备加载 {self.symbol} ({self.timeframe}) 数据...")
         local_df = self.load_local_data()
 
         if local_df.empty:
@@ -197,7 +197,7 @@ class OKXDataLoader:
         local_count = len(local_df)
         last_local_time = local_df.index[-1]
         oldest_local_time = local_df.index[0]
-        logging.info(f"📦 本地数据库已命中！现有 {local_count} 根 K 线 | 区间: {oldest_local_time} -> {last_local_time}")
+        logging.debug(f"📦 本地数据库已命中！现有 {local_count} 根 K 线 | 区间: {oldest_local_time} -> {last_local_time}")
 
         current_local = self._get_current_local_time()
         bar_seconds = self._get_seconds(self.timeframe)
@@ -210,7 +210,7 @@ class OKXDataLoader:
 
         new_df = pd.DataFrame()
         if missing_new_bars > 0:
-            logging.info(f"🔄 准备增量补齐约 {missing_new_bars} 根 最新 K 线...")
+            logging.debug(f"🔄 准备增量补齐约 {missing_new_bars} 根 最新 K 线...")
             new_df = self.fetch_from_okx(limit=missing_new_bars + 10)
 
         if not new_df.empty:
@@ -228,7 +228,7 @@ class OKXDataLoader:
 
         if current_count < limit:
             missing_old_bars = limit - current_count
-            logging.info(f"🔄 本地数据总量不足，准备向前追溯补齐 {missing_old_bars} 根 历史 K 线...")
+            logging.debug(f"🔄 本地数据总量不足，准备向前追溯补齐 {missing_old_bars} 根 历史 K 线...")
 
             # 计算当前库中最老一根 K 线的时间，并逆向剥离时区还原为 UTC 毫秒时间戳
             oldest_local = combined_df.index[0]
@@ -312,7 +312,7 @@ class OKXDataLoader:
                 expected_bars = self._calculate_bars_needed(start_date, end_date)
                 # 容错 5% 的缺失，如果够了直接返回
                 if len(local_in_range) >= expected_bars * 0.95:
-                    logging.info(f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
+                    logging.debug(f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
                     return local_in_range
 
         # 2. 本地数据不足，进行精准【定向拉取】
@@ -321,7 +321,7 @@ class OKXDataLoader:
             return pd.DataFrame()
 
         buffer_bars = int(bars_needed * 1.05) + 10  # 只需要 5% 的极小缓冲
-        logging.info(f"🔄 准备【定向拉取】约 {buffer_bars} 根 K 线 (目标区间: {start_date.date()} -> {end_date.date()})")
+        logging.debug(f"🔄 准备【定向拉取】约 {buffer_bars} 根 K 线 (目标区间: {start_date.date()} -> {end_date.date()})")
 
         # 核心修复：把 end_date 转换为 OKX 认识的 UTC 毫秒时间戳，作为拉取起点！
         end_utc = end_date
@@ -355,6 +355,6 @@ class OKXDataLoader:
         result_df = combined_df[mask]
 
         if not result_df.empty:
-            logging.info(f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
+            logging.debug(f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
         
         return result_df

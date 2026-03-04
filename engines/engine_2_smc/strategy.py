@@ -34,15 +34,9 @@ class MicroSMCRadar:
 
         # 存储计算出的兴趣区 (Point of Interest)
         self.active_pois = []
-        self.last_update_time = 0
-        self.update_interval = 60  # 每 60 秒（1分钟）更新一次结构，不频繁发请求
 
     def update_structure(self):
         """定期拉取最新 K 线，重新绘制 5m SMC 支撑区"""
-        current_time = time.time()
-        if current_time - self.last_update_time < self.update_interval:
-            return  # 还在冷却期，不需要重复拉取
-
         try:
             # 拉取最近 100 根 5 分钟 K 线 (大约 8 小时的数据，足够日内剥头皮用了)
             df = self.loader.fetch_historical_data(limit=100)
@@ -50,7 +44,6 @@ class MicroSMCRadar:
                 return
 
             self.active_pois = self._calculate_support_pois(df)
-            self.last_update_time = current_time
             logger.debug(f"🗺️ [SMC雷达] 5m结构更新完毕，当前发现 {len(self.active_pois)} 个有效支撑区(POI)。")
 
         except Exception as e:
@@ -127,19 +120,38 @@ class MicroSMCRadar:
 
     # 在 MicroSMCRadar 类中新增这个函数：
     async def background_update_loop(self):
-        """🌟 后台静默守护进程：精准对齐每分钟的 00 秒进行更新"""
-        logger.info("📡 [SMC雷达] 已启动后台静默扫描，将精确对齐 00 秒抓取 K 线...")
+        """🌟 后台静默守护进程：自动解析 timeframe，极其精确地对齐换线瞬间"""
+        logger.info(f"📡 [SMC雷达] 已启动静默扫描！将精确对齐 {self.timeframe} 周期换线瞬间抓取 K 线...")
+
+        # 解析当前的 timeframe 是多少分钟
+        tf_minutes = 5
+        if self.timeframe.endswith('m'):
+            tf_minutes = int(self.timeframe.replace('m', ''))
+        elif self.timeframe.endswith('H'):
+            tf_minutes = int(self.timeframe.replace('H', '')) * 60
+
         while True:
             import datetime
             import asyncio
             now = datetime.datetime.now()
-            # 计算距离下一分钟 00 秒还有多少秒 (精确到微秒)
-            sleep_seconds = 60 - now.second - (now.microsecond / 1_000_000.0)
 
-            # 休眠直到下一分钟的 00 秒
+            # 计算当前时刻的“绝对秒数”
+            current_seconds = now.minute * 60 + now.second + (now.microsecond / 1_000_000.0)
+
+            # 计算下一个 K 线周期的“绝对秒数” (例如现在是 32 分，下一个 5m 周期是 35 分)
+            target_seconds = ((now.minute // tf_minutes) + 1) * tf_minutes * 60
+
+            # 算出还需要休眠多少秒
+            sleep_seconds = target_seconds - current_seconds
+
+            # 防抖动保护：万一算出来是负数或极小值，说明刚刚跨过整点
+            if sleep_seconds <= 0.1:
+                sleep_seconds += tf_minutes * 60
+
+            logger.debug(f"⏳ [SMC雷达] 正在休眠等待换线，距离下一次拉取还有 {sleep_seconds:.1f} 秒...")
             await asyncio.sleep(sleep_seconds)
 
-            # 到点了！用异步线程池去拉取数据，绝对不阻塞主线程
+            # 换线瞬间！立刻用异步线程池去拉取最新闭合的 K 线
             await asyncio.to_thread(self.update_structure)
 
 
