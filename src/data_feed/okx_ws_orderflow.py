@@ -86,7 +86,7 @@ class OrderFlowSniper:
 
         # 2. 心跳日志 (每 1 分钟报备一次，让你知道它没死机)
         if current_ts - self.last_heartbeat >= 60:
-            logger.info(
+            logger.debug(
                 f"💓 [雷达扫掠中] 现价: {self.current_price} | 当前 CVD: {self.cvd:.1f} | 已存快照: {len(self.snapshots)}/300")
             self.last_heartbeat = current_ts
 
