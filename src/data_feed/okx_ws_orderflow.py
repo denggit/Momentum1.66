@@ -47,9 +47,12 @@ class OrderFlowSniper:
         self.active_trackings = []  
         self.csv_file = os.path.join(project_root, "data", "bounce_records.csv")
         
-        # 🌟 新增：独立的时间锁（替代原来的清空队列机制）
-        self.last_broad_trigger_time = 0  # 宽口径冷却锁
-        self.last_strict_trigger_time = 0 # 严口径冷却锁
+        # 🌟 新增：独立的时间锁与价格记忆
+        self.last_broad_trigger_time = 0  
+        self.last_broad_trigger_price = 0.0 # 新增：记忆宽口径触发时的价格
+        
+        self.last_strict_trigger_time = 0 
+        self.last_strict_trigger_price = 0.0 # 新增：记忆严口径触发时的价格
         
         # 确保目录存在，并初始化 CSV 表头
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
@@ -201,8 +204,10 @@ class OrderFlowSniper:
         broad_cvd_ok = recent_cvd_delta_usdt < -300_000    
         broad_turn_ok = micro_cvd_delta_usdt > 0           
         
-        # 🌟 检查宽口径冷却锁（过去5分钟内是否已经建过档了？）
-        broad_cooldown_ok = (current_snap['ts'] - self.last_broad_trigger_time) > 300
+        # 🌟 智能冷却锁：过了5分钟，或者价格比上次报警低了至少 2 刀（二次探底）
+        broad_time_ok = (current_snap['ts'] - self.last_broad_trigger_time) > 300
+        broad_price_override = current_snap['price'] < (self.last_broad_trigger_price - 2.0)
+        broad_cooldown_ok = broad_time_ok or broad_price_override
 
         if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed and broad_cooldown_ok:
             
@@ -216,8 +221,9 @@ class OrderFlowSniper:
                 'max_price': current_snap['price']
             })
             
-            # 🌟 锁上宽口径时间锁！
+            # 更新时间和价格记忆
             self.last_broad_trigger_time = current_snap['ts']
+            self.last_broad_trigger_price = current_snap['price']
 
 
         # ==========================================
@@ -227,8 +233,10 @@ class OrderFlowSniper:
         strict_cvd_ok = recent_cvd_delta_usdt < -500_000
         strict_turn_ok = micro_cvd_delta_usdt > 50_000
         
-        # 🌟 检查严口径冷却锁（过去5分钟内是否已经发过绝杀邮件了？）
-        strict_cooldown_ok = (current_snap['ts'] - self.last_strict_trigger_time) > 300
+        # 🌟 智能冷却锁：过了5分钟，或者价格比上次报警低了至少 3 刀（代表散户止损被真实击穿）
+        strict_time_ok = (current_snap['ts'] - self.last_strict_trigger_time) > 300
+        strict_price_override = current_snap['price'] < (self.last_strict_trigger_price - 3.0)
+        strict_cooldown_ok = strict_time_ok or strict_price_override
         
         if strict_price_ok and strict_cvd_ok and strict_turn_ok and time_passed and strict_cooldown_ok:
             logger.warning("\n" + "🟢" * 25)
@@ -247,8 +255,9 @@ class OrderFlowSniper:
                 time_window_minutes=3.0
             ))
             
-            # 🌟 锁上严口径时间锁！
+            # 更新时间和价格记忆
             self.last_strict_trigger_time = current_snap['ts']
+            self.last_strict_trigger_price = current_snap['price']
 
         # 🚨 注意：这里彻底删除了原来那句清理快照的代码！
         # 保持内存数据的绝对纯净和连续！
