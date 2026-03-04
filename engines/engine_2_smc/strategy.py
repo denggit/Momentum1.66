@@ -50,55 +50,54 @@ class MicroSMCRadar:
             logger.error(f"❌ [SMC雷达] 更新K线结构失败: {e}")
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
-        """核心算法：找出下方未回补的 FVG 和 近期 Swing Low"""
+        """
+        核心算法升级：找出未回补 FVG、波段低点 SSL 以及 庄家老巢 Order Block
+        """
         pois = []
         current_price = df['close'].iloc[-1]
+        atr_now = df['ATR'].iloc[-1] if 'ATR' in df.columns else 5.0
 
         # ==================================================
         # 1. 寻找未回补的看多缺口 (Bullish FVG)
         # ==================================================
-        # FVG 算法: 第一根K线的 High < 第三根K线的 Low
         df['fvg_gap_bottom'] = df['high'].shift(2)
         df['fvg_gap_top'] = df['low']
-
-        # 筛选出满足 FVG 条件，且缺口在当前价格下方的 K 线
-        bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) &
-                          (df['fvg_gap_top'] < current_price)]
-
-        # 我们只取最近的 3 个 FVG
-        for idx, row in bullish_fvgs.tail(3).iterrows():
-            pois.append({
-                'type': 'FVG',
-                'top': row['fvg_gap_top'],
-                'bottom': row['fvg_gap_bottom'],
-                'time': idx
-            })
+        bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
+        for idx, row in bullish_fvgs.tail(2).iterrows():
+            pois.append({'type': 'FVG', 'top': row['fvg_gap_top'], 'bottom': row['fvg_gap_bottom'], 'time': idx})
 
         # ==================================================
-        # 2. 寻找波段低点流动性池 (Swing Lows / SSL)
+        # 2. 寻找波段低点流动性池 (Swing Low / SSL)
         # ==================================================
-        # 波段低点算法：一根 K 线的 Low，比它左边 2 根和右边 2 根的 Low 都要低
-        df['is_swing_low'] = (
-                (df['low'] < df['low'].shift(1)) &
-                (df['low'] < df['low'].shift(2)) &
-                (df['low'] < df['low'].shift(-1)) &
-                (df['low'] < df['low'].shift(-2))
-        )
-
-        swing_lows = df[df['is_swing_low'] == True]
-
-        # 只取当前价格下方的波段低点
-        swing_lows = swing_lows[swing_lows['low'] < current_price]
-
-        # 波段低点的防守范围：向下跌破 3 刀以内都算流动性扫荡 (Sweep)
+        df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
+                              (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
+        swing_lows = df[(df['is_swing_low'] == True) & (df['low'] < current_price)]
         SWEEP_ALLOWANCE = 3.0
-        for idx, row in swing_lows.tail(3).iterrows():
-            pois.append({
-                'type': 'Swing_Low',
-                'top': row['low'] + 1.0,  # 允许提前 1 刀抢跑
-                'bottom': row['low'] - SWEEP_ALLOWANCE,
-                'time': idx
-            })
+        for idx, row in swing_lows.tail(2).iterrows():
+            pois.append(
+                {'type': 'Swing_Low', 'top': row['low'] + 1.0, 'bottom': row['low'] - SWEEP_ALLOWANCE, 'time': idx})
+
+        # ==================================================
+        # 3. 🌟 核心升级：寻找看多订单块 (Bullish Order Block)
+        # ==================================================
+        # 逻辑：寻找一段强力上涨（BOS）之前的最后一根阴线
+        for i in range(len(df) - 5, 5, -1):
+            # 找到一根阴线
+            if df['close'].iloc[i] < df['open'].iloc[i]:
+                # 检查之后是否有强力拉升（3根K线内涨幅超过 1.5倍 ATR）
+                future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
+                if future_move > (1.5 * df['ATR'].iloc[i]):
+                    ob_top = df['high'].iloc[i]
+                    ob_bottom = df['low'].iloc[i]
+                    # 如果 OB 还在当前价格下方，则视为有效
+                    if ob_top < current_price:
+                        pois.append({
+                            'type': 'Order_Block',
+                            'top': ob_top,
+                            'bottom': ob_bottom,
+                            'time': df.index[i]
+                        })
+                        break  # 只抓最近的一个核心 OB 即可
 
         return pois
 

@@ -21,6 +21,9 @@ class OrderFlowMath:
 
         # 防止连续开火的冷却锁
         self.last_fire_time = 0.0
+        self.last_stop_loss_price = 0.0
+        self.last_stop_loss_time = 0.0
+        self.max_price_since_stop = 0.0  # 止损后的最高反弹价
 
     def process_tick(self, tick: dict):
         """每秒可能接收几十上百个tick，全速 O(1) 运算"""
@@ -28,6 +31,10 @@ class OrderFlowMath:
         size = tick['size']
         side = tick['side']
         current_ts = tick['ts']
+
+        # 🌟 逻辑 A：记录止损后的反弹最高点，用于判断“回马枪”还是“新行情”
+        if self.last_stop_loss_price > 0:
+            self.max_price_since_stop = max(self.max_price_since_stop, self.current_price)
 
         # 1. 极速更新全局 CVD
         if side == 'buy':
@@ -67,6 +74,18 @@ class OrderFlowMath:
 
         # 阶段 2：让子弹飞 (Tracking Bottom) & 击发 (FIRE)
         elif self.state == "ARMED":
+            # ==========================================
+            # 🛡️ 智能空间拦截 (只有满足以下所有条件才拦截)
+            # ==========================================
+            if self.last_stop_loss_price > 0:
+                is_recent = (current_ts - self.last_stop_loss_time) < 900  # 15分钟内算近期
+                is_not_dipped = self.current_price >= self.last_stop_loss_price  # 没跌破前止损位
+                is_no_rebound = self.max_price_since_stop < self.last_stop_loss_price * 1.005  # 没反弹超过0.5%
+
+                if is_recent and is_not_dipped and is_no_rebound:
+                    # 只有在 15分钟内、没跌破新低、且中间没像样反弹的情况下，才认为是“高频磨损”，拦截！
+                    return None
+
             # 动作 A：价格还在创新低！说明没跌完，绝对不开火！不断下移防线！
             if self.current_price < self.local_low:
                 self.local_low = self.current_price
@@ -82,10 +101,17 @@ class OrderFlowMath:
                 micro_cvd_usdt = (self.cvd - self.local_low_cvd) * CONTRACT_SIZE * self.current_price
                 bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
-                # ⚔️ 严口径击发：反弹拐头 > 0.05% (不过分追高)，且主力买入 > 10万，且总砸盘 > 150万
+                # ⚔️ 严口径击发：反弹拐头 > 0.05% ...
                 if micro_cvd_usdt > 100_000 and 0.05 < bounce_pct <= 0.20 and recent_cvd_delta_usdt < -1_500_000:
                     self.state = "IDLE"  # 开火后重置状态机
                     self.last_fire_time = current_ts
+
+                    # 🌟 核心补丁：在这里更新拦截器的基准值！
+                    # 我们预设止损位在现价下方 0.05% (即 0.9995)
+                    self.last_stop_loss_price = self.current_price * 0.9995
+                    self.last_stop_loss_time = current_ts
+                    self.max_price_since_stop = self.current_price  # 重置反弹高点
+
                     return {
                         "level": "STRICT",
                         "price": self.current_price,  # 触发时的现价
