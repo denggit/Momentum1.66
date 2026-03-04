@@ -167,7 +167,6 @@ class OrderFlowSniper:
         # 🐛 Bug修复 1：冷启动防御
         # ==========================================
         # 强制系统至少收集 15 分钟（90个快照）的数据后，雷达才允许开机！
-        # 彻底杜绝刚启动时，把几分钟前的普通波动误认为“历史大底”的灾难。
         if len(self.snapshots) < 90:  
             return
 
@@ -181,8 +180,6 @@ class OrderFlowSniper:
 
         # 共同基础参数提取
         price_diff = current_snap['price'] - lowest_snap['price']
-        
-        # ... 后面保持你原有的 RECENT_WINDOW = 18 等代码不变 ...
         
         RECENT_WINDOW = 18 # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
@@ -200,7 +197,8 @@ class OrderFlowSniper:
         # ==========================================
         # 🧪 外层网：科考船宽口径 (时间锁：300秒内不重复建档)
         # ==========================================
-        broad_price_ok = -3.0 <= price_diff <= 2.0         
+        # 🌟 调整：上限放宽至 +5.0，容纳长下影线
+        broad_price_ok = -3.0 <= price_diff <= 5.0         
         broad_cvd_ok = recent_cvd_delta_usdt < -300_000    
         broad_turn_ok = micro_cvd_delta_usdt > 0           
         
@@ -229,7 +227,8 @@ class OrderFlowSniper:
         # ==========================================
         # ⚔️ 内层网：实盘严口径 (独立时间锁：300秒内不重复发邮件)
         # ==========================================
-        strict_price_ok = -2.0 <= price_diff <= 1.0
+        # 🌟 调整：上限放宽至 +4.0，绝不放过极速拉升的黄金坑
+        strict_price_ok = -2.0 <= price_diff <= 4.0
         strict_cvd_ok = recent_cvd_delta_usdt < -500_000
         strict_turn_ok = micro_cvd_delta_usdt > 50_000
         
@@ -259,9 +258,6 @@ class OrderFlowSniper:
             self.last_strict_trigger_time = current_snap['ts']
             self.last_strict_trigger_price = current_snap['price']
 
-        # 🚨 注意：这里彻底删除了原来那句清理快照的代码！
-        # 保持内存数据的绝对纯净和连续！
-
     async def _send_bottom_fishing_email(self, symbol: str, price: float,
                                         cvd_delta_usdt: float, time_window_minutes: float):
         """发送抄底机会邮件通知"""
@@ -271,7 +267,7 @@ class OrderFlowSniper:
             return
 
         try:
-            signal_type = "流速级抄底绝杀 (严苛确认版)"
+            signal_type = "流速级抄底绝杀 (极端V反包容版)"
             detection_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             details = f"""
 🚨 检测到机构恐慌吸收信号！
@@ -284,7 +280,7 @@ class OrderFlowSniper:
 📈 信号类型: {signal_type}
 
 💡 核心逻辑:
-1. 价格被压制在近期低点附近
+1. 价格被压制在近期低点附近，或已完成极限插针V反！
 2. 散户在短时间内疯狂抛售 {abs(cvd_delta_usdt)/10000:.1f} 万美金
 3. 价格未能继续下跌，并且主力已拍出 >5 万美金的市价单反击！
 
