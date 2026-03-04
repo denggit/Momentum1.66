@@ -11,6 +11,7 @@ import os
 import signal
 import sys
 import time
+import argparse
 
 current_file = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
@@ -27,8 +28,9 @@ logger = get_logger(__name__)
 
 
 class Engine3Commander:
-    def __init__(self, symbol="ETH-USDT-SWAP"):
+    def __init__(self, symbol="ETH-USDT-SWAP", mode="collect"):
         self.symbol = symbol
+        self.mode = mode  # 记录当前运行模式
         self.math_brain = OrderFlowMath()
         self.tracker = CSVTracker(project_root)
 
@@ -49,14 +51,16 @@ class Engine3Commander:
             if signal_data['level'] == "STRICT":
                 logger.warning("\n" + "🟢" * 25)
                 logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
-                logger.warning(
-                    f"💥 砸盘: ${abs(signal_data['cvd_delta_usdt']) / 10000:.1f}万，反转: ${signal_data['micro_cvd'] / 10000:.1f}万")
 
-                # ========================================================
-                # 🔒 未来预留口：在这里呼叫 Engine 2 判定是否在 SMC 支撑区内！
-                # if Engine2.is_in_poi(tick['price']):
-                #     self.execute_real_trade(...)
-                # ========================================================
+                # 🌟 核心开关：只有在 live 模式下，才去执行实盘下单！
+                if self.mode == "live":
+                    logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
+                    # ========================================================
+                    # if Engine2.is_in_poi(tick['price']):
+                    #     self.execute_real_trade(...)
+                    # ========================================================
+                else:
+                    logger.warning("🛡️ [科考模式] 满足绝杀条件，但当前为收集模式，不执行真实下单。")
 
                 asyncio.create_task(self.send_email_alert(signal_data))
                 self.tracker.add_tracking(signal_data)
@@ -90,7 +94,15 @@ class Engine3Commander:
 
 
 if __name__ == "__main__":
-    commander = Engine3Commander()
+    # 🌟 增加命令行参数解析
+    parser = argparse.ArgumentParser(description="Momentum 1.66 - 订单流三号引擎")
+    parser.add_argument('--mode', type=str, default='collect', choices=['collect', 'live'],
+                        help="运行模式: 'collect' (只收集数据和发邮件) 或 'live' (实盘自动交易)")
+    args = parser.parse_args()
+
+    # 将解析到的模式传给指挥部
+    commander = Engine3Commander(mode=args.mode)
+    logger.info(f"⚙️ 当前引擎运行模式: 【{args.mode.upper()}】")
 
     # 🌟 优雅重启，监听 kill -15
     def handle_sigterm(*args):
