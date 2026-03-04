@@ -20,9 +20,10 @@ if project_root not in sys.path:
 
 from src.data_feed.okx_stream import OKXTickStreamer
 from src.strategy.orderflow import OrderFlowMath
-from engines.engine_3_orderflow.tracker import CSVTracker
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
+from src.execution.trader import OKXTrader
+from engines.engine_3_orderflow.tracker import CSVTracker
 from engines.engine_2_smc.strategy import MicroSMCRadar
 
 logger = get_logger(__name__)
@@ -37,6 +38,9 @@ class Engine3Commander:
 
         # 🌟 雇佣二号引擎雷达兵！
         self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
+
+        # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
+        self.trader = OKXTrader(symbol=symbol, leverage=20)
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)
@@ -67,7 +71,13 @@ class Engine3Commander:
 
                     if self.mode == "live":
                         logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
-                        # self.execute_real_trade(...)
+                        # 🌟 极其优雅的非阻塞实盘开火！
+                        # risk_usdt 填入你愿意每次动用的实盘本金（比如 200U）
+                        asyncio.create_task(self.trader.execute_snipe(
+                            price=signal_data['price'],
+                            local_low=signal_data['local_low'],
+                            risk_usdt=200.0
+                        ))
 
                     asyncio.create_task(self.send_email_alert(signal_data))
                 else:

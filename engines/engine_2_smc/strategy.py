@@ -6,12 +6,12 @@
 @File       : strategy.py
 @Description: 
 """
-# engines/engine_2_smc/strategy.py
-import pandas as pd
-import numpy as np
-import time
 import os
 import sys
+import time
+
+# engines/engine_2_smc/strategy.py
+import pandas as pd
 
 # 确保能导入 src 目录下的模块
 current_file = os.path.abspath(__file__)
@@ -124,6 +124,23 @@ class MicroSMCRadar:
                 return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
+
+    # 在 MicroSMCRadar 类中新增这个函数：
+    async def background_update_loop(self):
+        """🌟 后台静默守护进程：精准对齐每分钟的 00 秒进行更新"""
+        logger.info("📡 [SMC雷达] 已启动后台静默扫描，将精确对齐 00 秒抓取 K 线...")
+        while True:
+            import datetime
+            import asyncio
+            now = datetime.datetime.now()
+            # 计算距离下一分钟 00 秒还有多少秒 (精确到微秒)
+            sleep_seconds = 60 - now.second - (now.microsecond / 1_000_000.0)
+
+            # 休眠直到下一分钟的 00 秒
+            await asyncio.sleep(sleep_seconds)
+
+            # 到点了！用异步线程池去拉取数据，绝对不阻塞主线程
+            await asyncio.to_thread(self.update_structure)
 
 
 if __name__ == "__main__":
