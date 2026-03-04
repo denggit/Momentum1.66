@@ -44,8 +44,12 @@ class OrderFlowSniper:
         # ==========================================
         # 📊 数据科考船：CSV 归档配置
         # ==========================================
-        self.active_trackings = []  # 正在追踪的信号队列
+        self.active_trackings = []  
         self.csv_file = os.path.join(project_root, "data", "bounce_records.csv")
+        
+        # 🌟 新增：独立的时间锁（替代原来的清空队列机制）
+        self.last_broad_trigger_time = 0  # 宽口径冷却锁
+        self.last_strict_trigger_time = 0 # 严口径冷却锁
         
         # 确保目录存在，并初始化 CSV 表头
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
@@ -154,8 +158,8 @@ class OrderFlowSniper:
         })
 
     def _detect_absorption_divergence(self):
-        """🌟 双轨制核心武器：宽口径记录数据 + 严口径发送邮件"""
-        if len(self.snapshots) < 30:  # 确保有足够的数据
+        """🌟 双轨制核心武器：非破坏性独立时间锁"""
+        if len(self.snapshots) < 30:  
             return
 
         past_snapshots = list(self.snapshots)[:-1]
@@ -174,21 +178,24 @@ class OrderFlowSniper:
         last_snap = self.snapshots[-2]
         micro_cvd_delta_contracts = current_snap['cvd'] - last_snap['cvd']
         micro_cvd_delta_usdt = micro_cvd_delta_contracts * CONTRACT_SIZE * current_snap['price']
-        
+
+        # 距离上一次前低点至少过去了 20 秒
         time_passed = (current_snap['ts'] - lowest_snap['ts']) > 20
 
         # ==========================================
-        # 🧪 外层网：科考船宽口径 (只记录，不发邮件)
+        # 🧪 外层网：科考船宽口径 (时间锁：300秒内不重复建档)
         # ==========================================
-        broad_price_ok = -3.0 <= price_diff <= 2.0         # 允许更宽的插针误差
-        broad_cvd_ok = recent_cvd_delta_usdt < -300_000    # 只要 30 万砸盘就记录
-        broad_turn_ok = micro_cvd_delta_usdt > 0           # 只要跌势停止就开始追踪
+        broad_price_ok = -3.0 <= price_diff <= 2.0         
+        broad_cvd_ok = recent_cvd_delta_usdt < -300_000    
+        broad_turn_ok = micro_cvd_delta_usdt > 0           
+        
+        # 🌟 检查宽口径冷却锁（过去5分钟内是否已经建过档了？）
+        broad_cooldown_ok = (current_snap['ts'] - self.last_broad_trigger_time) > 300
 
-        if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed:
+        if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed and broad_cooldown_ok:
             
             logger.warning(f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt)/10000:.1f}万，偏离前低: {price_diff:.2f}刀。加入CSV追踪队列...")
             
-            # 建立追踪档案
             self.active_trackings.append({
                 'entry_time': current_snap['ts'],
                 'entry_price': current_snap['price'],
@@ -196,34 +203,42 @@ class OrderFlowSniper:
                 'price_diff': price_diff,
                 'max_price': current_snap['price']
             })
-
-            # ==========================================
-            # ⚔️ 内层网：实盘严口径 (既记录，又发警报邮件)
-            # ==========================================
-            strict_price_ok = -2.0 <= price_diff <= 1.0
-            strict_cvd_ok = recent_cvd_delta_usdt < -500_000
-            strict_turn_ok = micro_cvd_delta_usdt > 50_000
             
-            if strict_price_ok and strict_cvd_ok and strict_turn_ok:
-                logger.warning("\n" + "🟢" * 25)
-                logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
-                logger.warning(
-                    f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
-                logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
-                logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
-                logger.warning("🟢" * 25 + "\n")
+            # 🌟 锁上宽口径时间锁！
+            self.last_broad_trigger_time = current_snap['ts']
 
-                # 异步发送邮件通知 (仅针对严苛高胜率信号)
-                asyncio.create_task(self._send_bottom_fishing_email(
-                    symbol=self.symbol,
-                    price=current_snap['price'],
-                    cvd_delta_usdt=recent_cvd_delta_usdt,
-                    time_window_minutes=3.0
-                ))
 
-            # 无论触发的是宽口径还是严口径，都清空一半快照防止同一波行情重复轰炸
-            for _ in range(150):
-                if self.snapshots: self.snapshots.popleft()
+        # ==========================================
+        # ⚔️ 内层网：实盘严口径 (独立时间锁：300秒内不重复发邮件)
+        # ==========================================
+        strict_price_ok = -2.0 <= price_diff <= 1.0
+        strict_cvd_ok = recent_cvd_delta_usdt < -500_000
+        strict_turn_ok = micro_cvd_delta_usdt > 50_000
+        
+        # 🌟 检查严口径冷却锁（过去5分钟内是否已经发过绝杀邮件了？）
+        strict_cooldown_ok = (current_snap['ts'] - self.last_strict_trigger_time) > 300
+        
+        if strict_price_ok and strict_cvd_ok and strict_turn_ok and time_passed and strict_cooldown_ok:
+            logger.warning("\n" + "🟢" * 25)
+            logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
+            logger.warning(
+                f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
+            logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
+            logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
+            logger.warning("🟢" * 25 + "\n")
+
+            asyncio.create_task(self._send_bottom_fishing_email(
+                symbol=self.symbol,
+                price=current_snap['price'],
+                cvd_delta_usdt=recent_cvd_delta_usdt,
+                time_window_minutes=3.0
+            ))
+            
+            # 🌟 锁上严口径时间锁！
+            self.last_strict_trigger_time = current_snap['ts']
+
+        # 🚨 注意：这里彻底删除了原来那句清理快照的代码！
+        # 保持内存数据的绝对纯净和连续！
 
     async def _send_bottom_fishing_email(self, symbol: str, price: float,
                                         cvd_delta_usdt: float, time_window_minutes: float):
