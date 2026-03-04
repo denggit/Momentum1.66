@@ -6,12 +6,12 @@
 @File       : strategy.py
 @Description: 
 """
+import argparse
 import asyncio
 import os
 import signal
 import sys
 import time
-import argparse
 
 current_file = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
@@ -102,6 +102,10 @@ class Engine3Commander:
         if success:
             self._last_email_sent_time = current_ts
 
+    async def run(self):
+        logger.info("🚀 启动 Engine 3 订单流总指挥部...")
+        await self.streamer.connect()
+
 
 if __name__ == "__main__":
     # 🌟 增加命令行参数解析
@@ -114,10 +118,12 @@ if __name__ == "__main__":
     commander = Engine3Commander(mode=args.mode)
     logger.info(f"⚙️ 当前引擎运行模式: 【{args.mode.upper()}】")
 
+
     # 🌟 优雅重启，监听 kill -15
     def handle_sigterm(*args):
         logger.warning("🔔 收到 kill -15 信号！转换为安全迫降指令...")
         raise KeyboardInterrupt()  # 直接抛出异常，交给下面的 try-except 统一处理
+
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
