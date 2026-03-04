@@ -194,7 +194,7 @@ class OrderFlowSniper:
 
         if broad_price_ok and broad_cvd_ok and broad_turn_ok and time_passed and broad_cooldown_ok:
             
-            logger.warning(f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt)/10000:.1f}万，偏离前低: {price_diff:.2f}刀。加入CSV追踪队列...")
+            logger.warning(f"🎯 捕获暗流信号！砸盘: ${abs(recent_cvd_delta_usdt)/10000:.1f}万，偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt/10000:.2f}万。加入CSV追踪队列...")
             
             self.active_trackings.append({
                 'entry_time': current_snap['ts'],
@@ -223,6 +223,7 @@ class OrderFlowSniper:
             logger.warning(f"🚨 [流速级抄底绝杀] 发现深海冰山！散户正在被集中血洗！")
             logger.warning(
                 f"💥 爆量数据: 就在刚刚的 【3分钟】 内，市场瞬间涌入了 ${abs(recent_cvd_delta_usdt) / 10000:.1f} 万美金的市价砸盘！")
+            logger.warning(f"偏离前低: {price_diff:.2f}刀，CVD反转：{micro_cvd_delta_usdt/10000:.2f}万")
             logger.warning(f"🛡️ 盘口真相: 价格被死死托在 {current_snap['price']} 附近，根本跌不下去。")
             logger.warning("🎯 战术结论: 典型的抛售高潮 (Selling Climax) + 机构限价吸收！准备抢反弹！")
             logger.warning("🟢" * 25 + "\n")
