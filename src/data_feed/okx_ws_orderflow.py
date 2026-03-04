@@ -158,16 +158,28 @@ class OrderFlowSniper:
         })
 
     def _detect_absorption_divergence(self):
-        """🌟 双轨制核心武器：非破坏性独立时间锁"""
-        if len(self.snapshots) < 30:  
+        """🌟 双轨制核心武器：非破坏性独立时间锁 + 局部前低修复"""
+        
+        # ==========================================
+        # 🐛 Bug修复 1：冷启动防御
+        # ==========================================
+        # 强制系统至少收集 15 分钟（90个快照）的数据后，雷达才允许开机！
+        # 彻底杜绝刚启动时，把几分钟前的普通波动误认为“历史大底”的灾难。
+        if len(self.snapshots) < 90:  
             return
 
-        past_snapshots = list(self.snapshots)[:-1]
+        # ==========================================
+        # 🐛 Bug修复 2：切除“历史阴影”，只找波段低点
+        # ==========================================
+        LOOKBACK_WINDOW = 90  # 只回看过去 15 分钟
+        past_snapshots = list(self.snapshots)[-LOOKBACK_WINDOW:-1]
         lowest_snap = min(past_snapshots, key=lambda x: x['price'])
         current_snap = self.snapshots[-1]
 
         # 共同基础参数提取
         price_diff = current_snap['price'] - lowest_snap['price']
+        
+        # ... 后面保持你原有的 RECENT_WINDOW = 18 等代码不变 ...
         
         RECENT_WINDOW = 18 # 180秒
         snapshot_3min_ago = self.snapshots[-RECENT_WINDOW]
