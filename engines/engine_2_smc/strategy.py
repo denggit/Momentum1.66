@@ -43,7 +43,7 @@ class MicroSMCRadar:
         """定期拉取最新 K 线，重新绘制 5m SMC 支撑区"""
         try:
             # 拉取最近 100 根 5 分钟 K 线 (大约 8 小时的数据，足够日内剥头皮用了)
-            df = self.loader.fetch_historical_data(limit=100).copy()
+            df = self.loader.fetch_historical_data(limit=600).copy()
             # 🌟 增加对 None 的保护，防止网络闪断报错
             if df is None or df.empty or len(df) < 5:
                 logger.warning("⚠️ [SMC雷达] 拉取数据为空，跳过本次更新。")
@@ -57,136 +57,123 @@ class MicroSMCRadar:
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
         """
-        寻找 FVG, Swing Low 和 庄家老巢 Order Block，并自动过滤诱导陷阱 (Inducement)
+        寻找未被消耗的 (Unmitigated) 极值订单块、波段低点和顶底转换区
+        并自动过滤诱导陷阱 (Inducement)
         """
         pois = []
         current_price = df['close'].iloc[-1]
-        
+
         if 'ATR' not in df.columns:
             df['ATR'] = (df['high'] - df['low']).rolling(window=14).mean().fillna(current_price * 0.002)
 
         current_atr = df['ATR'].iloc[-1]
-        
-        # 🌟 定义“靠在一起”的距离阈值：1.5倍的当前平均波动率 (大约是现价的 0.2%~0.3%)
         cluster_threshold = 1.5 * current_atr
+        sweep_allowance = current_price * 0.0015
+        top_allowance = current_price * 0.0005
 
         def is_inducement(test_bottom, existing_pois):
-            """判断是否为诱导陷阱：如果距离某个更低的防线太近，那它就是庄家用来扫损的假防线"""
             for ep in existing_pois:
                 distance = abs(test_bottom - ep['bottom'])
-                # 如果极其靠近，且测试的防线比已有防线高，则判定为 IDM 陷阱
                 if distance < cluster_threshold and test_bottom > ep['bottom']:
                     return True
             return False
 
+        # 🌟 核心新增：检测支撑位是否在形成后被砸穿过 (Mitigation Check)
+        def is_mitigated(poi_bottom: float, formation_idx: int) -> bool:
+            """
+            如果在 POI 形成之后的任何时刻，最低价曾经跌破过它的底部，
+            则该 POI 已被消耗 (Mitigated) 彻底失效。
+            """
+            # 取出从这个支撑位形成之后的全部 K 线
+            future_k_lines = df['low'].iloc[formation_idx + 1:]
+            if future_k_lines.empty:
+                return False
+            # 如果这期间的最低价跌破了支撑底部，判定为失效
+            return future_k_lines.min() < poi_bottom
+
         # ==================================================
-        # 1. 首先寻找“定海神针”：极值订单块 (Order Block)
-        # 把它作为最坚固的底层基石，后续的 FVG 如果离它太近都会被剔除！
+        # 1. 寻找“未失效”的极值订单块 (Order Block)
         # ==================================================
         for i in range(len(df) - 5, 5, -1):
             if df['close'].iloc[i] < df['open'].iloc[i]:
                 ob_height = df['high'].iloc[i] - df['low'].iloc[i]
                 future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
-                
+
                 is_strong_move = future_move > (1.5 * df['ATR'].iloc[i])
                 is_valid_structure = ob_height < future_move
                 is_not_too_thick = ob_height < (2.5 * df['ATR'].iloc[i])
-                
+
                 if is_strong_move and is_valid_structure and is_not_too_thick:
-                    ob_top = df['open'].iloc[i] 
+                    ob_top = df['open'].iloc[i]
                     ob_bottom = df['low'].iloc[i]
+
                     if ob_top < current_price:
-                        pois.append({
-                            'type': 'Order_Block',
-                            'top': ob_top,
-                            'bottom': ob_bottom,
-                            'time': df.index[i]
-                        })
-                        break  # 极值订单块只取最近且最稳固的 1 个
+                        # 🌟 检查这个 OB 是不是早就被砸穿了
+                        if not is_mitigated(ob_bottom, i):
+                            pois.append({
+                                'type': 'Order_Block',
+                                'top': ob_top,
+                                'bottom': ob_bottom,
+                                'time': df.index[i]
+                            })
+                            break  # 找到最近且【未失效】的 1 个即可
+                        else:
+                            logger.debug(f"🧹 [SMC雷达] 发现订单块，但已被砸穿失效，继续向历史深处寻找！")
 
         # ==================================================
-        # 2. 寻找波段低点 (Swing Low) - 自动剔除并向前补充
+        # 2. 寻找“未失效”的波段低点 (Swing Low)
         # ==================================================
         df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
                               (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
-        swing_lows = df[(df['is_swing_low'] == True) & (df['low'] < current_price)]
-        
-        sweep_allowance = current_price * 0.0015 
-        top_allowance = current_price * 0.0005
-        
+
         valid_sls = 0
-        # iloc[::-1] 让数据从右向左（从近到远）扫描
-        for idx, row in swing_lows.iloc[::-1].iterrows():
-            if valid_sls >= 2: break  # 凑齐 2 个真实波段低点就停止
-            
-            sl_bottom = row['low'] - sweep_allowance
-            if not is_inducement(sl_bottom, pois):
-                pois.append({
-                    'type': 'Swing_Low', 
-                    'top': row['low'] + top_allowance, 
-                    'bottom': sl_bottom, 
-                    'time': idx
-                })
-                valid_sls += 1
-            else:
-                logger.debug(f"🧹 [SMC防线收缩] 发现诱导性 Swing Low，已自动抛弃！")
+        # 使用索引倒序遍历，方便获取 formation_idx
+        for i in range(len(df) - 1, 0, -1):
+            if valid_sls >= 4: break
 
-        # # ==================================================
-        # # 3. 🌟 寻找看多缺口 (FVG) - 完美实现你的“向前补充”逻辑
-        # # ==================================================
-        # df['fvg_gap_bottom'] = df['high'].shift(2)
-        # df['fvg_gap_top'] = df['low']
-        # bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
-        #
-        # valid_fvgs = 0
-        # for idx, row in bullish_fvgs.iloc[::-1].iterrows():
-        #     if valid_fvgs >= 2: break  # 凑齐 2 个纯净 FVG 就停止
-        #
-        #     fvg_bottom = row['fvg_gap_bottom']
-        #     if not is_inducement(fvg_bottom, pois):
-        #         pois.append({
-        #             'type': 'FVG',
-        #             'top': row['fvg_gap_top'],
-        #             'bottom': fvg_bottom,
-        #             'time': idx
-        #         })
-        #         valid_fvgs += 1  # 只有真正收录了，计数器才+1
-        #     else:
-        #         # 🌟 如果被判定为诱导陷阱：不会执行 valid_fvgs += 1
-        #         # 循环会自动走向上一根更老的 K 线，完美实现“向前补充一个 FVG”！
-        #         logger.debug(f"🧹 [SMC防线收缩] 发现与底部集群重合的诱导 FVG，剔除并向前补充！")
+            if df['is_swing_low'].iloc[i] and df['low'].iloc[i] < current_price:
+                sl_bottom = df['low'].iloc[i] - sweep_allowance
+
+                # 🌟 如果这个前低后来被更低的暴跌刺穿了，跳过它！
+                if is_mitigated(sl_bottom, i):
+                    continue
+
+                if not is_inducement(sl_bottom, pois):
+                    pois.append({
+                        'type': 'Swing_Low',
+                        'top': df['low'].iloc[i] + top_allowance,
+                        'bottom': sl_bottom,
+                        'time': df.index[i]
+                    })
+                    valid_sls += 1
 
         # ==================================================
-        # 4. 🌟 寻找顶底转换区 (Broken Swing High 压力转支撑)
+        # 3. 寻找“未失效”的顶底转换区 (Broken Swing High)
         # ==================================================
-        # 识别出所有的 Swing High
         df['is_swing_high'] = ((df['high'] > df['high'].shift(1)) & (df['high'] > df['high'].shift(2)) &
                                (df['high'] > df['high'].shift(-1)) & (df['high'] > df['high'].shift(-2)))
 
-        # 🌟 核心修复：允许现价向下刺穿前高最多 0.3%。
-        # 这样在极速砸盘、刚跌破前高针尖的瞬间，这个支撑位依然会死死钉在雷达屏幕上！
         tolerance_buffer = current_price * 0.003
-        broken_swing_highs = df[(df['is_swing_high'] == True) & (df['high'] < current_price + tolerance_buffer)]
-
         valid_bsh = 0
-        for idx, row in broken_swing_highs.iloc[::-1].iterrows():
-            if valid_bsh >= 2: break  # 找到最近的 2 个顶底转换位即可
 
-            # 以这个前高的最高点为基准，画一个支撑带
-            bsh_top = row['high'] + top_allowance
-            bsh_bottom = row['high'] - sweep_allowance
+        for i in range(len(df) - 1, 0, -1):
+            if valid_bsh >= 4: break
 
-            # 同样利用我们的防诱导逻辑，如果离得太近就合并/剔除
-            if not is_inducement(bsh_bottom, pois):
-                pois.append({
-                    'type': 'Broken_Swing_High',
-                    'top': bsh_top,
-                    'bottom': bsh_bottom,
-                    'time': idx
-                })
-                valid_bsh += 1
-            else:
-                logger.debug(f"🧹 [SMC防线收缩] 发现重合的 Broken Swing High 支撑，剔除并向前补充！")
+            if df['is_swing_high'].iloc[i] and df['high'].iloc[i] < current_price + tolerance_buffer:
+                bsh_bottom = df['high'].iloc[i] - sweep_allowance
+
+                # 🌟 如果这个前高被突破后，又被一次深蹲彻底砸回去了，跳过它！
+                if is_mitigated(bsh_bottom, i):
+                    continue
+
+                if not is_inducement(bsh_bottom, pois):
+                    pois.append({
+                        'type': 'Broken_Swing_High',
+                        'top': df['high'].iloc[i] + top_allowance,
+                        'bottom': bsh_bottom,
+                        'time': df.index[i]
+                    })
+                    valid_bsh += 1
 
         return pois
 
@@ -258,7 +245,7 @@ class MicroSMCRadar:
     def get_nearest_resistance(self, current_price: float):
         """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""
         try:
-            df = self.loader.fetch_historical_data(limit=50)
+            df = self.loader.fetch_historical_data(limit=300)
             if df is None or df.empty:
                 return None
 
