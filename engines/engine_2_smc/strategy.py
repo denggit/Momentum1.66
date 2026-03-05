@@ -100,11 +100,29 @@ class MicroSMCRadar:
         for i in range(len(df) - 5, 5, -1):
             # 找到一根阴线
             if df['close'].iloc[i] < df['open'].iloc[i]:
-                # 检查之后是否有强力拉升（3根K线内涨幅超过 1.5倍 ATR）
+                
+                # 1. 测量这根阴线的真实物理厚度
+                ob_height = df['high'].iloc[i] - df['low'].iloc[i]
+                
+                # 2. 测量随后的多头拉升幅度
                 future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
-                if future_move > (1.5 * df['ATR'].iloc[i]):
-                    ob_top = df['high'].iloc[i]
+                
+                # 🌟 过滤条件 1: 拉升动能必须足够大 (大于 1.5倍 ATR)
+                is_strong_move = future_move > (1.5 * df['ATR'].iloc[i])
+                
+                # 🌟 过滤条件 2 (你的神级洞察): 阴线绝对不能比随后的拉升还长！
+                is_valid_structure = ob_height < future_move
+                
+                # 🌟 过滤条件 3: 绝对厚度不能超过 2.5 倍 ATR (防止极端天地针形成的巨型黑洞)
+                is_not_too_thick = ob_height < (2.5 * df['ATR'].iloc[i])
+                
+                if is_strong_move and is_valid_structure and is_not_too_thick:
+                    
+                    # 🌟 终极防线收缩：如果阴线上影线太长，我们不要 high，只取阴线的 open(开盘价/实体顶部) 作为防线上沿
+                    # 这样能让 OB 变得极其“紧实”，逼迫三号引擎在更深、更安全的位置接刀！
+                    ob_top = df['open'].iloc[i] 
                     ob_bottom = df['low'].iloc[i]
+                    
                     # 如果 OB 还在当前价格下方，则视为有效
                     if ob_top < current_price:
                         pois.append({
