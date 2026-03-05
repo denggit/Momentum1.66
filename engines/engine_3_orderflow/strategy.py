@@ -40,7 +40,7 @@ class Engine3Commander:
         self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
 
         # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
-        self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.5) # 每次用 50% 的仓位
+        self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.6)  # 每次用 60% 的仓位
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)

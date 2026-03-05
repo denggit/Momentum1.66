@@ -120,8 +120,8 @@ class OrderFlowMath:
                     self.last_fire_time = current_ts
 
                     # 🌟 核心补丁：在这里更新拦截器的基准值！
-                    # 我们预设止损位在现价下方 0.05% (即 0.9995)
-                    self.last_stop_loss_price = self.current_price * 0.9995
+                    # 我们预设止损位在现价下方 0.3% (即 0.997)
+                    self.last_stop_loss_price = self.current_price * 0.997
                     self.last_stop_loss_time = current_ts
                     self.max_price_since_stop = self.current_price  # 重置反弹高点
 
