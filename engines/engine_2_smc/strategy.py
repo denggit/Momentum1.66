@@ -43,7 +43,7 @@ class MicroSMCRadar:
         """定期拉取最新 K 线，重新绘制 5m SMC 支撑区"""
         try:
             # 拉取最近 100 根 5 分钟 K 线 (大约 8 小时的数据，足够日内剥头皮用了)
-            df = self.loader.fetch_historical_data(limit=100)
+            df = self.loader.fetch_historical_data(limit=100).copy()
             # 🌟 增加对 None 的保护，防止网络闪断报错
             if df is None or df.empty or len(df) < 5:
                 logger.warning("⚠️ [SMC雷达] 拉取数据为空，跳过本次更新。")

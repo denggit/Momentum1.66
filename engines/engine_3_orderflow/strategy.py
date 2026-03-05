@@ -40,7 +40,7 @@ class Engine3Commander:
         self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
 
         # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
-        self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.6)  # 每次用 60% 的仓位
+        self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.8)  # 每次用 60% 的仓位
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)
@@ -54,42 +54,12 @@ class Engine3Commander:
         # 1. 交给数学大脑计算
         signal_data = self.math_brain.process_tick(tick)
 
-        # 2. 如果有信号，判断级别并执行动作
         if signal_data:
             if signal_data['level'] == "STRICT":
-                # ========================================================
-                # 🌟 宏观结构大审查！拿刚刚探明的“坑底价 local_low”去问二号引擎
-                is_safe, smc_msg = self.smc_radar.final_check(signal_data['local_low'])
-                # ========================================================
+                # 🌟 优化：把耗时的宏观校验和下单，扔给异步后台去跑，绝不卡顿 Tick 流！
+                asyncio.create_task(self._async_evaluate_and_snipe(signal_data))
 
-                if is_safe:
-                    logger.warning("\n" + "🟢" * 25)
-                    logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
-                    logger.warning(f"🗺️ 宏观支持: {smc_msg} (完美命中坑底 {signal_data['local_low']})")
-                    logger.warning(
-                        f"💥 微观盘口: 砸盘 ${abs(signal_data['cvd_delta_usdt']) / 10000:.1f}万，反转 ${signal_data['micro_cvd'] / 10000:.1f}万，反弹了 {signal_data['price_diff_pct']:.3f}%")
-
-                    if self.mode == "live":
-                        logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
-
-                        # 🌟 新增：向 SMC 雷达索要上方最近的波段高点作为格局单止盈位
-                        tp2_target = self.smc_radar.get_nearest_resistance(signal_data['price'])
-                        if not tp2_target:
-                            tp2_target = signal_data['price'] * 1.012  # 如果没找到，保底设在 1.2%
-
-                        # risk_usdt 填入你愿意每次动用的实盘本金（比如 200U）
-                        asyncio.create_task(self.trader.execute_snipe(
-                            price=signal_data['price'],
-                            local_low=signal_data['local_low'],
-                            tp2_price=tp2_target  # 🌟 传入算好的 TP2
-                        ))
-                    else:
-                        # 🌟 只有在 collect (科考) 模式下，才发送邮件报警
-                        asyncio.create_task(self.send_email_alert(signal_data))
-                else:
-                    logger.info(
-                        f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")
-
+                # 科考船记录（极快，留在主线程）
                 self.tracker.add_tracking(signal_data)
 
             elif signal_data['level'] == "BROAD":
@@ -99,6 +69,32 @@ class Engine3Commander:
 
         # 3. 让科考船更新最高价和止损
         self.tracker.update_trackings(tick['price'], tick['ts'])
+
+    # 🌟 新增的异步验证与狙击函数
+    async def _async_evaluate_and_snipe(self, signal_data):
+        # 使用 asyncio.to_thread 把 Pandas 的同步计算扔到线程池，防止阻塞事件循环
+        is_safe, smc_msg = await asyncio.to_thread(self.smc_radar.final_check, signal_data['local_low'])
+
+        if is_safe:
+            logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
+
+            if self.mode == "live":
+                logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
+
+                # 同样异步获取阻力位
+                tp2_target = await asyncio.to_thread(self.smc_radar.get_nearest_resistance, signal_data['price'])
+                if not tp2_target:
+                    tp2_target = signal_data['price'] * 1.012
+
+                await self.trader.execute_snipe(
+                    price=signal_data['price'],
+                    local_low=signal_data['local_low'],
+                    tp2_price=tp2_target
+                )
+            else:
+                await self.send_email_alert(signal_data)
+        else:
+            logger.info(f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")
 
     async def send_email_alert(self, signal):
         current_ts = time.time()
