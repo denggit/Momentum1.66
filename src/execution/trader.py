@@ -197,6 +197,10 @@ class OKXTrader:
     async def update_balance_loop(self):
         """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地"""
         logger.info("💰 [财务官] 已上线！将在后台默默监控账户余额...")
+
+        # 🌟 新增：启动时第一件事，先把枪管的威力（杠杆）调好！
+        await self.set_leverage_on_startup()
+        
         while True:
             await self.fetch_balance()
             await asyncio.sleep(60)  # 闲时每分钟查一次
@@ -211,3 +215,30 @@ class OKXTrader:
                     self.available_usdt = float(asset['availEq'])
                     logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
                     break
+
+    async def set_leverage_on_startup(self):
+        """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
+        
+        # 1. 强制切换保证金模式 (全仓 cross / 逐仓 isolated)
+        # 注意：OKX 要求切换模式时不能有持仓或挂单
+        mode_payload = {
+            "instId": self.symbol,
+            "mgnMode": self.td_mode  # 这里传入 "cross"
+        }
+        logger.info(f"⚙️ [实盘初始化] 正在设置保证金模式为: {self.td_mode}")
+        # 虽然接口是 set-isolated-mode，但它其实是用来切换全逐仓的开关
+        await self._request("POST", "/api/v5/account/set-isolated-mode", mode_payload)
+
+        # 2. 强制设置杠杆倍数
+        lev_payload = {
+            "instId": self.symbol,
+            "lever": str(self.leverage),
+            "mgnMode": self.td_mode
+        }
+        logger.info(f"⚙️ [实盘初始化] 正在设置杠杆倍数为: {self.leverage}X")
+        res = await self._request("POST", "/api/v5/account/set-leverage", lev_payload)
+        
+        if res and res.get('code') == '0':
+            logger.info(f"✅ 状态同步成功！{self.symbol} 已锁定为 【{self.td_mode.upper()} {self.leverage}X】")
+        else:
+            logger.warning(f"⚠️ 状态同步返回: {res.get('msg', res)}")
