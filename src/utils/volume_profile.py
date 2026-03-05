@@ -28,10 +28,14 @@ class CompositeVolumeProfile:
 
             # 极速将每根 K 线成交量切片摊入价格区间
             for _, row in df.iterrows():
-                idx = np.searchsorted(bins, [row['low'], row['high']])
-                if idx[1] > idx[0]:
-                    vol_per_bin = row['volume'] / (idx[1] - idx[0])
-                    volumes[idx[0]:idx[1]] += vol_per_bin
+                # 🌟 优雅重构：直接将返回的 2 个元素的 array 解包成两个清晰的变量
+                idx_low, idx_high = np.searchsorted(bins, [row['low'], row['high']])
+                if idx_high > idx_low:
+                    vol_per_bin = row['volume'] / (idx_high - idx_low)
+                    volumes[idx_low:idx_high] += vol_per_bin
+                elif idx_low < len(volumes):
+                    # 🌟 Doji (十字星) 的成交量累加
+                    volumes[idx_low] += row['volume']
 
             # 2. 🌟 高斯平滑 (消灭散户噪音，保留主力沉淀)
             smoothed_volumes = gaussian_filter1d(volumes, sigma=3)

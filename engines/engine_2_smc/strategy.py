@@ -246,7 +246,7 @@ class MicroSMCRadar:
     def get_nearest_resistance(self, current_price: float):
         """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""
         try:
-            df = self.loader.fetch_historical_data(limit=300)
+            df = self.loader.fetch_historical_data(limit=300).copy()
             if df is None or df.empty:
                 return None
 

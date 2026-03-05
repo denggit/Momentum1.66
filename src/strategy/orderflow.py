@@ -27,7 +27,10 @@ class OrderFlowMath:
 
         # 🌟 新增：这轮探底是否已经报告过宽口径了
         self.broad_fired_this_round = False
-        self.ema_updated_this_round = False  # 🌟 新增：EMA 记忆锁
+
+        # 🌟 新增：用来记录当前波段的最高战绩
+        self.round_max_effort_m = 0.0
+        self.round_max_resistance = 0.0
 
         # ==========================================
         # 🧠 动态流动性记忆 (Dynamic Liquidity Memory)
@@ -106,35 +109,30 @@ class OrderFlowMath:
                 self.broad_fired_this_round = False
                 self.ema_updated_this_round = False  # 🌟 解锁！因为砸盘量变大了，等下需要重新记录
 
-            # 动作 B：解除武装 (如果 120 秒内都在坑底横盘，没有买盘反抽，说明死水一潭，放弃)
+            # 动作 B：解除武装 (超时死水)
             elif current_ts - self.armed_time > 120:
                 self.state = "IDLE"
+                self._commit_ema_memory()  # 🌟 即使不开火，也要把失败的砸盘厚度学进去！
 
             # 动作 C：绝地反击或极限吸收！
             else:
                 micro_cvd_usdt = (self.cvd - self.local_low_cvd) * CONTRACT_SIZE * self.current_price
                 bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
-                # 1. 计算本次波段的真实物理量
                 price_3m_ago = snapshot_3m_ago['price']
                 effort_m = abs(recent_cvd_delta_usdt) / 1_000_000
                 price_drop_pct = (price_3m_ago - self.local_low) / price_3m_ago * 100
                 safe_drop = max(price_drop_pct, 0.005)
                 current_resistance = effort_m / (safe_drop * 100)
 
-                # ==========================================
-                # 🧠 核心：让系统“学习”并更新动态基准 (带锁！)
-                # ==========================================
-                # 只有当空头砸了超过 200万 刀，且这波还没记过账时，才更新 EMA
-                if effort_m > 2.0 and not self.ema_updated_this_round:
-                    self.avg_wave_effort_m = (self.avg_wave_effort_m * 0.9) + (effort_m * 0.1)
-                    self.avg_resistance_bps = (self.avg_resistance_bps * 0.9) + (current_resistance * 0.1)
-                    self.ema_updated_this_round = True  # 🌟 咔哒！上锁！防止 Tick 流疯狂重复写入
+                # 🌟 持续记录本轮最大值 (代替之前的计算并立刻更新)
+                self.round_max_effort_m = max(self.round_max_effort_m, effort_m)
+                self.round_max_resistance = max(self.round_max_resistance, current_resistance)
 
                 # ==========================================
                 # 🧊 轨 0：真·动态极限吸收
                 # ==========================================
-                # 此时使用的 self.avg_wave_effort_m 是系统刚刚从盘面里“闻”出来的真实均值！
+                # 🌟 极其重要：此时的 avg_wave_effort_m 是纯净的“历史均值”，没有被当下污染！
                 effort_anomaly = effort_m / self.avg_wave_effort_m
                 resistance_anomaly = current_resistance / self.avg_resistance_bps
 
@@ -160,6 +158,7 @@ class OrderFlowMath:
                 # 🎯 击发判定 (后续逻辑不变...)
                 if cond_absorption or cond_v_reversal:
                     self.state = "IDLE"
+                    self._commit_ema_memory()  # 🌟 击发后，波段结束，刻入大脑记忆！
                     self.last_fire_time = current_ts
 
                     # 我们预设止损位在现价下方 0.3% (即 0.997)
@@ -191,3 +190,12 @@ class OrderFlowMath:
                     }
 
         return None
+
+    def _commit_ema_memory(self):
+        """波段结束时，统一把这波的最大数据结算进大脑"""
+        if self.round_max_effort_m > 2.0:
+            self.avg_wave_effort_m = (self.avg_wave_effort_m * 0.9) + (self.round_max_effort_m * 0.1)
+            self.avg_resistance_bps = (self.avg_resistance_bps * 0.9) + (self.round_max_resistance * 0.1)
+        # 结算完清零，准备迎接下一次暴跌
+        self.round_max_effort_m = 0.0
+        self.round_max_resistance = 0.0
