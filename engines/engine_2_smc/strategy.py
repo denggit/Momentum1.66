@@ -51,11 +51,15 @@ class MicroSMCRadar:
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
         """
-        核心算法升级：找出未回补 FVG、波段低点 SSL 以及 庄家老巢 Order Block
+        寻找 FVG, Swing Low 和 庄家老巢 Order Block
         """
         pois = []
         current_price = df['close'].iloc[-1]
-        atr_now = df['ATR'].iloc[-1] if 'ATR' in df.columns else 5.0
+        
+        # 🌟 核心修复补丁：如果原始数据没有 ATR 列，我们极速手搓一个简易版 14 周期平均振幅！
+        if 'ATR' not in df.columns:
+            # 高点减低点算出行情振幅，求 14 根 K 线的移动平均。如果有缺失值，默认给一个 0.2% 的常规波动率
+            df['ATR'] = (df['high'] - df['low']).rolling(window=14).mean().fillna(current_price * 0.002)
 
         # ==================================================
         # 1. 寻找未回补的看多缺口 (Bullish FVG)
