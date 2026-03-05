@@ -75,6 +75,9 @@ class Engine3Commander:
         # 使用 asyncio.to_thread 把 Pandas 的同步计算扔到线程池，防止阻塞事件循环
         is_safe, smc_msg = await asyncio.to_thread(self.smc_radar.final_check, signal_data['local_low'])
 
+        # 🌟 无论开不开枪，都把地形塞回信号包
+        signal_data['smc_msg'] = smc_msg
+
         if is_safe:
             logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
 
@@ -93,7 +96,11 @@ class Engine3Commander:
                 )
             else:
                 await self.send_email_alert(signal_data)
+            self.tracker.add_tracking(signal_data)
         else:
+            # 🌟 哪怕被拦截，也要记录到科考船，等级标为 REJECTED
+            signal_data['level'] = "REJECTED"
+            self.tracker.add_tracking(signal_data)
             logger.info(f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")
 
     async def send_email_alert(self, signal):

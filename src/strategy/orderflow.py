@@ -109,15 +109,20 @@ class OrderFlowMath:
                 self.broad_fired_this_round = False
                 self.ema_updated_this_round = False  # 🌟 解锁！因为砸盘量变大了，等下需要重新记录
 
-            # 动作 B：解除武装 (超时死水)
-            elif current_ts - self.armed_time > 120:
+            # 🌟 提前计算出反弹幅度，供动作 B 和 动作 C 共同判定
+            bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
+
+            # 动作 B：解除武装 (耐心耗尽 或 价格静默漂移)
+            is_timeout = (current_ts - self.armed_time > 3600)  # 🌟 修复：允许在坑底耐心潜伏 1 个小时 (3600秒)！
+            is_price_drifted = (bounce_pct > 0.5)  # 🌟 防护网：如果静悄悄地反弹超过 0.5%，说明底部已过，放弃接盘
+
+            if is_timeout or is_price_drifted:
                 self.state = "IDLE"
-                self._commit_ema_memory()  # 🌟 即使不开火，也要把失败的砸盘厚度学进去！
+                self._commit_ema_memory()
 
             # 动作 C：绝地反击或极限吸收！
             else:
                 micro_cvd_usdt = (self.cvd - self.local_low_cvd) * CONTRACT_SIZE * self.current_price
-                bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
                 price_3m_ago = snapshot_3m_ago['price']
                 effort_m = abs(recent_cvd_delta_usdt) / 1_000_000
@@ -125,21 +130,19 @@ class OrderFlowMath:
                 safe_drop = max(price_drop_pct, 0.005)
                 current_resistance = effort_m / (safe_drop * 100)
 
-                # 🌟 持续记录本轮最大值 (代替之前的计算并立刻更新)
+                # 🌟 持续记录本轮最大值 (完美锁定庄家在这个波段展现出的最大暴力)
                 self.round_max_effort_m = max(self.round_max_effort_m, effort_m)
                 self.round_max_resistance = max(self.round_max_resistance, current_resistance)
 
                 # ==========================================
-                # 🧊 轨 0：真·动态极限吸收
+                # 🧊 轨 0 & 轨 1：用【巅峰纪录】计算异常度，拒绝记忆衰退！
                 # ==========================================
-                # 🌟 极其重要：此时的 avg_wave_effort_m 是纯净的“历史均值”，没有被当下污染！
-                effort_anomaly = effort_m / self.avg_wave_effort_m
-                resistance_anomaly = current_resistance / self.avg_resistance_bps
+                # 🌟 修复：用 round_max 替代瞬时的 effort_m
+                effort_anomaly = self.round_max_effort_m / self.avg_wave_effort_m
+                resistance_anomaly = self.round_max_resistance / self.avg_resistance_bps
 
                 # 冰山吸收条件：
-                # 1. 空头发力了 (砸盘资金是近期平均波段的 1.5 倍以上)
-                # 2. 价格跌不动 (< 0.06%)
-                # 3. 冰山显灵：推进阻力是当前正常水平的 4.0 倍以上！
+                # (只要这个波段曾经爆发出 > 1.5 倍的砸盘，并且曾经遭遇过 > 4.0 倍的阻力，且目前价格被死死按住)
                 cond_absorption = (
                         effort_anomaly > 1.5 and
                         price_drop_pct < 0.06 and
@@ -149,6 +152,7 @@ class OrderFlowMath:
                 # ==========================================
                 # 🔥 轨 1 & 轨 2：动态 V型反转
                 # ==========================================
+                # (哪怕反弹来得晚，只要这波曾经有过 > 1.2 倍的狂砸，现在反包了，照样开火！)
                 cond_v_reversal = (
                         effort_anomaly > 1.2 and
                         micro_cvd_usdt > 500_000 and
@@ -173,6 +177,8 @@ class OrderFlowMath:
                         "cvd_delta_usdt": recent_cvd_delta_usdt,
                         "micro_cvd": micro_cvd_usdt,
                         "price_diff_pct": bounce_pct,
+                        "effort_anomaly": effort_anomaly,  # 🌟 传给科考船
+                        "res_anomaly": resistance_anomaly,  # 🌟 传给科考船
                         "ts": current_ts
                     }
 
@@ -186,6 +192,8 @@ class OrderFlowMath:
                         "cvd_delta_usdt": recent_cvd_delta_usdt,
                         "micro_cvd": micro_cvd_usdt,
                         "price_diff_pct": bounce_pct,
+                        "effort_anomaly": effort_anomaly,  # 🌟 传给科考船
+                        "res_anomaly": resistance_anomaly,  # 🌟 传给科考船
                         "ts": current_ts
                     }
 

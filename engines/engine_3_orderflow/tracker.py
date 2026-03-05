@@ -2,14 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 @Author     : Zijun Deng
-@Date       : 3/4/26 8:53 PM
+@Date       : 2026-03-05
 @File       : tracker.py
-@Description: 
+@Description: 诊断型科考船 - 支持动态异常度记录与筹码地形分析
 """
 import csv
 import datetime
 import os
 import time
+
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -21,71 +22,83 @@ class CSVTracker:
         self.csv_file = os.path.join(project_root, "data", "bounce_records.csv")
 
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
+        # 🌟 重新设计表头：引入异常度诊断维度
         if not os.path.exists(self.csv_file):
             with open(self.csv_file, mode='w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                # 包含 9 列的新表头（加入了反转量）
-                writer.writerow(
-                    ['触发时间', 'CVD砸盘量(万刀)', 'CVD反转量(万刀)', '偏离前低(刀)', '触发价格', '反弹最高价',
-                     '最大反弹幅度(%)', '追踪耗时(秒)', '结束原因'])
+                writer.writerow([
+                    '触发时间', '信号等级', '砸盘(万)', '反转(万)', '入场反弹(%)',
+                    '资金异常(倍)', '阻力异常(倍)', '触发价', '最高价', '最大反弹(%)',
+                    '耗时(秒)', '筹码地形', '结束原因'
+                ])
 
     def add_tracking(self, signal: dict):
-        """将新信号加入追踪队列"""
+        """记录所有维度，方便复盘"""
         self.active_trackings.append({
             'entry_time': signal['ts'],
+            'level': signal.get('level', 'UNKNOWN'),
             'entry_price': signal['price'],
-            'cvd_delta_usdt': signal['cvd_delta_usdt'],
-            'micro_cvd_delta_usdt': signal['micro_cvd'],
-            'price_diff_pct': signal['price_diff_pct'],
-            'max_price': signal['price']
+            'cvd_delta_usdt': signal.get('cvd_delta_usdt', 0),
+            'micro_cvd': signal.get('micro_cvd', 0),           # 🌟 物理反转
+            'entry_bounce': signal.get('price_diff_pct', 0),   # 🌟 物理入场位
+            'effort_anomaly': signal.get('effort_anomaly', 0), # 🌟 诊断倍数
+            'res_anomaly': signal.get('res_anomaly', 0),       # 🌟 诊断阻力
+            'terrain': signal.get('smc_msg', 'N/A'),           # 🌟 地形标签
+            'max_price': signal['price'],
+            'local_low': signal.get('local_low', signal['price']),
+            'last_update': signal['ts']
         })
-        logger.info(f"📊 已将信号加入科考船追踪队列，当前追踪任务数: {len(self.active_trackings)}")
+        logger.info(f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}")
 
     def update_trackings(self, current_price, current_ts):
-        """动态更新高点，并判定是否结束"""
-        for track in self.active_trackings[:]:
-            if current_price > track['max_price']:
-                track['max_price'] = current_price
+        """更新所有追踪单的最大反弹值，并检查止损"""
+        remaining = []
+        for track in self.active_trackings:
+            track['max_price'] = max(track['max_price'], current_price)
+            track['last_update'] = current_ts
 
-            end_reason = None
-            if current_price < (track['entry_price'] - 3.0):
-                end_reason = "破位止损"
+            # 1. 破位止损 (跌破了触发时的坑底价)
+            if current_price < track['local_low']:
+                self._write_to_csv(track, current_ts, "破位止损")
+            # 2. 时间到了 (15分钟自动归档)
             elif current_ts - track['entry_time'] > 900:
-                end_reason = "时间到了(15分钟)"
+                self._write_to_csv(track, current_ts, "时间到了(15m)")
+            else:
+                remaining.append(track)
 
-            if end_reason:
-                self._write_to_csv(track, current_ts, end_reason)
-                self.active_trackings.remove(track)
+        self.active_trackings = remaining
 
     def force_close_all(self):
-        """安全迫降：kill -15 时强制结算所有内存订单"""
-        if not self.active_trackings:
-            return
+        """安全迫降：程序退出时强制结算"""
+        if not self.active_trackings: return
         current_ts = time.time()
         for track in self.active_trackings:
-            self._write_to_csv(track, current_ts, "程序重启中断(强制结算)")
-        logger.info(f"✅ 完美！已将 {len(self.active_trackings)} 个未完成的追踪记录抢救至 CSV！")
+            self._write_to_csv(track, current_ts, "程序重启中断")
         self.active_trackings.clear()
 
     def _write_to_csv(self, track, current_ts, end_reason):
         bounce_pct = (track['max_price'] - track['entry_price']) / track['entry_price'] * 100
         duration = current_ts - track['entry_time']
+        effort_m = abs(track['cvd_delta_usdt']) / 1_000_000
+        rebound_m = track['micro_cvd'] / 1_000_000
+
         try:
             with open(self.csv_file, mode='a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    datetime.datetime.fromtimestamp(track['entry_time']).strftime('%Y-%m-%d %H:%M:%S'),
-                    round(track['cvd_delta_usdt'] / 10000, 2),
-                    round(track['micro_cvd_delta_usdt'] / 10000, 2),
-                    round(track['price_diff_pct'], 2),
+                    datetime.datetime.fromtimestamp(track['entry_time']).strftime('%H:%M:%S'),
+                    track['level'],
+                    round(effort_m, 2),
+                    round(rebound_m, 2),              # 物理反转量
+                    round(track['entry_bounce'], 3),  # 入场时的偏离
+                    round(track['effort_anomaly'], 2), # 异常倍数
+                    round(track['res_anomaly'], 2),    # 阻力倍数
                     track['entry_price'],
                     track['max_price'],
                     round(bounce_pct, 4),
                     round(duration, 1),
+                    track['terrain'],
                     end_reason
                 ])
-            if "中断" not in end_reason:
-                logger.info(
-                    f"📊 归档 [{end_reason}] -> CVD: {track['cvd_delta_usdt'] / 10000:.1f}万 | 反弹: {bounce_pct:.3f}%")
         except Exception as e:
-            logger.error(f"CSV写入失败: {e}")
+            logger.error(f"❌ 记录 CSV 失败: {e}")
