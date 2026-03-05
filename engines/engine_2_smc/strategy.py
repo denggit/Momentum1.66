@@ -110,8 +110,6 @@ class MicroSMCRadar:
         三号引擎调用接口：传入当前价格，问雷达兵“这里能开火吗？”
         返回 (True/False, 区域描述)
         """
-        self.update_structure()  # 每次询问时，顺便检查需不需要更新数据
-
         if not self.active_pois:
             return False, "无结构"
 
