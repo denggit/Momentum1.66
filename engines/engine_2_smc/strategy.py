@@ -129,30 +129,62 @@ class MicroSMCRadar:
             else:
                 logger.debug(f"🧹 [SMC防线收缩] 发现诱导性 Swing Low，已自动抛弃！")
 
+        # # ==================================================
+        # # 3. 🌟 寻找看多缺口 (FVG) - 完美实现你的“向前补充”逻辑
+        # # ==================================================
+        # df['fvg_gap_bottom'] = df['high'].shift(2)
+        # df['fvg_gap_top'] = df['low']
+        # bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
+        #
+        # valid_fvgs = 0
+        # for idx, row in bullish_fvgs.iloc[::-1].iterrows():
+        #     if valid_fvgs >= 2: break  # 凑齐 2 个纯净 FVG 就停止
+        #
+        #     fvg_bottom = row['fvg_gap_bottom']
+        #     if not is_inducement(fvg_bottom, pois):
+        #         pois.append({
+        #             'type': 'FVG',
+        #             'top': row['fvg_gap_top'],
+        #             'bottom': fvg_bottom,
+        #             'time': idx
+        #         })
+        #         valid_fvgs += 1  # 只有真正收录了，计数器才+1
+        #     else:
+        #         # 🌟 如果被判定为诱导陷阱：不会执行 valid_fvgs += 1
+        #         # 循环会自动走向上一根更老的 K 线，完美实现“向前补充一个 FVG”！
+        #         logger.debug(f"🧹 [SMC防线收缩] 发现与底部集群重合的诱导 FVG，剔除并向前补充！")
+
         # ==================================================
-        # 3. 🌟 寻找看多缺口 (FVG) - 完美实现你的“向前补充”逻辑
+        # 4. 🌟 寻找顶底转换区 (Broken Swing High 压力转支撑)
         # ==================================================
-        df['fvg_gap_bottom'] = df['high'].shift(2)
-        df['fvg_gap_top'] = df['low']
-        bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
-        
-        valid_fvgs = 0
-        for idx, row in bullish_fvgs.iloc[::-1].iterrows():
-            if valid_fvgs >= 2: break  # 凑齐 2 个纯净 FVG 就停止
-            
-            fvg_bottom = row['fvg_gap_bottom']
-            if not is_inducement(fvg_bottom, pois):
+        # 识别出所有的 Swing High
+        df['is_swing_high'] = ((df['high'] > df['high'].shift(1)) & (df['high'] > df['high'].shift(2)) &
+                               (df['high'] > df['high'].shift(-1)) & (df['high'] > df['high'].shift(-2)))
+
+        # 🌟 核心修复：允许现价向下刺穿前高最多 0.3%。
+        # 这样在极速砸盘、刚跌破前高针尖的瞬间，这个支撑位依然会死死钉在雷达屏幕上！
+        tolerance_buffer = current_price * 0.003
+        broken_swing_highs = df[(df['is_swing_high'] == True) & (df['high'] < current_price + tolerance_buffer)]
+
+        valid_bsh = 0
+        for idx, row in broken_swing_highs.iloc[::-1].iterrows():
+            if valid_bsh >= 2: break  # 找到最近的 2 个顶底转换位即可
+
+            # 以这个前高的最高点为基准，画一个支撑带
+            bsh_top = row['high'] + top_allowance
+            bsh_bottom = row['high'] - sweep_allowance
+
+            # 同样利用我们的防诱导逻辑，如果离得太近就合并/剔除
+            if not is_inducement(bsh_bottom, pois):
                 pois.append({
-                    'type': 'FVG', 
-                    'top': row['fvg_gap_top'], 
-                    'bottom': fvg_bottom, 
+                    'type': 'Broken_Swing_High',
+                    'top': bsh_top,
+                    'bottom': bsh_bottom,
                     'time': idx
                 })
-                valid_fvgs += 1  # 只有真正收录了，计数器才+1
+                valid_bsh += 1
             else:
-                # 🌟 如果被判定为诱导陷阱：不会执行 valid_fvgs += 1
-                # 循环会自动走向上一根更老的 K 线，完美实现“向前补充一个 FVG”！
-                logger.debug(f"🧹 [SMC防线收缩] 发现与底部集群重合的诱导 FVG，剔除并向前补充！")
+                logger.debug(f"🧹 [SMC防线收缩] 发现重合的 Broken Swing High 支撑，剔除并向前补充！")
 
         return pois
 

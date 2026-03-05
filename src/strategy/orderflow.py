@@ -112,8 +112,8 @@ class OrderFlowMath:
                 # 轨2：巨鲸托底 (砸盘虽然只有300万以上，但反向买盘极其恐怖>50万)
                 cond2 = recent_cvd_delta_usdt < -3_000_000 and micro_cvd_usdt > 500_000
 
-                # 反弹幅度统一要求 0.08% ~ 0.25% (稍微放宽上限，包容巨鲸瞬间吃单的滑点)
-                is_valid_bounce = 0.08 < bounce_pct <= 0.25
+                # 反弹幅度统一要求 0.12% ~ 0.35% (稍微放宽上限，包容巨鲸瞬间吃单的滑点)
+                is_valid_bounce = 0.12 < bounce_pct <= 0.35
 
                 if (cond1 or cond2) and is_valid_bounce:
                     self.state = "IDLE"
