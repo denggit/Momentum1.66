@@ -181,10 +181,10 @@ class OKXTrader:
             "side": "sell",
             "ordType": "conditional",
             "sz": str(sz),
-            "triggerPx": str(sl_price),
-            "triggerPxType": "last",
-            "ordPx": "-1",  # -1 代表触发后市价砸盘逃跑
-            "reduceOnly": True  # 🌟 关键：只减仓
+            "slTriggerPx": str(sl_price),      # 🌟 关键修改：明确为止损触发价
+            "slTriggerPxType": "last",         # 🌟 关键修改：明确为止损触发类型
+            "slOrdPx": "-1",                   # 🌟 关键修改：明确为止损委托价 (-1代表市价)
+            "reduceOnly": True                 # 🌟 依然保留护身符
         }
 
         logger.info(f"📡 [3/3] 发送止损单请求 (条件市价) -> 触发价: {sl_price}")
