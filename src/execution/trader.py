@@ -38,6 +38,7 @@ class OKXTrader:
         self.td_mode = td_mode
         self.risk_pct = risk_pct  # 🌟 比如 0.5 表示每次下注可用余额的 50%
         self.available_usdt = 0.0  # 🌟 缓存在本地的可用余额
+        self.is_in_position = False # 默认为空仓
 
         # 简单合约面值表 (1张合约等于多少个币)
         self.ct_val_map = {
@@ -94,6 +95,10 @@ class OKXTrader:
         """
         极速三连发执行器：市价开多 -> Maker止盈 -> 条件市价止损
         """
+        if self.is_in_position:
+            logger.warning("🛡️ [拦截] 手里还有单子没跑完，为了仓位安全，拒绝开第二枪！")
+            return
+        
         if not self.api_key:
             logger.error("❌ 实盘 API 未配置，拒绝下单。")
             return
@@ -215,6 +220,23 @@ class OKXTrader:
                     self.available_usdt = float(asset['availEq'])
                     logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
                     break
+
+        # 查询当前品种持仓
+        pos_res = await self._request("GET", f"/api/v5/account/positions?instId={self.symbol}")
+        
+        if pos_res and pos_res.get('code') == '0':
+            positions = pos_res.get('data', [])
+            
+            # 默认设为空仓
+            self.is_in_position = False
+            
+            for p in positions:
+                pos_amt = abs(float(p.get('pos', 0)))
+                # 🌟 核心优化：只有持仓数量大于一个微小的阈值（比如 0.01 张）才认为是在持仓
+                # 对于以太坊，0.1张是1手，这里可以设为 0.05 或更小
+                if pos_amt > 0.05: 
+                    self.is_in_position = True
+                    break0
 
     async def set_leverage_on_startup(self):
         """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
