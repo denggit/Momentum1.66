@@ -25,6 +25,9 @@ class OrderFlowMath:
         self.last_stop_loss_time = 0.0
         self.max_price_since_stop = 0.0  # 止损后的最高反弹价
 
+        # 🌟 新增：这轮探底是否已经报告过宽口径了
+        self.broad_fired_this_round = False  
+
     def process_tick(self, tick: dict):
         """每秒可能接收几十上百个tick，全速 O(1) 运算"""
         self.current_price = tick['price']
@@ -91,6 +94,7 @@ class OrderFlowMath:
                 self.local_low = self.current_price
                 self.local_low_cvd = self.cvd  # 更新坑底的 CVD 坐标
                 self.armed_time = current_ts  # 刷新上膛时间，重新倒计时
+                self.broad_fired_this_round = False  # 🌟 创新低了，锁解开，允许重新探测
 
             # 动作 B：解除武装 (如果 120 秒内都在坑底横盘，没有买盘反抽，说明死水一潭，放弃)
             elif current_ts - self.armed_time > 120:
@@ -122,10 +126,12 @@ class OrderFlowMath:
                         "ts": current_ts
                     }
 
-                # 🧪 宽口径击发：反弹拐头 > 0.02%，且买入 > 3万 (收集数据用)
-                elif micro_cvd_usdt > 30_000 and 0.02 < bounce_pct <= 0.30:
-                    self.state = "IDLE"
-                    self.last_fire_time = current_ts
+                # 🧪 宽口径击发：反弹 0.02% 时，向科考船汇报，但枪口继续死死瞄准！
+                elif micro_cvd_usdt > 30_000 and 0.02 < bounce_pct <= 0.30 and not self.broad_fired_this_round:
+                    # 🚨 注意：这里千万千万不能有 self.state = "IDLE" ！！！
+                    # 只要不 IDLE，系统下一秒还会继续监控是否能达到 STRICT！
+                    
+                    self.broad_fired_this_round = True # 上锁，避免这一波反弹重复发废话
                     return {
                         "level": "BROAD",
                         "price": self.current_price,
