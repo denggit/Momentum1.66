@@ -106,7 +106,7 @@ class OrderFlowMath:
                 bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
                 # ⚔️ 严口径击发：反弹拐头 > 0.05% ...
-                if micro_cvd_usdt > 150_000 and 0.05 < bounce_pct <= 0.20 and recent_cvd_delta_usdt < -5_000_000:
+                if micro_cvd_usdt > 300_000 and 0.08 < bounce_pct <= 0.20 and recent_cvd_delta_usdt < -5_000_000:
                     self.state = "IDLE"  # 开火后重置状态机
                     self.last_fire_time = current_ts
 
