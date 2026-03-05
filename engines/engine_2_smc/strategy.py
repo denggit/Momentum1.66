@@ -15,6 +15,8 @@ import asyncio
 # engines/engine_2_smc/strategy.py
 import pandas as pd
 
+from src.utils.volume_profile import AutoBalanceFinder, VolumeProfileManager
+
 # 确保能导入 src 目录下的模块
 current_file = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
@@ -188,6 +190,47 @@ class MicroSMCRadar:
 
         return pois
 
+    # 在 MicroSMCRadar 类中添加
+    def auto_verify_volume_support(self, target_price: float):
+        """
+        全自动筹码测谎仪：无需时间戳，自动回溯历史并验证
+        """
+        try:
+            # 1. 获取本地缓存的历史 K 线 (预加载了 2000 根)
+            df = self.loader.fetch_historical_data(limit=2000)
+            if df is None or df.empty:
+                return False, "数据缺失"
+
+            # 2. 自动寻找该价格对应的历史平衡区
+            finder = AutoBalanceFinder()
+            balance_df = finder.find_last_balance_area(df, target_price)
+
+            if balance_df is None:
+                return False, "历史成交稀疏 (LVN 真空区)"
+
+            # 3. 计算该平衡区的筹码分布
+            vp_manager = VolumeProfileManager()
+            metrics = vp_manager.calculate_metrics(balance_df)
+
+            if not metrics:
+                return False, "筹码分布计算失败"
+
+            # 4. 判定现价是否处于“筹码泥潭” (Value Area 内部)
+            # 如果价格靠近 POC 或在 VAL 以上，说明有强力支撑
+            is_near_poc = abs(target_price - metrics['poc']) / metrics['poc'] < 0.002
+            is_in_va = metrics['val'] <= target_price <= metrics['vah']
+
+            if is_near_poc:
+                return True, f"命中历史 POC 强支撑 ({metrics['poc']:.1f})"
+            if is_in_va:
+                return True, f"处于历史价值区内部 (VA)"
+
+            return False, f"处于筹码真空区 (当前:{target_price:.1f}, POC:{metrics['poc']:.1f})"
+
+        except Exception as e:
+            logger.error(f"❌ 筹码自动验证异常: {e}")
+            return False, "验证程序错误"
+
     def is_in_poi(self, price: float) -> tuple[bool, str]:
         """
         三号引擎调用接口：传入当前价格，问雷达兵“这里能开火吗？”
@@ -201,6 +244,16 @@ class MicroSMCRadar:
                 return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
+
+    # 在 MicroSMCRadar (Engine 2) 里
+    def final_check(self, price):
+        """一键完成结构+筹码的双重验证"""
+        is_poi, msg1 = self.is_in_poi(price)
+        if not is_poi:
+            return False, msg1
+
+        is_vol_safe, msg2 = self.auto_verify_volume_support(price)
+        return is_vol_safe, f"{msg1} + {msg2}"
 
     def get_nearest_resistance(self, current_price: float):
         """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""

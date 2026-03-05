@@ -59,7 +59,7 @@ class Engine3Commander:
             if signal_data['level'] == "STRICT":
                 # ========================================================
                 # 🌟 宏观结构大审查！拿刚刚探明的“坑底价 local_low”去问二号引擎
-                is_safe, smc_msg = self.smc_radar.is_in_poi(signal_data['local_low'])
+                is_safe, smc_msg = self.smc_radar.final_check(signal_data['local_low'])
                 # ========================================================
 
                 if is_safe:
