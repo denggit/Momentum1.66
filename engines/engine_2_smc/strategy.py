@@ -6,16 +6,13 @@
 @File       : strategy.py
 @Description: 
 """
+import asyncio
+import datetime
 import os
 import sys
-import time
-import datetime
-import asyncio
 
-# engines/engine_2_smc/strategy.py
+import numpy as np
 import pandas as pd
-
-from src.utils.volume_profile import AutoBalanceFinder, VolumeProfileManager
 
 # 确保能导入 src 目录下的模块
 current_file = os.path.abspath(__file__)
@@ -24,6 +21,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.data_feed.okx_loader import OKXDataLoader
+from src.utils.volume_profile import CompositeVolumeProfile
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -38,22 +36,74 @@ class MicroSMCRadar:
 
         # 存储计算出的兴趣区 (Point of Interest)
         self.active_pois = []
+        self.macro_vp_metrics = None  # 🌟 新增：存放 48 小时的全局地形数据
 
     def update_structure(self):
-        """定期拉取最新 K 线，重新绘制 5m SMC 支撑区"""
+        """定期拉取最新 K 线，重新绘制 5m SMC 支撑区，并扫描全局筹码"""
         try:
-            # 拉取最近 100 根 5 分钟 K 线 (大约 8 小时的数据，足够日内剥头皮用了)
+            # 🌟 视野放大到 600 根 (48小时)，寻找未消耗的结构和全局筹码
             df = self.loader.fetch_historical_data(limit=600).copy()
-            # 🌟 增加对 None 的保护，防止网络闪断报错
             if df is None or df.empty or len(df) < 5:
                 logger.warning("⚠️ [SMC雷达] 拉取数据为空，跳过本次更新。")
                 return
 
+            # 1. 计算未失效的 SMC 支撑区 (你刚才已经加了 is_mitigated 的代码，这里复用)
             self.active_pois = self._calculate_support_pois(df)
-            logger.debug(f"🗺️ [SMC雷达] 5m结构更新完毕，当前发现 {len(self.active_pois)} 个有效支撑区(POI)。")
+
+            # 2. 🌟 附加任务：计算这 48 小时的全局筹码分布！
+            vp_analyzer = CompositeVolumeProfile()
+            self.macro_vp_metrics = vp_analyzer.analyze_macro_profile(df)
+
+            hvn_count = len(self.macro_vp_metrics['hvns']) if self.macro_vp_metrics else 0
+            logger.debug(f"🗺️ [SMC雷达] 地图更新！发现 {len(self.active_pois)} 个有效POI，探明 {hvn_count} 座宏观筹码峰。")
 
         except Exception as e:
             logger.exception(f"❌ [SMC雷达] 更新K线结构失败: {e}")
+
+    # ====================================================
+    # 🌟 用这个全新的宏观交叉验证，替换掉旧的 auto_verify_volume_support
+    # ====================================================
+    def verify_with_macro_vp(self, smc_price: float):
+        """
+        全自动筹码测谎仪：判断现价落在山峰 (HVN) 还是山谷 (LVN)？
+        """
+        if not self.macro_vp_metrics:
+            return True, "筹码地形未知"  # 如果地形没算出来，放行 (容错处理)
+
+        hvns = np.array(self.macro_vp_metrics['hvns'])
+        lvns = np.array(self.macro_vp_metrics['lvns'])
+
+        if len(hvns) == 0 or len(lvns) == 0:
+            return True, "筹码分布无明显峰谷"
+
+        # 1. 计算距离最近的山峰和山谷
+        dist_to_nearest_hvn = np.min(np.abs(hvns - smc_price))
+        dist_to_nearest_lvn = np.min(np.abs(lvns - smc_price))
+
+        # 2. 一票否决：如果紧挨着 LVN (真空区，比如距离 < 1 美金)，直接拦截！
+        if dist_to_nearest_lvn <= 1.0:
+            return False, "⚠️ 处于 LVN 真空区，支撑极度脆弱"
+
+        # 3. 完美共振：如果紧挨着 HVN (比如距离 < 2.5 美金)
+        if dist_to_nearest_hvn <= 2.5:
+            return True, "✅ SMC 结构与宏观 HVN 筹码峰完美共振"
+
+        # 4. 如果都在中间，属于普通支撑
+        return True, "✅ 普通支撑区(未见筹码真空)"
+
+    def final_check(self, price):
+        """指挥部专用的最终审核接口"""
+        # 第一关：有没有结构？
+        is_poi, msg1 = self.is_in_poi(price)
+        if not is_poi:
+            return False, msg1
+
+        # 第二关：🌟 宏观筹码交叉验证
+        is_vol_safe, msg2 = self.verify_with_macro_vp(price)
+        if not is_vol_safe:
+            return False, f"结构虽在，但 {msg2}"
+
+        return True, f"{msg1} | {msg2}"
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
         """
@@ -177,47 +227,6 @@ class MicroSMCRadar:
 
         return pois
 
-    # 在 MicroSMCRadar 类中添加
-    def auto_verify_volume_support(self, target_price: float):
-        """
-        全自动筹码测谎仪：无需时间戳，自动回溯历史并验证
-        """
-        try:
-            # 1. 获取本地缓存的历史 K 线 (预加载了 2000 根)
-            df = self.loader.fetch_historical_data(limit=2000)
-            if df is None or df.empty:
-                return False, "数据缺失"
-
-            # 2. 自动寻找该价格对应的历史平衡区
-            finder = AutoBalanceFinder()
-            balance_df = finder.find_last_balance_area(df, target_price)
-
-            if balance_df is None:
-                return False, "历史成交稀疏 (LVN 真空区)"
-
-            # 3. 计算该平衡区的筹码分布
-            vp_manager = VolumeProfileManager()
-            metrics = vp_manager.calculate_metrics(balance_df)
-
-            if not metrics:
-                return False, "筹码分布计算失败"
-
-            # 4. 判定现价是否处于“筹码泥潭” (Value Area 内部)
-            # 如果价格靠近 POC 或在 VAL 以上，说明有强力支撑
-            is_near_poc = abs(target_price - metrics['poc']) / metrics['poc'] < 0.002
-            is_in_va = metrics['val'] <= target_price <= metrics['vah']
-
-            if is_near_poc:
-                return True, f"命中历史 POC 强支撑 ({metrics['poc']:.1f})"
-            if is_in_va:
-                return True, f"处于历史价值区内部 (VA)"
-
-            return False, f"处于筹码真空区 (当前:{target_price:.1f}, POC:{metrics['poc']:.1f})"
-
-        except Exception as e:
-            logger.error(f"❌ 筹码自动验证异常: {e}")
-            return False, "验证程序错误"
-
     def is_in_poi(self, price: float) -> tuple[bool, str]:
         """
         三号引擎调用接口：传入当前价格，问雷达兵“这里能开火吗？”
@@ -231,16 +240,6 @@ class MicroSMCRadar:
                 return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
-
-    # 在 MicroSMCRadar (Engine 2) 里
-    def final_check(self, price):
-        """一键完成结构+筹码的双重验证"""
-        is_poi, msg1 = self.is_in_poi(price)
-        if not is_poi:
-            return False, msg1
-
-        is_vol_safe, msg2 = self.auto_verify_volume_support(price)
-        return is_vol_safe, f"{msg1} + {msg2}"
 
     def get_nearest_resistance(self, current_price: float):
         """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""
