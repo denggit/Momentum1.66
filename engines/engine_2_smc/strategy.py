@@ -55,75 +55,44 @@ class MicroSMCRadar:
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
         """
-        寻找 FVG, Swing Low 和 庄家老巢 Order Block
+        寻找 FVG, Swing Low 和 庄家老巢 Order Block，并自动过滤诱导陷阱 (Inducement)
         """
         pois = []
         current_price = df['close'].iloc[-1]
         
-        # 🌟 核心修复补丁：如果原始数据没有 ATR 列，我们极速手搓一个简易版 14 周期平均振幅！
         if 'ATR' not in df.columns:
-            # 高点减低点算出行情振幅，求 14 根 K 线的移动平均。如果有缺失值，默认给一个 0.2% 的常规波动率
             df['ATR'] = (df['high'] - df['low']).rolling(window=14).mean().fillna(current_price * 0.002)
 
-        # ==================================================
-        # 1. 寻找未回补的看多缺口 (Bullish FVG)
-        # ==================================================
-        df['fvg_gap_bottom'] = df['high'].shift(2)
-        df['fvg_gap_top'] = df['low']
-        bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
-        for idx, row in bullish_fvgs.tail(2).iterrows():
-            pois.append({'type': 'FVG', 'top': row['fvg_gap_top'], 'bottom': row['fvg_gap_bottom'], 'time': idx})
+        current_atr = df['ATR'].iloc[-1]
+        
+        # 🌟 定义“靠在一起”的距离阈值：1.5倍的当前平均波动率 (大约是现价的 0.2%~0.3%)
+        cluster_threshold = 1.5 * current_atr
+
+        def is_inducement(test_bottom, existing_pois):
+            """判断是否为诱导陷阱：如果距离某个更低的防线太近，那它就是庄家用来扫损的假防线"""
+            for ep in existing_pois:
+                distance = abs(test_bottom - ep['bottom'])
+                # 如果极其靠近，且测试的防线比已有防线高，则判定为 IDM 陷阱
+                if distance < cluster_threshold and test_bottom > ep['bottom']:
+                    return True
+            return False
 
         # ==================================================
-        # 2. 寻找波段低点流动性池 (Swing Low / SSL)
+        # 1. 首先寻找“定海神针”：极值订单块 (Order Block)
+        # 把它作为最坚固的底层基石，后续的 FVG 如果离它太近都会被剔除！
         # ==================================================
-        df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
-                              (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
-        swing_lows = df[(df['is_swing_low'] == True) & (df['low'] < current_price)]
-        
-        # 🌟 核心修复：基于价格动态计算扫损容错空间 (现价的 0.15% 作为下沿，0.05% 作为上沿)
-        sweep_allowance = current_price * 0.0015 
-        top_allowance = current_price * 0.0005
-        
-        for idx, row in swing_lows.tail(2).iterrows():
-            pois.append({
-                'type': 'Swing_Low', 
-                'top': row['low'] + top_allowance, 
-                'bottom': row['low'] - sweep_allowance, 
-                'time': idx
-            })
-
-        # ==================================================
-        # 3. 🌟 核心升级：寻找看多订单块 (Bullish Order Block)
-        # ==================================================
-        # 逻辑：寻找一段强力上涨（BOS）之前的最后一根阴线
         for i in range(len(df) - 5, 5, -1):
-            # 找到一根阴线
             if df['close'].iloc[i] < df['open'].iloc[i]:
-                
-                # 1. 测量这根阴线的真实物理厚度
                 ob_height = df['high'].iloc[i] - df['low'].iloc[i]
-                
-                # 2. 测量随后的多头拉升幅度
                 future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
                 
-                # 🌟 过滤条件 1: 拉升动能必须足够大 (大于 1.5倍 ATR)
                 is_strong_move = future_move > (1.5 * df['ATR'].iloc[i])
-                
-                # 🌟 过滤条件 2 (你的神级洞察): 阴线绝对不能比随后的拉升还长！
                 is_valid_structure = ob_height < future_move
-                
-                # 🌟 过滤条件 3: 绝对厚度不能超过 2.5 倍 ATR (防止极端天地针形成的巨型黑洞)
                 is_not_too_thick = ob_height < (2.5 * df['ATR'].iloc[i])
                 
                 if is_strong_move and is_valid_structure and is_not_too_thick:
-                    
-                    # 🌟 终极防线收缩：如果阴线上影线太长，我们不要 high，只取阴线的 open(开盘价/实体顶部) 作为防线上沿
-                    # 这样能让 OB 变得极其“紧实”，逼迫三号引擎在更深、更安全的位置接刀！
                     ob_top = df['open'].iloc[i] 
                     ob_bottom = df['low'].iloc[i]
-                    
-                    # 如果 OB 还在当前价格下方，则视为有效
                     if ob_top < current_price:
                         pois.append({
                             'type': 'Order_Block',
@@ -131,7 +100,59 @@ class MicroSMCRadar:
                             'bottom': ob_bottom,
                             'time': df.index[i]
                         })
-                        break  # 只抓最近的一个核心 OB 即可
+                        break  # 极值订单块只取最近且最稳固的 1 个
+
+        # ==================================================
+        # 2. 寻找波段低点 (Swing Low) - 自动剔除并向前补充
+        # ==================================================
+        df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
+                              (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
+        swing_lows = df[(df['is_swing_low'] == True) & (df['low'] < current_price)]
+        
+        sweep_allowance = current_price * 0.0015 
+        top_allowance = current_price * 0.0005
+        
+        valid_sls = 0
+        # iloc[::-1] 让数据从右向左（从近到远）扫描
+        for idx, row in swing_lows.iloc[::-1].iterrows():
+            if valid_sls >= 2: break  # 凑齐 2 个真实波段低点就停止
+            
+            sl_bottom = row['low'] - sweep_allowance
+            if not is_inducement(sl_bottom, pois):
+                pois.append({
+                    'type': 'Swing_Low', 
+                    'top': row['low'] + top_allowance, 
+                    'bottom': sl_bottom, 
+                    'time': idx
+                })
+                valid_sls += 1
+            else:
+                logger.debug(f"🧹 [SMC防线收缩] 发现诱导性 Swing Low，已自动抛弃！")
+
+        # ==================================================
+        # 3. 🌟 寻找看多缺口 (FVG) - 完美实现你的“向前补充”逻辑
+        # ==================================================
+        df['fvg_gap_bottom'] = df['high'].shift(2)
+        df['fvg_gap_top'] = df['low']
+        bullish_fvgs = df[(df['fvg_gap_bottom'] < df['fvg_gap_top']) & (df['fvg_gap_top'] < current_price)]
+        
+        valid_fvgs = 0
+        for idx, row in bullish_fvgs.iloc[::-1].iterrows():
+            if valid_fvgs >= 2: break  # 凑齐 2 个纯净 FVG 就停止
+            
+            fvg_bottom = row['fvg_gap_bottom']
+            if not is_inducement(fvg_bottom, pois):
+                pois.append({
+                    'type': 'FVG', 
+                    'top': row['fvg_gap_top'], 
+                    'bottom': fvg_bottom, 
+                    'time': idx
+                })
+                valid_fvgs += 1  # 只有真正收录了，计数器才+1
+            else:
+                # 🌟 如果被判定为诱导陷阱：不会执行 valid_fvgs += 1
+                # 循环会自动走向上一根更老的 K 线，完美实现“向前补充一个 FVG”！
+                logger.debug(f"🧹 [SMC防线收缩] 发现与底部集群重合的诱导 FVG，剔除并向前补充！")
 
         return pois
 
