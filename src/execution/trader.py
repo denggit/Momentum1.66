@@ -236,7 +236,7 @@ class OKXTrader:
                 # 对于以太坊，0.1张是1手，这里可以设为 0.05 或更小
                 if pos_amt > 0.05: 
                     self.is_in_position = True
-                    break0
+                    break
 
     async def set_leverage_on_startup(self):
         """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
