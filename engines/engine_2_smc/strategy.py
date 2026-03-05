@@ -144,7 +144,9 @@ class MicroSMCRadar:
         # ==================================================
         # 1. 寻找“未失效”的极值订单块 (Order Block)
         # ==================================================
+        valid_obs = 0  # 🌟 新增计数器
         for i in range(len(df) - 5, 5, -1):
+            if valid_obs >= 4: break  # 🌟 最多找 4 个深层订单块
             if df['close'].iloc[i] < df['open'].iloc[i]:
                 ob_height = df['high'].iloc[i] - df['low'].iloc[i]
                 future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
@@ -166,7 +168,7 @@ class MicroSMCRadar:
                                 'bottom': ob_bottom,
                                 'time': df.index[i]
                             })
-                            break  # 找到最近且【未失效】的 1 个即可
+                            valid_obs += 1
                         else:
                             logger.debug(f"🧹 [SMC雷达] 发现订单块，但已被砸穿失效，继续向历史深处寻找！")
 

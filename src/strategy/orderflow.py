@@ -27,6 +27,7 @@ class OrderFlowMath:
 
         # 🌟 新增：这轮探底是否已经报告过宽口径了
         self.broad_fired_this_round = False
+        self.ema_updated_this_round = False  # 🌟 新增：EMA 记忆锁
 
         # ==========================================
         # 🧠 动态流动性记忆 (Dynamic Liquidity Memory)
@@ -100,9 +101,10 @@ class OrderFlowMath:
             # 动作 A：价格还在创新低！说明没跌完，绝对不开火！不断下移防线！
             if self.current_price < self.local_low:
                 self.local_low = self.current_price
-                self.local_low_cvd = self.cvd  # 更新坑底的 CVD 坐标
-                self.armed_time = current_ts  # 刷新上膛时间，重新倒计时
-                self.broad_fired_this_round = False  # 🌟 创新低了，锁解开，允许重新探测
+                self.local_low_cvd = self.cvd
+                self.armed_time = current_ts
+                self.broad_fired_this_round = False
+                self.ema_updated_this_round = False  # 🌟 解锁！因为砸盘量变大了，等下需要重新记录
 
             # 动作 B：解除武装 (如果 120 秒内都在坑底横盘，没有买盘反抽，说明死水一潭，放弃)
             elif current_ts - self.armed_time > 120:
@@ -121,13 +123,13 @@ class OrderFlowMath:
                 current_resistance = effort_m / (safe_drop * 100)
 
                 # ==========================================
-                # 🧠 核心：让系统“学习”并更新动态基准
+                # 🧠 核心：让系统“学习”并更新动态基准 (带锁！)
                 # ==========================================
-                # 只有当空头砸了超过 200万 刀时，这个波段的阻力才有统计学意义 (过滤极小波动)
-                if effort_m > 2.0:
-                    # 采用 EMA(指数移动平均) 更新，Alpha=0.1 意味着最新的波段占 10% 权重，历史占 90%
+                # 只有当空头砸了超过 200万 刀，且这波还没记过账时，才更新 EMA
+                if effort_m > 2.0 and not self.ema_updated_this_round:
                     self.avg_wave_effort_m = (self.avg_wave_effort_m * 0.9) + (effort_m * 0.1)
                     self.avg_resistance_bps = (self.avg_resistance_bps * 0.9) + (current_resistance * 0.1)
+                    self.ema_updated_this_round = True  # 🌟 咔哒！上锁！防止 Tick 流疯狂重复写入
 
                 # ==========================================
                 # 🧊 轨 0：真·动态极限吸收
