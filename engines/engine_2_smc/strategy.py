@@ -170,6 +170,65 @@ class MicroSMCRadar:
 
         return False, "悬空"
 
+    def get_nearest_resistance(self, current_price: float):
+        """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""
+        try:
+            df = self.loader.fetch_historical_data(limit=50)
+            if df is None or df.empty:
+                return None
+
+            resistances = []
+
+            # 1. 寻找看空订单块 (Bearish OB: 暴跌前的最后一根阳线)
+            for i in range(len(df) - 5, 5, -1):
+                # 寻找阳线
+                if df['close'].iloc[i] > df['open'].iloc[i]:
+                    ob_height = df['high'].iloc[i] - df['low'].iloc[i]
+                    # 随后是否出现了强力砸盘？
+                    future_drop = df['close'].iloc[i] - df['close'].iloc[i + 1:i + 4].min()
+
+                    # 使用 1.5倍 ATR 确认跌幅动能
+                    atr = df['ATR'].iloc[i] if 'ATR' in df.columns else (current_price * 0.002)
+                    is_strong_drop = future_drop > (1.5 * atr)
+
+                    if is_strong_drop:
+                        # 🌟 核心：挂在看空订单块的【实体底部(Open)】，绝不去碰上边缘
+                        ob_bottom = df['open'].iloc[i]
+                        if ob_bottom > current_price:
+                            resistances.append({'type': 'Bearish_OB', 'price': ob_bottom})
+                            break  # 找到最近的一个就够了
+
+            # 2. 寻找波段高点 (Swing High)
+            df['is_swing_high'] = ((df['high'] > df['high'].shift(1)) & (df['high'] > df['high'].shift(2)) &
+                                   (df['high'] > df['high'].shift(-1)) & (df['high'] > df['high'].shift(-2)))
+
+            swing_highs = df[(df['is_swing_high'] == True) & (df['high'] > current_price)]
+
+            if not swing_highs.empty:
+                # 获取最近的一个波段高点 K 线
+                sh_row = swing_highs.iloc[-1]
+
+                # 🌟 核心修改：绝对不取最高点针尖 (high)！
+                # 取开盘价和收盘价中的较高者 (实体顶部)，这叫 "Front-running the liquidity" (抢跑流动性)
+                body_top = max(sh_row['open'], sh_row['close'])
+                resistances.append({'type': 'Swing_High', 'price': body_top})
+
+            # 如果都没找到
+            if not resistances:
+                return None
+
+            # 3. 找出距离现价最近的那个阻力位
+            resistances.sort(key=lambda x: x['price'])
+            nearest = resistances[0]
+
+            logger.debug(f"🎯 [SMC雷达] 锁定上方阻力 ({nearest['type']}): 目标价 {nearest['price']:.2f}")
+            return nearest['price']
+
+        except Exception as e:
+            logger.error(f"❌ [SMC雷达] 寻找阻力位失败: {e}")
+
+        return None
+
     # 在 MicroSMCRadar 类中新增这个函数：
     async def background_update_loop(self):
         """🌟 后台静默守护进程：自动解析 timeframe，极其精确地对齐换线瞬间"""

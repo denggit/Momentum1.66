@@ -71,11 +71,17 @@ class Engine3Commander:
 
                     if self.mode == "live":
                         logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
-                        # 🌟 极其优雅的非阻塞实盘开火！
+
+                        # 🌟 新增：向 SMC 雷达索要上方最近的波段高点作为格局单止盈位
+                        tp2_target = self.smc_radar.get_nearest_resistance(signal_data['price'])
+                        if not tp2_target:
+                            tp2_target = signal_data['price'] * 1.012  # 如果没找到，保底设在 1.2%
+
                         # risk_usdt 填入你愿意每次动用的实盘本金（比如 200U）
                         asyncio.create_task(self.trader.execute_snipe(
                             price=signal_data['price'],
                             local_low=signal_data['local_low'],
+                            tp2_price=tp2_target  # 🌟 传入算好的 TP2
                         ))
                     else:
                         # 🌟 只有在 collect (科考) 模式下，才发送邮件报警

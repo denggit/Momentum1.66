@@ -91,7 +91,7 @@ class OKXTrader:
 
         return await asyncio.to_thread(do_request)
 
-    async def execute_snipe(self, price: float, local_low: float):
+    async def execute_snipe(self, price: float, local_low: float, tp2_price: float = None):
         """
         极速三连发执行器：市价开多 -> Maker止盈 -> 条件市价止损
         """
@@ -150,47 +150,64 @@ class OKXTrader:
         await asyncio.sleep(0.1)
 
         # ==========================================
-        # 3. 挂出 Post-only 止盈单 (Maker Sell)
+        # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
-        tp_price = round(price * 1.004, 2)  # 0.4% 止盈
-        tp_payload = {
-            "instId": self.symbol,
-            "tdMode": self.td_mode,
-            "side": "sell",
-            "ordType": "post_only",  # 🌟 严格只做 Maker，白嫖手续费
-            "sz": str(sz),
-            "px": str(tp_price),
-            "reduceOnly": True  # 🌟 关键：只减仓
-        }
-
-        logger.info(f"📡 [2/3] 发送止盈单请求 (Post-only) -> 目标价: {tp_price}")
-        res_tp = await self._request("POST", "/api/v5/trade/order", tp_payload)
-        if res_tp and res_tp.get('code') == '0':
-            logger.info(f"✅ 止盈单已架设！")
+        tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
+        if not tp2_price:
+            tp2_price = round(price * 1.012, 2)
         else:
-            logger.error(f"❌ 止盈单架设失败: {res_tp}")
+            tp2_price = round(tp2_price, 2)
+
+        if sz < 2:
+            # 资金不足以拆分时，只挂 TP1 保底
+            tp_payload = {
+                "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                "ordType": "post_only", "sz": str(sz), "px": str(tp1_price), "reduceOnly": True
+            }
+            logger.info(f"📡 [2/3] 资金不足以分批，单笔止盈单 -> 目标价: {tp1_price}")
+            res_tp = await self._request("POST", "/api/v5/trade/order", tp_payload)
+        else:
+            # 启动分批止盈
+            sz_half = sz // 2
+            sz_rest = sz - sz_half
+
+            tp1_payload = {
+                "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                "ordType": "post_only", "sz": str(sz_half), "px": str(tp1_price), "reduceOnly": True
+            }
+            tp2_payload = {
+                "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                "ordType": "post_only", "sz": str(sz_rest), "px": str(tp2_price), "reduceOnly": True
+            }
+
+            logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
+            await asyncio.gather(
+                self._request("POST", "/api/v5/trade/order", tp1_payload),
+                self._request("POST", "/api/v5/trade/order", tp2_payload)
+            )
 
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
         # ==========================================
-        # 止损设在坑底下 0.05%
-        sl_price = round(local_low * 0.9995, 2)
+        # 🌟 关键修改：止损大幅下放至坑底下 0.3%，躲开庄家的扫损绞肉机！
+        sl_price = round(local_low * 0.997, 2)
+
         sl_payload = {
             "instId": self.symbol,
             "tdMode": self.td_mode,
             "side": "sell",
             "ordType": "conditional",
             "sz": str(sz),
-            "slTriggerPx": str(sl_price),      # 🌟 关键修改：明确为止损触发价
-            "slTriggerPxType": "last",         # 🌟 关键修改：明确为止损触发类型
-            "slOrdPx": "-1",                   # 🌟 关键修改：明确为止损委托价 (-1代表市价)
-            "reduceOnly": True                 # 🌟 依然保留护身符
+            "slTriggerPx": str(sl_price),
+            "slTriggerPxType": "last",
+            "slOrdPx": "-1",
+            "reduceOnly": True
         }
 
-        logger.info(f"📡 [3/3] 发送止损单请求 (条件市价) -> 触发价: {sl_price}")
+        logger.info(f"📡 [3/3] 发送止损单请求 (条件宽幅市价) -> 护城河触发价: {sl_price}")
         res_sl = await self._request("POST", "/api/v5/trade/order-algo", sl_payload)
         if res_sl and res_sl.get('code') == '0':
-            logger.info(f"✅ 止损单已架设！")
+            logger.info(f"✅ 护城河止损单已架设！")
         else:
             logger.error(f"❌ 止损单架设失败: {res_sl}")
 

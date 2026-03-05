@@ -105,9 +105,18 @@ class OrderFlowMath:
                 micro_cvd_usdt = (self.cvd - self.local_low_cvd) * CONTRACT_SIZE * self.current_price
                 bounce_pct = (self.current_price - self.local_low) / self.local_low * 100
 
-                # ⚔️ 严口径击发：反弹拐头 > 0.05% ...
-                if micro_cvd_usdt > 300_000 and 0.08 < bounce_pct <= 0.20 and recent_cvd_delta_usdt < -5_000_000:
-                    self.state = "IDLE"  # 开火后重置状态机
+                # ⚔️ 严口径击发：引入双轨制条件
+                # 轨1：常规核弹 (砸盘>500万，买盘>30万)
+                cond1 = recent_cvd_delta_usdt < -5_000_000 and micro_cvd_usdt > 300_000
+
+                # 轨2：巨鲸托底 (砸盘虽然只有300万以上，但反向买盘极其恐怖>50万)
+                cond2 = recent_cvd_delta_usdt < -3_000_000 and micro_cvd_usdt > 500_000
+
+                # 反弹幅度统一要求 0.08% ~ 0.25% (稍微放宽上限，包容巨鲸瞬间吃单的滑点)
+                is_valid_bounce = 0.08 < bounce_pct <= 0.25
+
+                if (cond1 or cond2) and is_valid_bounce:
+                    self.state = "IDLE"
                     self.last_fire_time = current_ts
 
                     # 🌟 核心补丁：在这里更新拦截器的基准值！
