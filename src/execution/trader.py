@@ -153,8 +153,14 @@ class OKXTrader:
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
         tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
-        if not tp2_price:
+
+        # 🌟 终极防线：TP2 绝对不能低于 TP1，必须强制保持距离！
+        min_tp2_price = price * 1.008  # 强制要求 TP2 至少得有 0.8% 的利润空间
+
+        # 如果没传 TP2，或者 SMC 找的 TP2 离得太近（小于 0.8%），全部强制拉高到 1.2%
+        if not tp2_price or tp2_price < min_tp2_price:
             tp2_price = round(price * 1.012, 2)
+            logger.info(f"🛡️ [风控介入] SMC 阻力位缺失或距离太近，强制将 TP2 目标拔高至 1.2%: {tp2_price}")
         else:
             tp2_price = round(tp2_price, 2)
 
