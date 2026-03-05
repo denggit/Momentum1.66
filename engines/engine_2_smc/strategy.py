@@ -9,6 +9,8 @@
 import os
 import sys
 import time
+import datetime
+import asyncio
 
 # engines/engine_2_smc/strategy.py
 import pandas as pd
@@ -40,7 +42,9 @@ class MicroSMCRadar:
         try:
             # 拉取最近 100 根 5 分钟 K 线 (大约 8 小时的数据，足够日内剥头皮用了)
             df = self.loader.fetch_historical_data(limit=100)
-            if df.empty or len(df) < 5:
+            # 🌟 增加对 None 的保护，防止网络闪断报错
+            if df is None or df.empty or len(df) < 5:
+                logger.warning("⚠️ [SMC雷达] 拉取数据为空，跳过本次更新。")
                 return
 
             self.active_pois = self._calculate_support_pois(df)
@@ -76,10 +80,18 @@ class MicroSMCRadar:
         df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
                               (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
         swing_lows = df[(df['is_swing_low'] == True) & (df['low'] < current_price)]
-        SWEEP_ALLOWANCE = 3.0
+        
+        # 🌟 核心修复：基于价格动态计算扫损容错空间 (现价的 0.15% 作为下沿，0.05% 作为上沿)
+        sweep_allowance = current_price * 0.0015 
+        top_allowance = current_price * 0.0005
+        
         for idx, row in swing_lows.tail(2).iterrows():
-            pois.append(
-                {'type': 'Swing_Low', 'top': row['low'] + 1.0, 'bottom': row['low'] - SWEEP_ALLOWANCE, 'time': idx})
+            pois.append({
+                'type': 'Swing_Low', 
+                'top': row['low'] + top_allowance, 
+                'bottom': row['low'] - sweep_allowance, 
+                'time': idx
+            })
 
         # ==================================================
         # 3. 🌟 核心升级：寻找看多订单块 (Bullish Order Block)
@@ -131,9 +143,11 @@ class MicroSMCRadar:
         elif self.timeframe.endswith('H'):
             tf_minutes = int(self.timeframe.replace('H', '')) * 60
 
+        # 🌟 核心修复：系统刚启动时，直接强制拉取一次，防止在等待下个 00 秒期间“瞎眼”
+        logger.info("📡 [SMC雷达] 正在执行冷启动初次侦察...")
+        await asyncio.to_thread(self.update_structure)
+
         while True:
-            import datetime
-            import asyncio
             now = datetime.datetime.now()
 
             # 计算当前时刻的“绝对秒数”
