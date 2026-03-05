@@ -47,7 +47,7 @@ class MicroSMCRadar:
             logger.debug(f"🗺️ [SMC雷达] 5m结构更新完毕，当前发现 {len(self.active_pois)} 个有效支撑区(POI)。")
 
         except Exception as e:
-            logger.error(f"❌ [SMC雷达] 更新K线结构失败: {e}")
+            logger.exception(f"❌ [SMC雷达] 更新K线结构失败: {e}")
 
     def _calculate_support_pois(self, df: pd.DataFrame) -> list:
         """
