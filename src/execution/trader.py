@@ -287,7 +287,13 @@ class OKXTrader:
         
         while True:
             await self.fetch_balance()
-            await asyncio.sleep(60)  # 闲时每分钟查一次
+            if self.is_in_position:
+                # 战时模式：手里有单子，随时可能止盈、止损或打保本
+                # 财务官每 5 秒死死盯住账户，一旦发现单子没了，立刻光速解锁！
+                await asyncio.sleep(5)
+            else:
+                # 闲时模式：空仓状态，不需要浪费 API 额度，60 秒查一次余额即可
+                await asyncio.sleep(60)
 
     async def fetch_balance(self):
         """请求 OKX 获取 USDT 可用余额"""
