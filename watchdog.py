@@ -13,8 +13,28 @@ import os
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
+def slay_zombies():
+    """🌟 精准狙击：只清理当前项目目录下的子进程，绝不误杀其他程序"""
+    print(f"🧹 [Watchdog] 正在扫描并清理当前项目 ({current_dir}) 的残留进程...")
+    
+    # 拼装出独一无二的绝对路径
+    main_path = os.path.join(current_dir, "main.py")
+    auditor_path = os.path.join(current_dir, "src", "execution", "auditor.py")
+    engines_dir = os.path.join(current_dir, "engines")
+    
+    # 🌟 核心修复：pkill -f 配合单引号包裹绝对路径，确保 100% 匹配本项目！
+    # 这样就算别的目录也有 auditor.py，也绝对不会被误杀。
+    os.system(f"pkill -f '{main_path}'")
+    os.system(f"pkill -f '{auditor_path}'")
+    os.system(f"pkill -f '{engines_dir}.*strategy.py'") 
+    
+    time.sleep(1) # 给操作系统 1 秒钟回收内存
+    
 
 def main():
+    # 🌟 启动看门狗的第一件事：清理门户！
+    slay_zombies()
+    
     # 接收终端传入的参数 (比如 live)
     mode = "collect"
     if len(sys.argv) > 1:
