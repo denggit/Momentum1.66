@@ -56,13 +56,14 @@ class CSVTracker:
         for track in self.active_trackings:
             track['max_price'] = max(track['max_price'], current_price)
             track['last_update'] = current_ts
+            sl_price = track['local_low'] * 0.997
 
             # 1. 破位止损 (跌破了触发时的坑底价)
-            if current_price < track['local_low']:
+            if current_price < sl_price:
                 self._write_to_csv(track, current_ts, "破位止损")
-            # 2. 时间到了 (15分钟自动归档)
-            elif current_ts - track['entry_time'] > 900:
-                self._write_to_csv(track, current_ts, "时间到了(15m)")
+            # 2. 时间到了 (60分钟自动归档)
+            elif current_ts - track['entry_time'] > 3600:
+                self._write_to_csv(track, current_ts, "时间到了(1h)")
             else:
                 remaining.append(track)
 
