@@ -152,7 +152,7 @@ class OKXTrader:
         # ==========================================
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
-        tp1_price = round(price * 1.006, 2)  # TP1: 固定 0.6% 落袋为安
+        tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
         min_tp2_price = price * 1.008  
         
         if not tp2_price or tp2_price < min_tp2_price:
