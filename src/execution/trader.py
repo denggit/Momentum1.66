@@ -153,27 +153,24 @@ class OKXTrader:
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
         tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
-
-        # 🌟 终极防线：TP2 绝对不能低于 TP1，必须强制保持距离！
-        min_tp2_price = price * 1.008  # 强制要求 TP2 至少得有 0.8% 的利润空间
-
-        # 如果没传 TP2，或者 SMC 找的 TP2 离得太近（小于 0.8%），全部强制拉高到 1.2%
+        min_tp2_price = price * 1.008  
+        
         if not tp2_price or tp2_price < min_tp2_price:
             tp2_price = round(price * 1.012, 2)
             logger.info(f"🛡️ [风控介入] SMC 阻力位缺失或距离太近，强制将 TP2 目标拔高至 1.2%: {tp2_price}")
         else:
             tp2_price = round(tp2_price, 2)
 
+        tp1_ord_id = None # 🌟 提前定义，用来装 TP1 的单号
+
         if sz < 2:
-            # 资金不足以拆分时，只挂 TP1 保底
             tp_payload = {
                 "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
                 "ordType": "post_only", "sz": str(sz), "px": str(tp1_price), "reduceOnly": True
             }
             logger.info(f"📡 [2/3] 资金不足以分批，单笔止盈单 -> 目标价: {tp1_price}")
-            res_tp = await self._request("POST", "/api/v5/trade/order", tp_payload)
+            await self._request("POST", "/api/v5/trade/order", tp_payload)
         else:
-            # 启动分批止盈
             sz_half = sz // 2
             sz_rest = sz - sz_half
 
@@ -187,40 +184,99 @@ class OKXTrader:
             }
 
             logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
-            await asyncio.gather(
+            
+            # 🌟 核心修改：捕获批量下单的返回值
+            tp_responses = await asyncio.gather(
                 self._request("POST", "/api/v5/trade/order", tp1_payload),
                 self._request("POST", "/api/v5/trade/order", tp2_payload)
             )
+            res_tp1 = tp_responses[0]
+            if res_tp1 and res_tp1.get('code') == '0':
+                tp1_ord_id = res_tp1['data'][0]['ordId'] # 拿到 TP1 单号！
 
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
         # ==========================================
-        # 🌟 关键修改：止损大幅下放至坑底下 0.15%，躲开庄家的扫损绞肉机！
         sl_price = round(local_low * 0.9985, 2)
 
         sl_payload = {
-            "instId": self.symbol,
-            "tdMode": self.td_mode,
-            "side": "sell",
-            "ordType": "conditional",
-            "sz": str(sz),
-            "slTriggerPx": str(sl_price),
-            "slTriggerPxType": "last",
-            "slOrdPx": "-1",
-            "reduceOnly": True
+            "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+            "ordType": "conditional", "sz": str(sz), "slTriggerPx": str(sl_price),
+            "slTriggerPxType": "last", "slOrdPx": "-1", "reduceOnly": True
         }
 
         logger.info(f"📡 [3/3] 发送止损单请求 (条件宽幅市价) -> 护城河触发价: {sl_price}")
         res_sl = await self._request("POST", "/api/v5/trade/order-algo", sl_payload)
+        
+        sl_algo_id = None # 🌟 提取原止损单的 ID
         if res_sl and res_sl.get('code') == '0':
+            sl_algo_id = res_sl['data'][0]['algoId']
             logger.info(f"✅ 护城河止损单已架设！")
         else:
             logger.error(f"❌ 止损单架设失败: {res_sl}")
 
         logger.warning("🏁 [三连发完毕] 交易已托管给交易所，等待止盈或止损触发！")
 
-        # 🌟 (可选) 刚开完仓，余额肯定变了，直接主动触发一次查账
         asyncio.create_task(self.fetch_balance())
+
+        # 🌟 核心新增：如果仓位够分批，且拿到了双方 ID，立刻启动后台保本护卫！
+        if sz >= 2 and tp1_ord_id and sl_algo_id:
+            asyncio.create_task(self._breakeven_monitor(tp1_ord_id, sl_algo_id, price, sz_rest))
+
+    async def _breakeven_monitor(self, tp1_ord_id, sl_algo_id, entry_price, remaining_sz):
+        """🌟 保本护卫：异步轮询 TP1 状态，一旦成交，立刻将止损线上移至保本价"""
+        logger.info(f"🛡️ [保本护卫] 已启动！正在静默监视 TP1 订单 ({tp1_ord_id})...")
+        
+        # 💡 顶级细节：开仓要 0.05% 的吃单手续费，平仓也要 0.05%。
+        # 所以真正的“保本价”不是开盘价，而是开盘价上浮 0.06%，这样连手续费都不会亏！
+        breakeven_px = round(entry_price * 1.0006, 2)
+        
+        # 循环监控，最多监控 2 个小时 (7200 秒)，防止死循环
+        for _ in range(7200):
+            await asyncio.sleep(1) # 每秒查一次，绝不阻塞主线程
+            
+            try:
+                res = await self._request("GET", f"/api/v5/trade/order?instId={self.symbol}&ordId={tp1_ord_id}")
+                if not res or res.get('code') != '0':
+                    continue
+                
+                state = res['data'][0]['state']
+                
+                # 如果发现 TP1 已经成交！
+                if state == 'filled':
+                    logger.warning(f"🚀 [保本护卫] 侦测到 TP1 已止盈落袋！立即执行保本上移机制...")
+                    
+                    # 1. 撤销旧的坑底护城河止损
+                    cancel_payload = [{"instId": self.symbol, "algoId": sl_algo_id}]
+                    await self._request("POST", "/api/v5/trade/cancel-algos", cancel_payload)
+                    
+                    # 2. 挂出全新的保本止损单
+                    new_sl_payload = {
+                        "instId": self.symbol,
+                        "tdMode": self.td_mode,
+                        "side": "sell",
+                        "ordType": "conditional",
+                        "sz": str(remaining_sz),
+                        "slTriggerPx": str(breakeven_px),
+                        "slTriggerPxType": "last",
+                        "slOrdPx": "-1", # 触发后市价平仓
+                        "reduceOnly": True
+                    }
+                    res_new_sl = await self._request("POST", "/api/v5/trade/order-algo", new_sl_payload)
+                    if res_new_sl and res_new_sl.get('code') == '0':
+                        logger.warning(f"✅ [保本护卫] 成功！剩余 {remaining_sz} 张合约的止损线已上移至保本价: {breakeven_px}！这单已立于不败之地！")
+                    else:
+                        logger.error(f"❌ [保本护卫] 保本止损单架设失败: {res_new_sl}")
+                    
+                    break # 任务完成，退出护卫线程
+                
+                # 如果 TP1 被手动撤销，或者行情直接暴跌打穿了原止损导致订单失效
+                elif state in ['canceled', 'mismatch']:
+                    logger.info("🛑 [保本护卫] 侦测到 TP1 订单已被撤销或失效，保本监控结束。")
+                    break
+                    
+            except Exception as e:
+                logger.error(f"⚠️ [保本护卫] 监控发生异常: {e}")
 
     async def update_balance_loop(self):
         """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地"""
