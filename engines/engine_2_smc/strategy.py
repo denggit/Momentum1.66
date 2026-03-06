@@ -172,7 +172,7 @@ class MicroSMCRadar:
                         # 🌟 检查这个 OB 是不是早就被砸穿了
                         if not is_mitigated(ob_bottom, i):
                             pois.append({
-                                'type': 'Order_Block',
+                                'type': f'{tf_label}_Order_Block',
                                 'top': ob_top,
                                 'bottom': ob_bottom,
                                 'time': df.index[i]
@@ -201,7 +201,7 @@ class MicroSMCRadar:
 
                 if not is_inducement(sl_bottom, pois):
                     pois.append({
-                        'type': 'Swing_Low',
+                        'type': f'{tf_label}_Swing_Low',
                         'top': df['low'].iloc[i] + top_allowance,
                         'bottom': sl_bottom,
                         'time': df.index[i]
@@ -229,7 +229,7 @@ class MicroSMCRadar:
 
                 if not is_inducement(bsh_bottom, pois):
                     pois.append({
-                        'type': 'Broken_Swing_High',
+                        'type': f'{tf_label}_Broken_Swing_High',
                         'top': df['high'].iloc[i] + top_allowance,
                         'bottom': bsh_bottom,
                         'time': df.index[i]
@@ -262,7 +262,7 @@ class MicroSMCRadar:
     def get_nearest_resistance(self, current_price: float):
         """🌟 进阶版：寻找上方最近的阻力位 (Bearish OB 或 实体 Swing High)"""
         try:
-            df = self.loader.fetch_historical_data(limit=300).copy()
+            df = self.loaders["5m"].fetch_historical_data(limit=300).copy()
             if df is None or df.empty:
                 return None
 
@@ -325,10 +325,6 @@ class MicroSMCRadar:
 
         # 解析当前的 timeframe 是多少分钟
         tf_minutes = 5
-        if self.timeframe.endswith('m'):
-            tf_minutes = int(self.timeframe.replace('m', ''))
-        elif self.timeframe.endswith('H'):
-            tf_minutes = int(self.timeframe.replace('H', '')) * 60
 
         # 🌟 核心修复：系统刚启动时，直接强制拉取一次，防止在等待下个 00 秒期间“瞎眼”
         logger.info("📡 [SMC雷达] 正在执行冷启动初次侦察...")
@@ -359,7 +355,7 @@ class MicroSMCRadar:
 
 if __name__ == "__main__":
     # 简单的本地测试，看看雷达兵能不能正常画出地图
-    radar = MicroSMCRadar(symbol="ETH-USDT-SWAP", timeframe="5m")
+    radar = MicroSMCRadar(symbol="ETH-USDT-SWAP", timeframes=["5m", "15m", "1H"])
     radar.update_structure()
     print("\n🗺️ 当前算出的 5m 支撑防线：")
     for p in radar.active_pois:
