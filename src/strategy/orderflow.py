@@ -165,7 +165,7 @@ class OrderFlowMath:
                 cond_v_reversal = (
                         effort_anomaly > 1.2 and
                         micro_cvd_usdt > 500_000 and
-                        rebound_ratio > 0.12 and
+                        rebound_ratio > 0.15 and
                         0.12 < bounce_pct <= 0.25
                 )
 
