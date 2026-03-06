@@ -166,7 +166,7 @@ class OrderFlowMath:
                         effort_anomaly > 1.2 and
                         micro_cvd_usdt > 500_000 and
                         rebound_ratio > 0.12 and
-                        0.12 < bounce_pct <= 0.35
+                        0.12 < bounce_pct <= 0.25
                 )
 
                 # 🎯 击发判定 (后续逻辑不变...)

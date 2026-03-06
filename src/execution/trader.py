@@ -152,7 +152,7 @@ class OKXTrader:
         # ==========================================
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
-        tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
+        tp1_price = round(price * 1.006, 2)  # TP1: 固定 0.6% 落袋为安
         min_tp2_price = price * 1.008  
         
         if not tp2_price or tp2_price < min_tp2_price:
@@ -171,7 +171,7 @@ class OKXTrader:
             logger.info(f"📡 [2/3] 资金不足以分批，单笔止盈单 -> 目标价: {tp1_price}")
             await self._request("POST", "/api/v5/trade/order", tp_payload)
         else:
-            sz_half = sz // 2
+            sz_half = max(1, int(sz * 0.3))
             sz_rest = sz - sz_half
 
             tp1_payload = {

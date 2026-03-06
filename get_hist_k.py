@@ -11,5 +11,5 @@ from src.data_feed.okx_loader import OKXDataLoader
 
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol="ETH-USDT-SWAP", timeframe='1m')
-    df = loader.fetch_from_okx(limit=1200)
+    df = loader.fetch_from_okx(limit=1440)
     df.to_csv("hist_k.csv")
