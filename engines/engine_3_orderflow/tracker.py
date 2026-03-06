@@ -56,7 +56,7 @@ class CSVTracker:
         for track in self.active_trackings:
             track['max_price'] = max(track['max_price'], current_price)
             track['last_update'] = current_ts
-            sl_price = track['local_low'] * 0.997
+            sl_price = track['local_low'] * 0.9985
 
             # 1. 破位止损 (跌破了触发时的坑底价)
             if current_price < sl_price:
