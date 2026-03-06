@@ -28,34 +28,43 @@ logger = get_logger(__name__)
 
 
 class MicroSMCRadar:
-    def __init__(self, symbol="ETH-USDT-SWAP", timeframe="5m"):
+    def __init__(self, symbol="ETH-USDT-SWAP", timeframes=None):
         self.symbol = symbol
-        self.timeframe = timeframe
-        # 直接复用你极其强大的 okx_loader 来拉取 5分钟 K线
-        self.loader = OKXDataLoader(symbol=symbol, timeframe=timeframe)
+        # 🌟 核心：默认同时扫描 3 个级别！
+        self.timeframes = timeframes or ["5m", "15m", "1H"]
+        self.tf_limit_mapping = {"5m": 600, "15m": 200, "1H": 168}
+        
+        # 为每个时间级别实例化一个专用的数据加载器
+        self.loaders = {tf: OKXDataLoader(symbol=symbol, timeframe=tf) for tf in self.timeframes}
 
         # 存储计算出的兴趣区 (Point of Interest)
         self.active_pois = []
         self.macro_vp_metrics = None  # 🌟 新增：存放 48 小时的全局地形数据
 
     def update_structure(self):
-        """定期拉取最新 K 线，重新绘制 5m SMC 支撑区，并扫描全局筹码"""
+        """定期拉取多级别 K 线，合并 SMC 支撑区，并扫描 5m 全局筹码"""
         try:
-            # 🌟 视野放大到 600 根 (48小时)，寻找未消耗的结构和全局筹码
-            df = self.loader.fetch_historical_data(limit=600).copy()
-            if df is None or df.empty or len(df) < 5:
-                logger.warning("⚠️ [SMC雷达] 拉取数据为空，跳过本次更新。")
-                return
+            all_pois = []
+            # 1. 🌟 遍历多时间级别，绘制复合地图
+            for tf in self.timeframes:
+                limit = self.tf_limit_mapping.get(tf, 600)
+                df = self.loaders[tf].fetch_historical_data(limit=limit)
+                
+                if df is not None and not df.empty and len(df) >= 5:
+                    df = df.copy()
+                    tf_pois = self._calculate_support_pois(df, tf_label=tf)
+                    all_pois.extend(tf_pois)
+            
+            self.active_pois = all_pois
 
-            # 1. 计算未失效的 SMC 支撑区 (你刚才已经加了 is_mitigated 的代码，这里复用)
-            self.active_pois = self._calculate_support_pois(df)
-
-            # 2. 🌟 附加任务：计算这 48 小时的全局筹码分布！
-            vp_analyzer = CompositeVolumeProfile()
-            self.macro_vp_metrics = vp_analyzer.analyze_macro_profile(df)
+            # 2. 🌟 筹码测绘：永远使用 5m 的高清数据来扫描地形
+            df_5m = self.loaders["5m"].fetch_historical_data(limit=600)
+            if df_5m is not None and not df_5m.empty:
+                vp_analyzer = CompositeVolumeProfile()
+                self.macro_vp_metrics = vp_analyzer.analyze_macro_profile(df_5m.copy())
 
             hvn_count = len(self.macro_vp_metrics['hvns']) if self.macro_vp_metrics else 0
-            logger.debug(f"🗺️ [SMC雷达] 地图更新！发现 {len(self.active_pois)} 个有效POI，探明 {hvn_count} 座宏观筹码峰。")
+            logger.debug(f"🗺️ [MTF雷达] 多维结构更新！共 {len(self.active_pois)} 个复合POI，探明 {hvn_count} 座筹码峰。")
 
         except Exception as e:
             logger.exception(f"❌ [SMC雷达] 更新K线结构失败: {e}")
@@ -105,7 +114,7 @@ class MicroSMCRadar:
 
         return True, f"{msg1} | {msg2}"
 
-    def _calculate_support_pois(self, df: pd.DataFrame) -> list:
+    def _calculate_support_pois(self, df: pd.DataFrame, tf_label: str = "5m") -> list:
         """
         寻找未被消耗的 (Unmitigated) 极值订单块、波段低点和顶底转换区
         并自动过滤诱导陷阱 (Inducement)
@@ -232,14 +241,21 @@ class MicroSMCRadar:
     def is_in_poi(self, price: float) -> tuple[bool, str]:
         """
         三号引擎调用接口：传入当前价格，问雷达兵“这里能开火吗？”
-        返回 (True/False, 区域描述)
         """
         if not self.active_pois:
             return False, "无结构"
 
+        # 第一优先级：实盘许可！如果是 5m 的结构，直接绿灯放行
         for poi in self.active_pois:
-            if poi['bottom'] <= price <= poi['top']:
+            if poi['type'].startswith('5m_') and poi['bottom'] <= price <= poi['top']:
                 return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
+
+        # 第二优先级：影子测试！如果 5m 没接住，去看看 15m 和 1H 有没有接住
+        for poi in self.active_pois:
+            if not poi['type'].startswith('5m_') and poi['bottom'] <= price <= poi['top']:
+                # 🌟 注意这里返回的是 False！告诉三号引擎绝对不要买！
+                # 🌟 但附带的信息是“影子命中”，科考船会把它原封不动记录下来！
+                return False, f"影子命中 {poi['type']} ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
 
@@ -305,7 +321,7 @@ class MicroSMCRadar:
     # 在 MicroSMCRadar 类中新增这个函数：
     async def background_update_loop(self):
         """🌟 后台静默守护进程：自动解析 timeframe，极其精确地对齐换线瞬间"""
-        logger.info(f"📡 [SMC雷达] 已启动静默扫描！将精确对齐 {self.timeframe} 周期换线瞬间抓取 K 线...")
+        logger.info(f"📡 [MTF雷达] 已启动多维静默扫描！将精确对齐 5m 周期换线瞬间抓取全量 K 线...")
 
         # 解析当前的 timeframe 是多少分钟
         tf_minutes = 5
