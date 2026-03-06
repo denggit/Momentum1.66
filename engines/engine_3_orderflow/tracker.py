@@ -48,7 +48,7 @@ class CSVTracker:
             'local_low': signal.get('local_low', signal['price']),
             'last_update': signal['ts']
         })
-        logger.info(f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}")
+        logger.info(f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}，砸盘：{round(signal.get('cvd_delta_usdt', 0)/1000000, 2)}百万，反转：{round(signal.get('micro_cvd', 0)/1000000, 2)}百万")
 
     def update_trackings(self, current_price, current_ts):
         """更新所有追踪单的最大反弹值，并检查止损"""
