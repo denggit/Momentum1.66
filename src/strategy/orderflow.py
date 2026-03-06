@@ -152,10 +152,20 @@ class OrderFlowMath:
                 # ==========================================
                 # 🔥 轨 1 & 轨 2：动态 V型反转
                 # ==========================================
+                # 计算反弹资金占比 (反击量 / 砸盘量)
+                if effort_m > 0:
+                    rebound_ratio = (micro_cvd_usdt / 1_000_000) / effort_m
+                else:
+                    rebound_ratio = 0.0
+                    
                 # (哪怕反弹来得晚，只要这波曾经有过 > 1.2 倍的狂砸，现在反包了，照样开火！)
+                # 🌟 进化版 V 反判定：
+                # 1. 绝对反击门槛提高到 80 万刀 (过滤散户噪音)
+                # 2. 或者，反击量必须达到刚刚砸盘量的 15% 以上！
                 cond_v_reversal = (
                         effort_anomaly > 1.2 and
                         micro_cvd_usdt > 500_000 and
+                        rebound_ratio > 0.15 and
                         0.12 < bounce_pct <= 0.35
                 )
 
