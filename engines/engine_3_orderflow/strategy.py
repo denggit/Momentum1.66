@@ -37,7 +37,7 @@ class Engine3Commander:
         self.tracker = CSVTracker(project_root)
 
         # 🌟 雇佣二号引擎雷达兵！
-        self.smc_radar = MicroSMCRadar(symbol=symbol, timeframe="5m")
+        self.smc_radar = MicroSMCRadar(symbol=symbol)
 
         # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
         self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.8)  # 每次用 60% 的仓位
