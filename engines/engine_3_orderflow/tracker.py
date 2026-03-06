@@ -27,7 +27,7 @@ class CSVTracker:
             with open(self.csv_file, mode='w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    '触发时间', '信号等级', '砸盘(万)', '反转(万)', '入场反弹(%)',
+                    '触发时间', '信号等级', '砸盘(百万)', '反转(百万)', '入场反弹(%)',
                     '资金异常(倍)', '阻力异常(倍)', '触发价', '最高价', '最大反弹(%)',
                     '耗时(秒)', '筹码地形', '结束原因'
                 ])
