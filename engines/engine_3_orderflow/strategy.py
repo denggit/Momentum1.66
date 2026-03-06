@@ -48,13 +48,25 @@ class Engine3Commander:
         self._last_email_sent_time = 0
         self._email_cooldown = 600
 
+        self.last_intel_time = 0
+
     def on_tick(self, tick: dict):
         """核心枢纽：接收数据 -> 算术 -> 分发信号 -> 更新追踪"""
 
-        # 1. 交给数学大脑计算
         signal_data = self.math_brain.process_tick(tick)
 
+        # =========================================================
+        # 🌟 关键新增：情报实时同步给 Trader 的保镖！
+        # =========================================================
+        curr_ts = time.time()
+        # 🌟 每 100ms (0.1秒) 才扫描一次情报，CPU 压力瞬间降低 90%
+        if self.trader.is_in_position and (curr_ts - self.last_intel_time > 0.1):
+            asyncio.create_task(self._async_update_guard_intelligence(tick))
+            self.last_intel_time = curr_ts
+        # =========================================================
+
         if signal_data:
+            # ... 下方是你原本的开枪逻辑 ...
             if signal_data['level'] == "STRICT":
                 # 🌟 优化：把耗时的宏观校验和下单，扔给异步后台去跑，绝不卡顿 Tick 流！
                 asyncio.create_task(self._async_evaluate_and_snipe(signal_data))
@@ -69,6 +81,17 @@ class Engine3Commander:
 
         # 3. 让科考船更新最高价和止损
         self.tracker.update_trackings(tick['price'], tick['ts'])
+
+    async def _async_update_guard_intelligence(self, tick: dict):
+        """后台静默计算情报，不占用 Tick 处理窗口"""
+        # 1. 隐形墙探测
+        wall_price = self.math_brain.detect_absorption_wall(tick)
+        if wall_price:
+            self.trader.of_wall_price = wall_price
+
+        # 2. 破冰探测
+        if self.math_brain.detect_short_squeeze(tick):
+            self.trader.of_squeeze_flag = True
 
     # 🌟 新增的异步验证与狙击函数
     async def _async_evaluate_and_snipe(self, signal_data):

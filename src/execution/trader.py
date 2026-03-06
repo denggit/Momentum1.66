@@ -40,6 +40,9 @@ class OKXTrader:
         self.available_usdt = 0.0  # 🌟 缓存在本地的可用余额
         self.is_in_position = False # 默认为空仓
 
+        self.of_wall_price = 0.0  # 三号引擎发现的“隐形筹码墙”价格
+        self.of_squeeze_flag = False  # 三号引擎拉响的“极速拉升爆仓”警报
+
         # 简单合约面值表 (1张合约等于多少个币)
         self.ct_val_map = {
             "ETH-USDT-SWAP": 0.1,
@@ -152,16 +155,17 @@ class OKXTrader:
         # ==========================================
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
-        tp1_price = round(price * 1.004, 2)  # TP1: 固定 0.4% 落袋为安
-        min_tp2_price = price * 1.008  
-        
+        tp1_price = round(price * 1.004, 2)
+        min_tp2_price = price * 1.008
+
         if not tp2_price or tp2_price < min_tp2_price:
             tp2_price = round(price * 1.012, 2)
             logger.info(f"🛡️ [风控介入] SMC 阻力位缺失或距离太近，强制将 TP2 目标拔高至 1.2%: {tp2_price}")
         else:
             tp2_price = round(tp2_price, 2)
 
-        tp1_ord_id = None # 🌟 提前定义，用来装 TP1 的单号
+        tp1_ord_id = None
+        tp2_ord_id = None  # 🌟 新增：提前定义 TP2 单号变量
 
         if sz < 2:
             tp_payload = {
@@ -184,15 +188,21 @@ class OKXTrader:
             }
 
             logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
-            
-            # 🌟 核心修改：捕获批量下单的返回值
+
+            # 🌟 核心修改：同时捕获 TP1 和 TP2 的下单返回值
             tp_responses = await asyncio.gather(
                 self._request("POST", "/api/v5/trade/order", tp1_payload),
                 self._request("POST", "/api/v5/trade/order", tp2_payload)
             )
+
             res_tp1 = tp_responses[0]
+            res_tp2 = tp_responses[1]  # 拿到 TP2 的响应
+
             if res_tp1 and res_tp1.get('code') == '0':
-                tp1_ord_id = res_tp1['data'][0]['ordId'] # 拿到 TP1 单号！
+                tp1_ord_id = res_tp1['data'][0]['ordId']  # 拿到 TP1 单号！
+
+            if res_tp2 and res_tp2.get('code') == '0':
+                tp2_ord_id = res_tp2['data'][0]['ordId']  # 🌟 拿到 TP2 单号！
 
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
@@ -219,9 +229,17 @@ class OKXTrader:
 
         asyncio.create_task(self.fetch_balance())
 
-        # 🌟 核心新增：如果仓位够分批，且拿到了双方 ID，立刻启动后台保本护卫！
+        # 🌟 核心新增：如果仓位够分批，且拿到了双方 ID，立刻启动后台保本护卫 2.0！
         if sz >= 2 and tp1_ord_id and sl_algo_id:
-            asyncio.create_task(self._breakeven_monitor(tp1_ord_id, sl_algo_id, price, sz_rest))
+            # 把所有需要的参数统统传给 2.0 护卫
+            asyncio.create_task(self._smart_trailing_monitor_v2(
+                tp1_ord_id=tp1_ord_id,
+                tp2_ord_id=tp2_ord_id,  # 🌟 传给保镖，为了在极端行情下拆除天花板
+                sl_algo_id=sl_algo_id,
+                entry_price=price,
+                tp2_price=tp2_price,  # 🌟 传给保镖，为了计算 0.9% 的吹哨位置
+                remaining_sz=sz_rest
+            ))
 
     async def _breakeven_monitor(self, tp1_ord_id, sl_algo_id, entry_price, remaining_sz):
         """🌟 保本护卫：异步轮询 TP1 状态，一旦成交，立刻将止损线上移至保本价"""
@@ -277,6 +295,164 @@ class OKXTrader:
                     
             except Exception as e:
                 logger.error(f"⚠️ [保本护卫] 监控发生异常: {e}")
+
+    async def _smart_trailing_monitor_v2(self, tp1_ord_id, tp2_ord_id, sl_algo_id, entry_price, tp2_price,
+                                         remaining_sz):
+        """🌟 保本护卫 2.0：阶梯防守 + 隐形墙跟随 + 无限登月舱"""
+        logger.info(f"🛡️ [保本护卫2.0] 已启动！正在静默监视 TP1 ({tp1_ord_id})...")
+
+        # 阶段参数初始化
+        breakeven_px = round(entry_price * 1.0006, 2)
+        mech_step1_trigger = round(entry_price * 1.008, 2)
+        mech_step1_sl = round(entry_price * 1.004, 2)
+
+        # 0.9% 吹哨预警线 (距离 TP2 大约 75% 的位置)
+        moonbag_warning_px = round(entry_price + (tp2_price - entry_price) * 0.75, 2)
+
+        current_sl_algo_id = sl_algo_id
+        current_sl_px = 0.0  # 记录当前止损到底推到哪里了
+        phase = 0  # 0:等保本, 1:锁润与防守, 2:吹哨待命, 3:无限登月
+
+        # 为了防止被 OKX 封锁 API，只有止损线上移超过 0.1% 时，才发送改单请求
+        min_move_dist = entry_price * 0.001
+
+        for _ in range(14400):
+            if not self.is_in_position:
+                logger.info("🛑 [护卫2.0] 仓位已清空(打止损或吃满)，光荣退役！")
+                self.of_wall_price = 0.0
+                self.of_squeeze_flag = False
+                break
+
+            try:
+                # -------------------------------------------------
+                # 🟡 阶段二：保本防御 (等 TP1 成交)
+                # -------------------------------------------------
+                if phase == 0:
+                    res = await self._request("GET", f"/api/v5/trade/order?instId={self.symbol}&ordId={tp1_ord_id}")
+                    if res and res.get('code') == '0':
+                        state = res['data'][0]['state']
+                        if state == 'filled':
+                            logger.warning(f"🚀 [护卫2.0] TP1 已吃单！【立于不败】止损瞬间上移至保本价: {breakeven_px}")
+                            await self._request("POST", "/api/v5/trade/cancel-algos",
+                                                [{"instId": self.symbol, "algoId": current_sl_algo_id}])
+                            new_sl = {
+                                "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                                "ordType": "conditional", "sz": str(remaining_sz),
+                                "slTriggerPx": str(breakeven_px), "slTriggerPxType": "last", "slOrdPx": "-1",
+                                "reduceOnly": True
+                            }
+                            res_new = await self._request("POST", "/api/v5/trade/order-algo", new_sl)
+                            if res_new and res_new.get('code') == '0':
+                                current_sl_algo_id = res_new['data'][0]['algoId']
+                                current_sl_px = breakeven_px
+                                phase = 1  # 进入锁润阶段
+                        elif state in ['canceled', 'mismatch']:
+                            break
+                    await asyncio.sleep(1)
+
+                # -------------------------------------------------
+                # 🟠 阶段三 & 🔴 阶段四前夕：阶梯锁润与动能吹哨
+                # -------------------------------------------------
+                elif phase in [1, 2]:
+                    ticker_res = await self._request("GET", f"/api/v5/market/ticker?instId={self.symbol}")
+                    if not ticker_res or ticker_res.get('code') != '0':
+                        await asyncio.sleep(1);
+                        continue
+
+                    last_px = float(ticker_res['data'][0]['last'])
+                    target_sl = current_sl_px
+
+                    # 1. 机械阶梯防守
+                    if last_px >= mech_step1_trigger:
+                        target_sl = max(target_sl, mech_step1_sl)
+
+                    # 2. 🌟 吸收主力肉盾：三号引擎传来的“隐形筹码墙”
+                    if self.of_wall_price > entry_price:
+                        wall_sl = round(self.of_wall_price * 0.9995, 2)  # 墙下一点点
+                        target_sl = max(target_sl, wall_sl)
+
+                    # 发送推止损请求
+                    if target_sl > current_sl_px + min_move_dist:
+                        logger.warning(f"🧱 [护卫2.0] 防线推进！最新止损锚定至: {target_sl}")
+                        await self._request("POST", "/api/v5/trade/cancel-algos",
+                                            [{"instId": self.symbol, "algoId": current_sl_algo_id}])
+                        new_sl = {
+                            "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                            "ordType": "conditional", "sz": str(remaining_sz),
+                            "slTriggerPx": str(target_sl), "slTriggerPxType": "last", "slOrdPx": "-1",
+                            "reduceOnly": True
+                        }
+                        res_new = await self._request("POST", "/api/v5/trade/order-algo", new_sl)
+                        if res_new and res_new.get('code') == '0':
+                            current_sl_algo_id = res_new['data'][0]['algoId']
+                            current_sl_px = target_sl
+
+                    # 3. 🚨 0.9% 吹哨机制：逼近 TP2，启动雷达！
+                    if phase == 1 and last_px >= moonbag_warning_px:
+                        logger.warning(f"哨声响起！现价({last_px})已逼近TP2({tp2_price})，进入决断岔路口！")
+                        phase = 2
+
+                    # 4. 🚀 决断岔路口：动能破冰！
+                    if phase == 2:
+                        if self.of_squeeze_flag:
+                            logger.warning("🔥 [动能破冰] 三号引擎侦测到空头爆仓踩踏！上方阻力清空！")
+                            logger.warning("🛸 [打开天花板] 正在撤销 TP2 止盈单，转入登月舱无限拔高模式！")
+                            # 撤销 TP2
+                            await self._request("POST", "/api/v5/trade/cancel-order",
+                                                {"instId": self.symbol, "ordId": tp2_ord_id})
+                            phase = 3  # 正式进入阶段四：无限登月！
+                        elif last_px < moonbag_warning_px * 0.998:
+                            # 冲高回落，退回阶段 1
+                            phase = 1
+
+                    await asyncio.sleep(1)
+
+                # -------------------------------------------------
+                # 🔴 阶段四：登月舱 (无限拔高止损)
+                # -------------------------------------------------
+                elif phase == 3:
+                    # 获取现价和最近的 1m K线来判断“直线”还是“波段”
+                    kline_res = await self._request("GET",
+                                                    f"/api/v5/market/candles?instId={self.symbol}&bar=1m&limit=5")
+                    if kline_res and kline_res.get('code') == '0':
+                        klines = kline_res['data']  # [0]是最新一根, [1]是上一根
+                        last_px = float(klines[0][4])  # close
+
+                        target_sl_moon = current_sl_px
+
+                        # 策略 A：直线拉升防守 (前一根 1m K 线的 Low)
+                        prev_candle_low = float(klines[1][3])
+                        target_sl_moon = max(target_sl_moon, prev_candle_low * 0.9995)
+
+                        # 策略 B：波段上涨防守 (最近 5 分钟的最低点，简单的 Swing Low)
+                        recent_low = min([float(k[3]) for k in klines[1:5]])
+                        target_sl_moon = max(target_sl_moon, recent_low * 0.9995)
+
+                        # 策略 C：横盘吸收的隐形筹码墙防守
+                        if self.of_wall_price > 0:
+                            target_sl_moon = max(target_sl_moon, self.of_wall_price * 0.9995)
+
+                        # 如果这三种算出来的新止损，比当前止损高出了一段距离，立刻推上去！
+                        if target_sl_moon > current_sl_px + min_move_dist:
+                            logger.warning(f"🚀 [无限登月] 利润狂飙！防线极速拔高至: {target_sl_moon}")
+                            await self._request("POST", "/api/v5/trade/cancel-algos",
+                                                [{"instId": self.symbol, "algoId": current_sl_algo_id}])
+                            new_sl = {
+                                "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+                                "ordType": "conditional", "sz": str(remaining_sz),
+                                "slTriggerPx": str(target_sl_moon), "slTriggerPxType": "last", "slOrdPx": "-1",
+                                "reduceOnly": True
+                            }
+                            res_new = await self._request("POST", "/api/v5/trade/order-algo", new_sl)
+                            if res_new and res_new.get('code') == '0':
+                                current_sl_algo_id = res_new['data'][0]['algoId']
+                                current_sl_px = target_sl_moon
+
+                    await asyncio.sleep(2)  # 极速拉升时，2秒校准一次止损线
+
+            except Exception as e:
+                logger.error(f"⚠️ [护卫2.0] 异常: {e}")
+                await asyncio.sleep(2)
 
     async def update_balance_loop(self):
         """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地"""

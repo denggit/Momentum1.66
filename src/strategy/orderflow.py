@@ -157,7 +157,7 @@ class OrderFlowMath:
                     rebound_ratio = (micro_cvd_usdt / 1_000_000) / effort_m
                 else:
                     rebound_ratio = 0.0
-                    
+
                 # (哪怕反弹来得晚，只要这波曾经有过 > 1.2 倍的狂砸，现在反包了，照样开火！)
                 # 🌟 进化版 V 反判定：
                 # 1. 绝对反击门槛提高到 50 万刀 (过滤散户噪音)
@@ -217,3 +217,57 @@ class OrderFlowMath:
         # 结算完清零，准备迎接下一次暴跌
         self.round_max_effort_m = 0.0
         self.round_max_resistance = 0.0
+
+    def detect_absorption_wall(self, tick: dict) -> float:
+        """
+        🧱 隐形墙探测 (Absorption Wall)
+        微观逻辑：空头在短时间内疯狂砸盘，但价格跌不下去，说明下方藏着极其巨大的限价买单(冰山单)！
+        返回：隐形墙的价格（如果没有则返回 0.0）
+        """
+        # 至少需要 2 个快照（大约 10~20 秒前的数据）
+        if len(self.snapshots) < 2:
+            return 0.0
+
+        snapshot = self.snapshots[-2]
+        CONTRACT_SIZE = 0.1  # ETH 每张合约 0.1 个币
+
+        # 计算过去 10~20 秒内的纯砸盘资金 (负数)
+        recent_cvd_delta = (self.cvd - snapshot['cvd']) * CONTRACT_SIZE * self.current_price
+        # 计算这段时间内的价格变化
+        price_change_pct = (self.current_price - snapshot['price']) / snapshot['price'] * 100
+
+        # 🌟 判定条件：遭遇核武级砸盘，但价格纹丝不动
+        # 如果短时间内砸盘超过 50 万美金
+        if recent_cvd_delta < -500_000:
+            # 但价格跌幅竟然连 0.02% 都没有（甚至微涨）
+            if price_change_pct >= -0.02:
+                # 说明主力在这里架了一堵看不见的墙，硬吃了所有抛压！
+                # 我们返回现价作为墙的位置，保镖会把止损躲在这堵墙下面
+                return self.current_price
+
+        return 0.0
+
+    def detect_short_squeeze(self, tick: dict) -> bool:
+        """
+        🔥 动能破冰探测 (Short Squeeze / Breakout)
+        微观逻辑：短时间内爆出天量市价买单，上方挂单被瞬间清空，引发空头踩踏平仓！
+        返回：True (发生踩踏) / False (未发生)
+        """
+        if len(self.snapshots) < 1:
+            return False
+
+        # 取最近的一次快照（代表 0~10 秒前的状态，反应极其敏锐）
+        snapshot = self.snapshots[-1]
+        CONTRACT_SIZE = 0.1
+
+        # 计算极短时间内的突发资金流向
+        recent_cvd_delta = (self.cvd - snapshot['cvd']) * CONTRACT_SIZE * self.current_price
+        price_change_pct = (self.current_price - snapshot['price']) / snapshot['price'] * 100
+
+        # 🌟 判定条件：多头暴力点火 + 盘口瞬间破冰
+        # 如果短短几秒内涌入超过 80 万美金的纯买盘
+        # 并且价格瞬间被拔高超过 0.08%（说明上方阻力极弱，发生连环爆仓）
+        if recent_cvd_delta > 800_000 and price_change_pct > 0.08:
+            return True
+
+        return False
