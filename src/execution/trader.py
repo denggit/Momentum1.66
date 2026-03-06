@@ -195,8 +195,8 @@ class OKXTrader:
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
         # ==========================================
-        # 🌟 关键修改：止损大幅下放至坑底下 0.3%，躲开庄家的扫损绞肉机！
-        sl_price = round(local_low * 0.997, 2)
+        # 🌟 关键修改：止损大幅下放至坑底下 0.15%，躲开庄家的扫损绞肉机！
+        sl_price = round(local_low * 0.9985, 2)
 
         sl_payload = {
             "instId": self.symbol,
