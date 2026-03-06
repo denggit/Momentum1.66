@@ -79,6 +79,7 @@ class Engine3Commander:
         signal_data['smc_msg'] = smc_msg
 
         if is_safe:
+            # ======= 【实盘开火区】 =======
             logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
 
             if self.mode == "live":
@@ -98,10 +99,11 @@ class Engine3Commander:
                 await self.send_email_alert(signal_data)
             self.tracker.add_tracking(signal_data)
         else:
-            # 🌟 哪怕被拦截，也要记录到科考船，等级标为 REJECTED
+            # ======= 【影子科考区】 =======
+            # 🌟 哪怕是 False，只要它是我们捕捉到的动能异动，就存下来！
             signal_data['level'] = "REJECTED"
             self.tracker.add_tracking(signal_data)
-            logger.info(f"🛡️ [防撞墙启动] 发现极速反转，但坑底价 {signal_data['local_low']} {smc_msg}。拒绝接刀！")
+            logger.info(f"🛡️ [影子拦截] 已将拦截信号存档供复盘: {smc_msg}")
 
     async def send_email_alert(self, signal):
         current_ts = time.time()
