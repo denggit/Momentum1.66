@@ -175,8 +175,8 @@ class OrderFlowMath:
                     self._commit_ema_memory()  # 🌟 击发后，波段结束，刻入大脑记忆！
                     self.last_fire_time = current_ts
 
-                    # 我们预设止损位在现价下方 0.3% (即 0.997)
-                    self.last_stop_loss_price = self.current_price * 0.997
+                    # 我们预设止损位在现价下方 0.15% (即 0.9985)
+                    self.last_stop_loss_price = self.current_price * 0.9985
                     self.last_stop_loss_time = current_ts
                     self.max_price_since_stop = self.current_price
 
