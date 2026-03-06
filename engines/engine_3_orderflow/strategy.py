@@ -78,7 +78,26 @@ class Engine3Commander:
         # 🌟 无论开不开枪，都把地形塞回信号包
         signal_data['smc_msg'] = smc_msg
 
+        # 解析地形和砸盘量
+        is_perfect_terrain = "完美共振" in smc_msg
+
+        # 提取这波砸盘的绝对金额 (百万美金)
+        effort_m = abs(signal_data.get('cvd_delta_usdt', 0)) / 1_000_000
+
+        # ==========================================
+        # 🌟 核心拦截逻辑：防单边连跌陷阱
+        # ==========================================
         if is_safe:
+            # 如果是普通支撑区，那砸盘量必须 > 4.0M (必须是真正的恐慌抛售)！
+            # 如果仅仅砸了 2M，说明空头动能根本没释放完，极大概率是下跌中继！
+            if not is_perfect_terrain and effort_m < 4.0:
+                logger.info(f"🛡️ [防连跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
+
+                # 强行拦截并归档为影子测试
+                signal_data['level'] = "REJECTED"
+                self.tracker.add_tracking(signal_data)
+                return  # 🚀 直接退出，绝对不交给 trader 去开火！
+
             # ======= 【实盘开火区】 =======
             logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
 
