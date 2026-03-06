@@ -116,8 +116,8 @@ class MicroSMCRadar:
 
     def _calculate_support_pois(self, df: pd.DataFrame, tf_label: str = "5m") -> list:
         """
-        寻找未被消耗的 (Unmitigated) 极值订单块、波段低点和顶底转换区
-        并自动过滤诱导陷阱 (Inducement)
+        寻找未被消耗的极值订单块、波段低点和顶底转换区
+        加入 1.5% 显著度过滤、OB 吞没过滤 和 FVG 动态真空识别！
         """
         pois = []
         current_price = df['close'].iloc[-1]
@@ -137,65 +137,81 @@ class MicroSMCRadar:
                     return True
             return False
 
-        # 🌟 核心新增：检测支撑位是否在形成后被砸穿过 (Mitigation Check)
         def is_mitigated(poi_bottom: float, formation_idx: int) -> bool:
-            """
-            如果在 POI 形成之后的任何时刻，最低价曾经跌破过它的底部，
-            则该 POI 已被消耗 (Mitigated) 彻底失效。
-            """
-            # 取出从这个支撑位形成之后的全部 K 线
             future_k_lines = df['low'].iloc[formation_idx + 1:]
             if future_k_lines.empty:
                 return False
-            # 如果这期间的最低价跌破了支撑底部，判定为失效
             return future_k_lines.min() < poi_bottom
 
         # ==================================================
-        # 1. 寻找“未失效”的极值订单块 (Order Block)
+        # 1. 寻找“未失效且强势”的极值订单块 (Colorless Order Block)
         # ==================================================
-        valid_obs = 0  # 🌟 新增计数器
+        valid_obs = 0
         for i in range(len(df) - 5, 5, -1):
-            if valid_obs >= 4: break  # 🌟 最多找 4 个深层订单块
-            if df['close'].iloc[i] < df['open'].iloc[i]:
-                ob_height = df['high'].iloc[i] - df['low'].iloc[i]
-                future_move = df['close'].iloc[i + 1:i + 4].max() - df['close'].iloc[i]
+            if valid_obs >= 4: break
 
-                is_strong_move = future_move > (1.5 * df['ATR'].iloc[i])
-                is_valid_structure = ob_height < future_move
-                is_not_too_thick = ob_height < (2.5 * df['ATR'].iloc[i])
+            # 🌟 Zijun 的终极领悟：无视 K 线颜色！只看实体大小和随后的能量爆发！
+            ob_body = abs(df['open'].iloc[i] - df['close'].iloc[i])
+            ob_height = df['high'].iloc[i] - df['low'].iloc[i]
 
-                if is_strong_move and is_valid_structure and is_not_too_thick:
-                    ob_top = df['open'].iloc[i]
-                    ob_bottom = df['low'].iloc[i]
+            # 提取下一根 K 线，验证多头动能爆发 (Displacement)
+            next_candle = df.iloc[i + 1]
+            next_body = next_candle['close'] - next_candle['open']
 
-                    if ob_top < current_price:
-                        # 🌟 检查这个 OB 是不是早就被砸穿了
-                        if not is_mitigated(ob_bottom, i):
-                            pois.append({
-                                'type': f'{tf_label}_Order_Block',
-                                'top': ob_top,
-                                'bottom': ob_bottom,
-                                'time': df.index[i]
-                            })
-                            valid_obs += 1
-                        else:
-                            logger.debug(f"🧹 [SMC雷达] 发现订单块，但已被砸穿失效，继续向历史深处寻找！")
+            # 1. 爆发必须是强力阳线 (next_body > 0)
+            # 2. 吞没验证：爆发阳线的实体，必须无情吞没这根“蓄力K线”的实体！
+            if next_body <= 0 or next_body <= ob_body:
+                continue  # 毫不留情跳过！
+
+            # 测量后续 3 根 K 线的总推力
+            future_move = df['close'].iloc[i + 1:i + 4].max() - df['low'].iloc[i]
+
+            is_strong_move = future_move > (1.5 * df['ATR'].iloc[i])
+            is_valid_structure = ob_height < future_move
+            is_not_too_thick = ob_height < (2.5 * df['ATR'].iloc[i])
+
+            if is_strong_move and is_valid_structure and is_not_too_thick:
+                # 无论这根蓄力 K 线是阴是阳，它的实体顶部 (Max) 就是阻力墙，下影线就是防守底线！
+                ob_top = max(df['open'].iloc[i], df['close'].iloc[i])
+                ob_bottom = df['low'].iloc[i]
+
+                if ob_top < current_price:
+                    if not is_mitigated(ob_bottom, i):
+                        pois.append({
+                            'type': f'{tf_label}_Order_Block',
+                            'top': ob_top,
+                            'bottom': ob_bottom,
+                            'time': df.index[i]
+                        })
+                        valid_obs += 1
 
         # ==================================================
-        # 2. 寻找“未失效”的波段低点 (Swing Low)
+        # 2. 寻找“未失效且显著”的波段低点 (Swing Low)
         # ==================================================
         df['is_swing_low'] = ((df['low'] < df['low'].shift(1)) & (df['low'] < df['low'].shift(2)) &
                               (df['low'] < df['low'].shift(-1)) & (df['low'] < df['low'].shift(-2)))
 
         valid_sls = 0
-        # 使用索引倒序遍历，方便获取 formation_idx
-        for i in range(len(df) - 1, 0, -1):
+        for i in range(len(df) - 3, 2, -1):
             if valid_sls >= 4: break
 
             if df['is_swing_low'].iloc[i] and df['low'].iloc[i] < current_price:
-                sl_bottom = df['low'].iloc[i] - sweep_allowance
+                sl_bottom = df['low'].iloc[i]
 
-                # 🌟 如果这个前低后来被更低的暴跌刺穿了，跳过它！
+                # 🌟 Zijun 的铁律：1.5% 右侧反弹显著度过滤 (Prominence Check)
+                future_highs = df['high'].iloc[i + 1:]
+                if not future_highs.empty:
+                    recent_bounce_high = future_highs.max()
+                    bounce_pct = (recent_bounce_high - sl_bottom) / sl_bottom
+
+                    # 如果这波右侧反弹连 1.5% 的空间都没打出来，说明是诱多假底！跳过！
+                    if bounce_pct < 0.015:
+                        continue
+                else:
+                    continue
+
+                sl_bottom = sl_bottom - sweep_allowance
+
                 if is_mitigated(sl_bottom, i):
                     continue
 
@@ -216,17 +232,11 @@ class MicroSMCRadar:
 
         tolerance_buffer = current_price * 0.003
         valid_bsh = 0
-
         for i in range(len(df) - 1, 0, -1):
             if valid_bsh >= 4: break
-
             if df['is_swing_high'].iloc[i] and df['high'].iloc[i] < current_price + tolerance_buffer:
                 bsh_bottom = df['high'].iloc[i] - sweep_allowance
-
-                # 🌟 如果这个前高被突破后，又被一次深蹲彻底砸回去了，跳过它！
-                if is_mitigated(bsh_bottom, i):
-                    continue
-
+                if is_mitigated(bsh_bottom, i): continue
                 if not is_inducement(bsh_bottom, pois):
                     pois.append({
                         'type': f'{tf_label}_Broken_Swing_High',
@@ -236,26 +246,56 @@ class MicroSMCRadar:
                     })
                     valid_bsh += 1
 
+        # ==================================================
+        # 🌟 4. 新增：寻找未被完全填补的 FVG (流动性真空缺口)
+        # ==================================================
+        for i in range(2, len(df) - 1):
+            # 向上缺口 (Bullish FVG)：当前 K 线的 low 大于 前两根 K 线的 high
+            if df['low'].iloc[i] > df['high'].iloc[i - 2]:
+                fvg_top = df['low'].iloc[i]
+                fvg_bottom = df['high'].iloc[i - 2]
+
+                # 检查后续 K 线是否跌下来填补了这个缺口 (动态消耗)
+                future_lows = df['low'].iloc[i + 1:]
+                if not future_lows.empty:
+                    lowest_future = future_lows.min()
+                    if lowest_future <= fvg_bottom:
+                        continue  # 彻底跌穿填满，缺口失效跳过
+                    elif lowest_future < fvg_top:
+                        fvg_top = lowest_future  # 部分填补，顶端下压！
+
+                if fvg_top > fvg_bottom:
+                    pois.append({
+                        'type': f'{tf_label}_FVG',
+                        'top': fvg_top,
+                        'bottom': fvg_bottom,
+                        'time': df.index[i]
+                    })
+
         return pois
 
     def is_in_poi(self, price: float) -> tuple[bool, str]:
-        """
-        三号引擎调用接口：传入当前价格，问雷达兵“这里能开火吗？”
-        """
+        """三号引擎调用接口：传入探底针尖价格，判定命中优先级"""
         if not self.active_pois:
             return False, "无结构"
 
-        # 第一优先级：实盘许可！如果是 5m 的结构，直接绿灯放行
+        # 🌟 优先级 1：是否结结实实扎在了实体支撑上？(碰到了 OB 就无视 FVG！)
         for poi in self.active_pois:
-            if poi['type'].startswith('5m_') and poi['bottom'] <= price <= poi['top']:
-                return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
+            if poi['type'].startswith('5m_') and 'FVG' not in poi['type']:
+                if poi['bottom'] <= price <= poi['top']:
+                    return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
-        # 第二优先级：影子测试！如果 5m 没接住，去看看 15m 和 1H 有没有接住
+        # 🌟 优先级 2：如果没有扎到实体支撑，去看看是不是悬空掉进了无底洞？
         for poi in self.active_pois:
-            if not poi['type'].startswith('5m_') and poi['bottom'] <= price <= poi['top']:
-                # 🌟 注意这里返回的是 False！告诉三号引擎绝对不要买！
-                # 🌟 但附带的信息是“影子命中”，科考船会把它原封不动记录下来！
-                return False, f"影子命中 {poi['type']} ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
+            if 'FVG' in poi['type']:
+                if poi['bottom'] <= price <= poi['top']:
+                    return False, f"⚠️ 致命悬空！探底针尖处于 {poi['type']} 真空区内，未触碰任何实体支撑，极易二次暴跌！"
+
+        # 🌟 优先级 3：影子测试 (15m, 1H 等宏观实体结构)
+        for poi in self.active_pois:
+            if not poi['type'].startswith('5m_') and 'FVG' not in poi['type']:
+                if poi['bottom'] <= price <= poi['top']:
+                    return False, f"影子命中 {poi['type']} ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
 

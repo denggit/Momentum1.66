@@ -72,39 +72,30 @@ class Engine3Commander:
 
     # 🌟 新增的异步验证与狙击函数
     async def _async_evaluate_and_snipe(self, signal_data):
-        # 使用 asyncio.to_thread 把 Pandas 的同步计算扔到线程池，防止阻塞事件循环
         is_safe, smc_msg = await asyncio.to_thread(self.smc_radar.final_check, signal_data['local_low'])
-
-        # 🌟 无论开不开枪，都把地形塞回信号包
         signal_data['smc_msg'] = smc_msg
 
-        # 解析地形和砸盘量
         is_perfect_terrain = "完美共振" in smc_msg
-
-        # 提取这波砸盘的绝对金额 (百万美金)
         effort_m = abs(signal_data.get('cvd_delta_usdt', 0)) / 1_000_000
 
         # ==========================================
-        # 🌟 核心拦截逻辑：防单边连跌陷阱
+        # 🌟 核心拦截逻辑：仅保留防阴跌陷阱 (撤销了2000万上限)
         # ==========================================
         if is_safe:
-            # 如果是普通支撑区，那砸盘量必须 > 4.0M (必须是真正的恐慌抛售)！
-            # 如果仅仅砸了 2M，说明空头动能根本没释放完，极大概率是下跌中继！
+            # 防连跌：如果地形一般，且空头砸盘量太小 (< 4M)，说明恐慌根本没释放完
+            # 极大概率是阴跌中继，拒绝接刀！
             if not is_perfect_terrain and effort_m < 4.0:
-                logger.info(f"🛡️ [防连跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
-
-                # 强行拦截并归档为影子测试
+                logger.info(f"🛡️ [防阴跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
                 signal_data['level'] = "REJECTED"
                 self.tracker.add_tracking(signal_data)
-                return  # 🚀 直接退出，绝对不交给 trader 去开火！
+                return
 
-            # ======= 【实盘开火区】 =======
+                # ======= 【实盘开火区】 =======
             logger.warning(f"🚨 [绝杀核弹] 微观订单流 + SMC宏观共振！")
 
             if self.mode == "live":
                 logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
 
-                # 同样异步获取阻力位
                 tp2_target = await asyncio.to_thread(self.smc_radar.get_nearest_resistance, signal_data['price'])
                 if not tp2_target:
                     tp2_target = signal_data['price'] * 1.012
@@ -117,9 +108,9 @@ class Engine3Commander:
             else:
                 await self.send_email_alert(signal_data)
             self.tracker.add_tracking(signal_data)
+
         else:
             # ======= 【影子科考区】 =======
-            # 🌟 哪怕是 False，只要它是我们捕捉到的动能异动，就存下来！
             signal_data['level'] = "REJECTED"
             self.tracker.add_tracking(signal_data)
             logger.info(f"🛡️ [影子拦截] 已将拦截信号存档供复盘: {smc_msg}")
