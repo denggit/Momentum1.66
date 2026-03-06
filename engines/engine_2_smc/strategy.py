@@ -279,23 +279,17 @@ class MicroSMCRadar:
         if not self.active_pois:
             return False, "无结构"
 
-        # 🌟 优先级 1：是否结结实实扎在了实体支撑上？(碰到了 OB 就无视 FVG！)
+        # 🌟 优先级 1：钢铁防线！(无视时间级别，1H/15m/5m 只要是实体结构，全算 True！)
         for poi in self.active_pois:
-            if poi['type'].startswith('5m_') and 'FVG' not in poi['type']:
+            if 'FVG' not in poi['type']:
                 if poi['bottom'] <= price <= poi['top']:
                     return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
-        # 🌟 优先级 2：如果没有扎到实体支撑，去看看是不是悬空掉进了无底洞？
+        # 🌟 优先级 2：致命悬空！(跌进了 FVG 真空，且没有碰到任何实体)
         for poi in self.active_pois:
             if 'FVG' in poi['type']:
                 if poi['bottom'] <= price <= poi['top']:
                     return False, f"⚠️ 致命悬空！探底针尖处于 {poi['type']} 真空区内，未触碰任何实体支撑，极易二次暴跌！"
-
-        # 🌟 优先级 3：影子测试 (15m, 1H 等宏观实体结构)
-        for poi in self.active_pois:
-            if not poi['type'].startswith('5m_') and 'FVG' not in poi['type']:
-                if poi['bottom'] <= price <= poi['top']:
-                    return False, f"影子命中 {poi['type']} ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         return False, "悬空"
 
@@ -308,24 +302,33 @@ class MicroSMCRadar:
 
             resistances = []
 
-            # 1. 寻找看空订单块 (Bearish OB: 暴跌前的最后一根阳线)
+            # 1. 寻找看空订单块 (Colorless Bearish OB: 暴跌前的动能蓄力区)
             for i in range(len(df) - 5, 5, -1):
-                # 寻找阳线
-                if df['close'].iloc[i] > df['open'].iloc[i]:
-                    ob_height = df['high'].iloc[i] - df['low'].iloc[i]
-                    # 随后是否出现了强力砸盘？
-                    future_drop = df['close'].iloc[i] - df['close'].iloc[i + 1:i + 4].min()
+                # 🌟 无视颜色，计算实体大小
+                ob_body = abs(df['open'].iloc[i] - df['close'].iloc[i])
+                ob_height = df['high'].iloc[i] - df['low'].iloc[i]
 
-                    # 使用 1.5倍 ATR 确认跌幅动能
-                    atr = df['ATR'].iloc[i] if 'ATR' in df.columns else (current_price * 0.002)
-                    is_strong_drop = future_drop > (1.5 * atr)
+                # 提取下一根 K 线，验证空头动能爆发 (Bearish Displacement)
+                next_candle = df.iloc[i + 1]
+                next_body = next_candle['open'] - next_candle['close']  # 空头吞没，open大于close
 
-                    if is_strong_drop:
-                        # 🌟 核心：挂在看空订单块的【实体底部(Open)】，绝不去碰上边缘
-                        ob_bottom = df['open'].iloc[i]
-                        if ob_bottom > current_price:
-                            resistances.append({'type': 'Bearish_OB', 'price': ob_bottom})
-                            break  # 找到最近的一个就够了
+                # 1. 爆发必须是强力阴线 (next_body > 0)
+                # 2. 空头吞没验证：爆发阴线的实体必须大于蓄力 K 线的实体
+                if next_body <= 0 or next_body <= ob_body:
+                    continue
+
+                    # 测量后续 3 根 K 线的向下总推力
+                future_drop = df['high'].iloc[i] - df['close'].iloc[i + 1:i + 4].min()
+                atr = df['ATR'].iloc[i] if 'ATR' in df.columns else (current_price * 0.002)
+
+                is_strong_drop = future_drop > (1.5 * atr)
+
+                if is_strong_drop:
+                    # 🌟 核心：挂在看空订单块的【实体底部】，这叫抢跑流动性 (Front-running)
+                    ob_bottom = min(df['open'].iloc[i], df['close'].iloc[i])
+                    if ob_bottom > current_price:
+                        resistances.append({'type': 'Bearish_OB', 'price': ob_bottom})
+                        break  # 找到最近的一个就够了
 
             # 2. 寻找波段高点 (Swing High)
             df['is_swing_high'] = ((df['high'] > df['high'].shift(1)) & (df['high'] > df['high'].shift(2)) &
