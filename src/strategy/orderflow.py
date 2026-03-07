@@ -1,13 +1,23 @@
-import time
-import logging
 import json
+import logging
 import os
+import time
 from collections import deque
 
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
+
+# 🌟 优雅解析：获取当前文件所在目录，向上推三层找到项目根目录
+current_file = os.path.abspath(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+data_dir = os.path.join(project_root, "data")
+
+# 如果 data 文件夹不存在，系统自动帮你建一个
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
+
 
 class OrderFlowMath:
     def __init__(self):
@@ -43,7 +53,7 @@ class OrderFlowMath:
         # 🧠 动态流动性记忆 (带本地持久化存档)
         # ==========================================
         # 设定记忆文件的保存路径
-        self.memory_file = "ema_memory.json"
+        self.memory_file = os.path.join(data_dir, "ema_memory.json")
         self._load_ema_memory()
 
         # 用于记录区间最低价
