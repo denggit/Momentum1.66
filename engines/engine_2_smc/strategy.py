@@ -282,7 +282,8 @@ class MicroSMCRadar:
         # 🌟 优先级 1：钢铁防线！(无视时间级别，1H/15m/5m 只要是实体结构，全算 True！)
         for poi in self.active_pois:
             if 'FVG' not in poi['type']:
-                if poi['bottom'] <= price <= poi['top']:
+                sweep_tolerance = price * 0.004
+                if (poi['bottom'] - sweep_tolerance) <= price <= poi['top']:
                     return True, f"命中 {poi['type']} 支撑区 ({poi['bottom']:.1f} ~ {poi['top']:.1f})"
 
         # 🌟 优先级 2：致命悬空！(跌进了 FVG 真空，且没有碰到任何实体)
