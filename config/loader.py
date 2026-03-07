@@ -5,6 +5,9 @@ import yaml
 import logging
 import copy
 
+# 为了类型提示
+from typing import Dict, Any, Union
+
 
 def load_strategy_config(strategy_name: str, symbol: str) -> dict:
     """
@@ -68,6 +71,7 @@ ORDERFLOW_DEFAULT_CONFIG = {
         "patience_latency": 3600,
         "price_silence_threshold": 0.5,
         "price_drop_threshold": 0.06,
+        "safe_drop_min": 0.005,
         "dump_anomaly_threshold": 1.5,
         "resistance_anomaly_threshold": 4.0,
         "v_reversal_dump_threshold": 1.2,
@@ -81,7 +85,14 @@ ORDERFLOW_DEFAULT_CONFIG = {
         "wall_threshold_usdt": 8_000_000,
         "wall_max_drop_pct": 0.08,
         "squeeze_buy_threshold": 5_000_000,
-        "squeeze_price_change": 0.08
+        "squeeze_price_change": 0.08,
+        "snapshot_interval_seconds": 10,
+        "snapshot_window_minutes": 5,
+        "snapshot_count": 30,
+        "analysis_snapshot_count": 18,
+        "memory_decay_factor": 0.9,
+        "memory_update_factor": 0.1,
+        "memory_update_threshold_m": 2.0
     },
     "execution": {
         "tp1_pct": 0.004,
@@ -96,10 +107,16 @@ ORDERFLOW_DEFAULT_CONFIG = {
 }
 
 
-def load_orderflow_config(symbol: str) -> dict:
+def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[str, Any], 'OrderFlowConfig']:
     """
     加载订单流策略配置，并进行基本验证。
-    返回合并了默认值的配置字典。
+
+    参数:
+        symbol: 交易对符号，如"ETH-USDT-SWAP"
+        return_dict: 是否返回字典格式（向后兼容），默认返回OrderFlowConfig对象
+
+    返回:
+        配置字典或OrderFlowConfig对象
     """
     try:
         config = load_strategy_config("orderflow", symbol)
@@ -155,6 +172,13 @@ def load_orderflow_config(symbol: str) -> dict:
             logging.warning(f"  使用默认合约面值: 0.1")
 
     logging.info(f"✅ 成功加载订单流配置: {symbol}")
-    return merged_config
+
+    # 根据参数决定返回类型
+    if return_dict:
+        return merged_config
+    else:
+        # 延迟导入以避免循环依赖
+        from src.strategy.orderflow_config import OrderFlowConfig
+        return OrderFlowConfig.from_dict(merged_config)
 
 

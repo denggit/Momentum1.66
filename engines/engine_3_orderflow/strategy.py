@@ -25,6 +25,8 @@ from src.utils.email_sender import send_trading_signal_email
 from src.execution.trader import OKXTrader
 from engines.engine_3_orderflow.tracker import CSVTracker
 from engines.engine_2_smc.strategy import MicroSMCRadar
+from src.context.market_context import MarketContext
+from config.loader import load_orderflow_config
 
 logger = get_logger(__name__)
 
@@ -33,20 +35,43 @@ class Engine3Commander:
     def __init__(self, symbol="ETH-USDT-SWAP", mode="collect"):
         self.symbol = symbol
         self.mode = mode
-        self.math_brain = OrderFlowMath()
+
+        # 加载订单流配置
+        try:
+            self.config = load_orderflow_config(symbol)  # 默认返回OrderFlowConfig对象
+            logger.info(f"✅ 成功加载 {symbol} 订单流配置")
+        except Exception as e:
+            logger.error(f"❌ 加载配置失败: {e}, 使用默认配置")
+            # 创建默认配置对象
+            from src.strategy.orderflow_config import OrderFlowConfig
+            self.config = OrderFlowConfig()
+
+        # 创建线程安全的市场上下文
+        self.context = MarketContext()
+
+        # 创建订单流数学大脑（传入配置和上下文）
+        self.math_brain = OrderFlowMath(config=self.config, context=self.context)
+
         self.tracker = CSVTracker(project_root)
 
         # 🌟 雇佣二号引擎雷达兵！
         self.smc_radar = MicroSMCRadar(symbol=symbol)
 
-        # 🌟 实例化你的实盘枪手 (默认 20倍杠杆)
-        self.trader = OKXTrader(symbol=symbol, leverage=50, risk_pct=0.8)  # 每次用 60% 的仓位
+        # 🌟 实例化你的实盘枪手（从配置获取参数）
+        # config是OrderFlowConfig对象，直接访问属性
+        self.trader = OKXTrader(
+            symbol=symbol,
+            leverage=self.config.leverage,
+            risk_pct=self.config.risk_pct,
+            sl_pct=self.config.sl_pct
+        )
 
         # 将 on_tick_callback 指向自己的处理函数
         self.streamer = OKXTickStreamer(symbol=symbol, on_tick_callback=self.on_tick)
 
         self._last_email_sent_time = 0
-        self._email_cooldown = 600
+        # 从配置获取email_cooldown
+        self._email_cooldown = self.config.email_cooldown
 
         self.last_intel_time = 0
 
@@ -59,8 +84,8 @@ class Engine3Commander:
         # 🌟 关键新增：情报实时同步给 Trader 的保镖 (性能洁癖版)
         # =========================================================
         curr_ts = time.time()
-        # 每 100ms 扫描一次情报，直接同步执行数学运算，抛弃 create_task 的调度开销！
-        if self.trader.is_in_position and (curr_ts - self.last_intel_time > 0.1):
+        # 每 scan_interval 秒扫描一次情报，直接同步执行数学运算，抛弃 create_task 的调度开销！
+        if self.trader.is_in_position and (curr_ts - self.last_intel_time > self.config.scan_interval):
             wall_price = self.math_brain.detect_absorption_wall(tick)
             if wall_price:
                 self.trader.of_wall_price = wall_price
@@ -99,10 +124,11 @@ class Engine3Commander:
         # 🌟 核心拦截逻辑：仅保留防阴跌陷阱 (撤销了2000万上限)
         # ==========================================
         if is_safe:
-            # 防连跌：如果地形一般，且空头砸盘量太小 (< 4M)，说明恐慌根本没释放完
+            # 防连跌：如果地形一般，且空头砸盘量太小 (< anti_slide_threshold)，说明恐慌根本没释放完
             # 极大概率是阴跌中继，拒绝接刀！
-            if not is_perfect_terrain and effort_m < 4.0:
-                logger.info(f"🛡️ [防阴跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
+            anti_slide_threshold_m = self.config.anti_slide_threshold / 1_000_000
+            if not is_perfect_terrain and effort_m < anti_slide_threshold_m:
+                logger.info(f"🛡️ [防阴跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M < {anti_slide_threshold_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
                 signal_data['level'] = "REJECTED"
                 self.tracker.add_tracking(signal_data)
                 return
@@ -115,7 +141,8 @@ class Engine3Commander:
 
                 tp2_target = await asyncio.to_thread(self.smc_radar.get_nearest_resistance, signal_data['price'])
                 if not tp2_target:
-                    tp2_target = signal_data['price'] * 1.012
+                    # 从配置获取tp2_pct
+                    tp2_target = signal_data['price'] * (1 + self.config.tp2_pct)
 
                 await self.trader.execute_snipe(
                     price=signal_data['price'],

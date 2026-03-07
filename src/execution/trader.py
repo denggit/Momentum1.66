@@ -23,12 +23,13 @@ if project_root not in sys.path:
 
 from src.utils.log import get_logger
 from config.env_loader import OKX_CONFIG
+from config.loader import GLOBAL_SETTINGS
 
 logger = get_logger(__name__)
 
 
 class OKXTrader:
-    def __init__(self, symbol="ETH-USDT-SWAP", leverage=20, td_mode="cross", risk_pct=0.5):
+    def __init__(self, symbol="ETH-USDT-SWAP", leverage=20, td_mode="cross", risk_pct=0.5, sl_pct=0.0015):
         self.symbol = symbol
         self.api_key = OKX_CONFIG.get('api_key')
         self.secret_key = OKX_CONFIG.get('secret_key')
@@ -38,19 +39,20 @@ class OKXTrader:
         self.leverage = leverage
         self.td_mode = td_mode
         self.risk_pct = risk_pct  # 🌟 比如 0.5 表示每次下注可用余额的 50%
+        self.sl_pct = sl_pct  # 止损百分比
         self.available_usdt = 0.0  # 🌟 缓存在本地的可用余额
         self.is_in_position = False  # 默认为空仓
 
         self.of_wall_price = 0.0  # 三号引擎发现的“隐形筹码墙”价格
         self.of_squeeze_flag = False  # 三号引擎拉响的“极速拉升爆仓”警报
 
-        # 简单合约面值表 (1张合约等于多少个币)
-        self.ct_val_map = {
+        # 简单合约面值表 (1张合约等于多少个币)，从全局配置获取
+        self.ct_val_map = GLOBAL_SETTINGS.get("contract_values", {
             "ETH-USDT-SWAP": 0.1,
             "BTC-USDT-SWAP": 0.01,
             "SOL-USDT-SWAP": 1.0,
             "DOGE-USDT-SWAP": 100.0
-        }
+        })
 
         if not self.api_key or not self.secret_key:
             logger.error("⚠️ OKX API 密钥未配置，请检查 .env 文件！实盘将无法执行下单。")
@@ -218,7 +220,7 @@ class OKXTrader:
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
         # ==========================================
-        sl_price = round(local_low * 0.9985, 2)
+        sl_price = round(local_low * (1 - self.sl_pct), 2)
 
         sl_payload = {
             "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
