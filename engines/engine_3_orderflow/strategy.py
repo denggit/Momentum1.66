@@ -72,7 +72,6 @@ class Engine3Commander:
         # =========================================================
 
         if signal_data:
-            # ... 下方是你原本的开枪逻辑 ...
             if signal_data['level'] == "STRICT":
                 # 🌟 优化：把耗时的宏观校验和下单，扔给异步后台去跑，绝不卡顿 Tick 流！
                 asyncio.create_task(self._async_evaluate_and_snipe(signal_data))
