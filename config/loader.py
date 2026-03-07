@@ -98,7 +98,21 @@ ORDERFLOW_DEFAULT_CONFIG = {
         "tp1_pct": 0.004,
         "tp2_pct": 0.012,
         "sl_pct": 0.0015,
-        "anti_slide_threshold": 4_000_000
+        "anti_slide_threshold": 4_000_000,
+        # 生命周期参数
+        "breakeven_pct": 0.0006,
+        "mech_step1_trigger_pct": 0.008,
+        "mech_step1_sl_pct": 0.004,
+        "wall_sl_offset_pct": 0.0005,
+        "moonbag_warning_ratio": 0.75,
+        "fallback_threshold_pct": 0.002,
+        "min_move_pct": 0.001,
+        "moon_strong_candle_pct": 0.002,
+        "moon_sl_offset_pct": 0.0005,
+        "stage0_interval": 1.0,
+        "stage1_interval": 2.0,
+        "stage2_interval": 2.0,
+        "stage3_interval": 5.0
     },
     "smc_validation": {
         "enabled": True,

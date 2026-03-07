@@ -23,6 +23,7 @@ from src.strategy.orderflow import OrderFlowMath
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
 from src.execution.trader import OKXTrader
+from src.execution.lifecycle_manager import LifecycleManager
 from engines.engine_3_orderflow.tracker import CSVTracker
 from engines.engine_2_smc.strategy import MicroSMCRadar
 from src.context.market_context import MarketContext
@@ -63,7 +64,15 @@ class Engine3Commander:
             symbol=symbol,
             leverage=self.config.leverage,
             risk_pct=self.config.risk_pct,
-            sl_pct=self.config.sl_pct
+            sl_pct=self.config.sl_pct,
+            context=self.context  # 传递MarketContext
+        )
+
+        # 🌟 创建生命周期管理器
+        self.lifecycle_manager = LifecycleManager(
+            trader=self.trader,
+            context=self.context,
+            config=self.config
         )
 
         # 将 on_tick_callback 指向自己的处理函数
@@ -81,17 +90,17 @@ class Engine3Commander:
         signal_data = self.math_brain.process_tick(tick)
 
         # =========================================================
-        # 🌟 关键新增：情报实时同步给 Trader 的保镖 (性能洁癖版)
+        # 🌟 关键新增：情报实时同步给 MarketContext (性能洁癖版)
         # =========================================================
         curr_ts = time.time()
         # 每 scan_interval 秒扫描一次情报，直接同步执行数学运算，抛弃 create_task 的调度开销！
-        if self.trader.is_in_position and (curr_ts - self.last_intel_time > self.config.scan_interval):
+        if self.context.is_in_position and (curr_ts - self.last_intel_time > self.config.scan_interval):
             wall_price = self.math_brain.detect_absorption_wall(tick)
             if wall_price:
-                self.trader.of_wall_price = wall_price
+                self.context.update_of_wall(wall_price, tick['ts'])
 
             if self.math_brain.detect_short_squeeze(tick):
-                self.trader.of_squeeze_flag = True
+                self.context.update_of_squeeze(True, tick['ts'])
 
             self.last_intel_time = curr_ts
         # =========================================================
@@ -128,7 +137,8 @@ class Engine3Commander:
             # 极大概率是阴跌中继，拒绝接刀！
             anti_slide_threshold_m = self.config.anti_slide_threshold / 1_000_000
             if not is_perfect_terrain and effort_m < anti_slide_threshold_m:
-                logger.info(f"🛡️ [防阴跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M < {anti_slide_threshold_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
+                logger.info(
+                    f"🛡️ [防阴跌拦截] 普通支撑区且砸盘量太小({effort_m:.1f}M < {anti_slide_threshold_m:.1f}M)，未形成恐慌衰竭，拒绝接刀！")
                 signal_data['level'] = "REJECTED"
                 self.tracker.add_tracking(signal_data)
                 return
@@ -144,11 +154,16 @@ class Engine3Commander:
                     # 从配置获取tp2_pct
                     tp2_target = signal_data['price'] * (1 + self.config.tp2_pct)
 
-                await self.trader.execute_snipe(
+                # 执行交易并获取结果
+                execution_result = await self.trader.execute_snipe(
                     price=signal_data['price'],
                     local_low=signal_data['local_low'],
                     tp2_price=tp2_target
                 )
+
+                # 如果执行成功，启动生命周期管理
+                if execution_result:
+                    await self.lifecycle_manager.start_lifecycle(execution_result)
             else:
                 await self.send_email_alert(signal_data)
             self.tracker.add_tracking(signal_data)
@@ -201,7 +216,6 @@ if __name__ == "__main__":
     # 将解析到的模式传给指挥部
     commander = Engine3Commander(mode=args.mode)
     logger.info(f"⚙️ 当前引擎运行模式: 【{args.mode.upper()}】")
-
 
     # 🌟 优雅重启，监听 kill -15
     def handle_sigterm(*args):

@@ -85,6 +85,34 @@ class OrderFlowConfig:
     smc_validation_enabled: bool = True
     smc_timeframes: list = field(default_factory=lambda: ["5m", "15m", "1H"])
 
+    # ==================== 生命周期管理参数 ====================
+    # 保本参数
+    breakeven_pct: float = 0.0015  # 保本价上浮比例（考虑手续费）
+
+    # 机械阶梯防守参数
+    mech_step1_trigger_pct: float = 0.008  # 阶段1触发涨幅
+    mech_step1_sl_pct: float = 0.004  # 阶段1止损位置
+
+    # 隐形墙跟随参数
+    wall_sl_offset_pct: float = 0.0005  # 墙下偏移比例
+
+    # 吹哨预警参数
+    moonbag_warning_ratio: float = 0.75  # 距离TP2的比例
+    fallback_threshold_pct: float = 0.002  # 回落阈值
+
+    # 止损移动参数
+    min_move_pct: float = 0.001  # 最小移动距离比例
+
+    # 无限登月参数
+    moon_strong_candle_pct: float = 0.002  # 强推力阳线阈值
+    moon_sl_offset_pct: float = 0.0005  # 登月止损偏移
+
+    # 监控间隔参数
+    stage0_interval: float = 1.0  # 阶段0监控间隔
+    stage1_interval: float = 2.0  # 阶段1监控间隔
+    stage2_interval: float = 2.0  # 阶段2监控间隔
+    stage3_interval: float = 5.0  # 阶段3监控间隔
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'OrderFlowConfig':
         """从配置字典创建配置对象"""
@@ -152,6 +180,21 @@ class OrderFlowConfig:
         config.sl_pct = execution_config.get("sl_pct", config.sl_pct)
         config.anti_slide_threshold = execution_config.get("anti_slide_threshold", config.anti_slide_threshold)
 
+        # 生命周期配置（可以在execution配置中提供）
+        config.breakeven_pct = execution_config.get("breakeven_pct", config.breakeven_pct)
+        config.mech_step1_trigger_pct = execution_config.get("mech_step1_trigger_pct", config.mech_step1_trigger_pct)
+        config.mech_step1_sl_pct = execution_config.get("mech_step1_sl_pct", config.mech_step1_sl_pct)
+        config.wall_sl_offset_pct = execution_config.get("wall_sl_offset_pct", config.wall_sl_offset_pct)
+        config.moonbag_warning_ratio = execution_config.get("moonbag_warning_ratio", config.moonbag_warning_ratio)
+        config.fallback_threshold_pct = execution_config.get("fallback_threshold_pct", config.fallback_threshold_pct)
+        config.min_move_pct = execution_config.get("min_move_pct", config.min_move_pct)
+        config.moon_strong_candle_pct = execution_config.get("moon_strong_candle_pct", config.moon_strong_candle_pct)
+        config.moon_sl_offset_pct = execution_config.get("moon_sl_offset_pct", config.moon_sl_offset_pct)
+        config.stage0_interval = execution_config.get("stage0_interval", config.stage0_interval)
+        config.stage1_interval = execution_config.get("stage1_interval", config.stage1_interval)
+        config.stage2_interval = execution_config.get("stage2_interval", config.stage2_interval)
+        config.stage3_interval = execution_config.get("stage3_interval", config.stage3_interval)
+
         # SMC配置
         config.smc_validation_enabled = smc_config.get("enabled", config.smc_validation_enabled)
         config.smc_timeframes = smc_config.get("timeframes", config.smc_timeframes)
@@ -205,7 +248,21 @@ class OrderFlowConfig:
                 "tp1_pct": self.tp1_pct,
                 "tp2_pct": self.tp2_pct,
                 "sl_pct": self.sl_pct,
-                "anti_slide_threshold": self.anti_slide_threshold
+                "anti_slide_threshold": self.anti_slide_threshold,
+                # 生命周期参数
+                "breakeven_pct": self.breakeven_pct,
+                "mech_step1_trigger_pct": self.mech_step1_trigger_pct,
+                "mech_step1_sl_pct": self.mech_step1_sl_pct,
+                "wall_sl_offset_pct": self.wall_sl_offset_pct,
+                "moonbag_warning_ratio": self.moonbag_warning_ratio,
+                "fallback_threshold_pct": self.fallback_threshold_pct,
+                "min_move_pct": self.min_move_pct,
+                "moon_strong_candle_pct": self.moon_strong_candle_pct,
+                "moon_sl_offset_pct": self.moon_sl_offset_pct,
+                "stage0_interval": self.stage0_interval,
+                "stage1_interval": self.stage1_interval,
+                "stage2_interval": self.stage2_interval,
+                "stage3_interval": self.stage3_interval
             },
             "smc_validation": {
                 "enabled": self.smc_validation_enabled,
