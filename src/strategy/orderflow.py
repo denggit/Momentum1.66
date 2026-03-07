@@ -265,6 +265,15 @@ class OrderFlowMath:
                     return
             except Exception as e:
                 logger.error(f"⚠️ [记忆读取] 失败: {e}，将使用默认初始值。")
+        else:
+            self.avg_wave_effort_m = 10.0
+            self.avg_resistance_bps = 1.5
+
+            with open(self.memory_file, 'w') as f:
+                json.dump({
+                    "avg_wave_effort_m": self.avg_wave_effort_m,
+                    "avg_resistance_bps": self.avg_resistance_bps
+                }, f)
 
         # 如果没有文件，就用默认的偏小初始值
         self.avg_wave_effort_m = 10.0
