@@ -108,8 +108,8 @@ class OrderFlowConfig:
     moon_sl_offset_pct: float = 0.0005  # 登月止损偏移
 
     # 监控间隔参数
-    stage0_interval: float = 1.0  # 阶段0监控间隔
-    stage1_interval: float = 2.0  # 阶段1监控间隔
+    stage0_interval: float = 2.0  # 阶段0监控间隔
+    stage1_interval: float = 4.0  # 阶段1监控间隔
     stage2_interval: float = 2.0  # 阶段2监控间隔
     stage3_interval: float = 5.0  # 阶段3监控间隔
 

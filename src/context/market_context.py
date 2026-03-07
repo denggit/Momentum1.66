@@ -9,9 +9,10 @@
 2. 线程安全：所有访问通过锁保护
 3. 最小化共享：只共享必要的情报，不共享业务逻辑状态
 """
+import asyncio
 import threading
 import copy
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -105,6 +106,13 @@ class MarketContext:
         self._lock = threading.RLock()
         self._reset()
 
+        # 🛡️ 安全事件系统：仅用于低频状态变化
+        self._event_listeners = {
+            'of_wall_updated': [],      # 隐形墙变化（低频）
+            'of_squeeze_updated': [],   # 空头挤压（低频）
+            'position_updated': []      # 持仓变化（极低频）
+        }
+
     def _reset(self):
         """重置所有状态（内部使用）"""
         # 订单流情报
@@ -133,22 +141,100 @@ class MarketContext:
         self.is_in_position = False
         self.position_entry_ts = 0.0
 
+    # ==================== 事件系统 ====================
+
+    def add_event_listener(self, event_type: str, callback: Callable):
+        """
+        添加事件监听器（线程安全）
+        仅支持低频事件：'of_wall_updated', 'of_squeeze_updated', 'position_updated'
+        """
+        if event_type not in self._event_listeners:
+            raise ValueError(f"不支持的事件类型: {event_type}，仅限: {list(self._event_listeners.keys())}")
+
+        with self._lock:
+            if callback not in self._event_listeners[event_type]:
+                self._event_listeners[event_type].append(callback)
+                logger.debug(f"[MarketContext] 添加事件监听器: {event_type}")
+
+    def remove_event_listener(self, event_type: str, callback: Callable):
+        """移除事件监听器（线程安全）"""
+        if event_type not in self._event_listeners:
+            return
+
+        with self._lock:
+            if callback in self._event_listeners[event_type]:
+                self._event_listeners[event_type].remove(callback)
+                logger.debug(f"[MarketContext] 移除事件监听器: {event_type}")
+
+    def _trigger_event(self, event_type: str, data: Dict[str, Any] = None):
+        """
+        触发事件（必须在锁外调用！）
+        安全设计：不阻塞调用者，回调在事件循环中异步执行
+        """
+        # 🛡️ 线程安全地获取监听器快照
+        with self._lock:
+            if event_type not in self._event_listeners:
+                return
+
+            listeners = self._event_listeners[event_type].copy()  # 快照
+            if not listeners:
+                return
+
+        data = data or {}
+
+        # 🛡️ 绝对不阻塞：回调在事件循环中排队执行
+        for callback in listeners:
+            try:
+                # 异步回调
+                if asyncio.iscoroutinefunction(callback):
+                    asyncio.create_task(callback(data))
+                # 同步回调在线程池中执行，避免阻塞事件循环
+                else:
+                    loop = asyncio.get_event_loop()
+                    loop.run_in_executor(None, callback, data)
+            except Exception as e:
+                logger.error(f"[MarketContext] 事件回调执行失败 {event_type}: {e}")
+
     # ==================== 订单流情报 ====================
 
     def update_of_wall(self, price: float, timestamp: Optional[float] = None):
         """更新订单流隐形墙价格"""
+        # 保存旧值（锁外读取，因为后面会在锁内再次读取，但这里只是用于事件数据）
+        old_price = self.of_wall_price
+        new_timestamp = timestamp or self._current_timestamp()
+
         with self._lock:
             self.of_wall_price = price
-            self.of_wall_ts = timestamp or self._current_timestamp()
+            self.of_wall_ts = new_timestamp
             logger.debug(f"[MarketContext] 更新隐形墙价格: {price:.2f}")
+
+        # 🛡️ 锁外触发事件，绝对不阻塞主线程
+        if old_price != price:  # 仅在价格实际变化时触发
+            self._trigger_event('of_wall_updated', {
+                'old_price': old_price,
+                'new_price': price,
+                'timestamp': new_timestamp
+            })
 
     def update_of_squeeze(self, flag: bool, timestamp: Optional[float] = None):
         """更新订单流空头挤压标志"""
+        # 保存旧值
+        old_flag = self.of_squeeze_flag
+        new_timestamp = timestamp or self._current_timestamp()
+
         with self._lock:
             self.of_squeeze_flag = flag
-            self.of_squeeze_ts = timestamp or self._current_timestamp()
+            self.of_squeeze_ts = new_timestamp
             if flag:
                 logger.debug(f"[MarketContext] 设置空头挤压警报")
+
+        # 🛡️ 锁外触发事件，仅在状态变化时触发
+        if old_flag != flag:
+            self._trigger_event('of_squeeze_updated', {
+                'old_flag': old_flag,
+                'new_flag': flag,
+                'timestamp': new_timestamp
+            })
 
     def get_of_wall(self) -> float:
         """获取订单流隐形墙价格"""
@@ -204,6 +290,9 @@ class MarketContext:
 
     def update_position(self, position_info: Union[PositionInfo, Dict[str, Any]]):
         """更新持仓信息"""
+        # 保存旧状态用于比较
+        old_position = self.position_info
+
         with self._lock:
             if isinstance(position_info, dict):
                 # 从字典创建PositionInfo
@@ -247,13 +336,31 @@ class MarketContext:
 
             logger.debug(f"[MarketContext] 更新持仓: {self.position_info}")
 
+        # 🛡️ 锁外触发事件（极低频，仅在持仓状态变化时）
+        # 注意：即使频繁更新，事件回调也是异步的，不会阻塞主线程
+        self._trigger_event('position_updated', {
+            'old_position': old_position.to_dict() if old_position else None,
+            'new_position': self.position_info.to_dict() if self.position_info else None,
+            'is_in_position': self.is_in_position
+        })
+
     def clear_position(self):
         """清空持仓信息"""
+        # 保存旧状态
+        old_position = self.position_info
+
         with self._lock:
             self.position_info = None
             self.is_in_position = False
             self.position_entry_ts = 0
             logger.debug("[MarketContext] 清空持仓")
+
+        # 🛡️ 触发持仓更新事件
+        self._trigger_event('position_updated', {
+            'old_position': old_position.to_dict() if old_position else None,
+            'new_position': None,
+            'is_in_position': False
+        })
 
     def get_position(self) -> Optional[PositionInfo]:
         """获取持仓信息"""

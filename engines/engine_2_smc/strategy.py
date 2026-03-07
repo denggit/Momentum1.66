@@ -34,6 +34,6 @@ if __name__ == "__main__":
     for p in radar.active_pois:
         print(f"[{p['type']}] 顶部: {p['top']}, 底部: {p['bottom']}, 生成时间: {p['time']}")
 
-    test_price = 2050.0
+    test_price = 1980.2
     is_safe, msg = radar.is_in_poi(test_price)
     print(f"\n现价 {test_price} 能否抄底？ -> {is_safe} ({msg})")

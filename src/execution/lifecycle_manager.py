@@ -75,6 +75,89 @@ class LifecycleManager:
 
         logger.info(f"[LifecycleManager] 初始化完成，交易对: {self.trader.symbol}")
 
+        # 注册事件监听器（不阻塞，不增加锁时间）
+        self._setup_event_listeners()
+
+    def _setup_event_listeners(self):
+        """
+        设置MarketContext事件监听器
+        安全设计：事件回调在锁外异步执行，不阻塞主tick处理
+        """
+        # 监听隐形墙价格变化（低频事件）
+        self.context.add_event_listener('of_wall_updated', self._on_of_wall_updated)
+
+        # 监听空头挤压标志变化（低频事件）
+        self.context.add_event_listener('of_squeeze_updated', self._on_of_squeeze_updated)
+
+        # 监听持仓变化（极低频事件）
+        self.context.add_event_listener('position_updated', self._on_position_updated)
+
+        logger.debug("[LifecycleManager] 事件监听器注册完成")
+
+    def _remove_event_listeners(self):
+        """移除所有事件监听器"""
+        try:
+            self.context.remove_event_listener('of_wall_updated', self._on_of_wall_updated)
+            self.context.remove_event_listener('of_squeeze_updated', self._on_of_squeeze_updated)
+            self.context.remove_event_listener('position_updated', self._on_position_updated)
+            logger.debug("[LifecycleManager] 事件监听器已移除")
+        except Exception as e:
+            logger.error(f"[LifecycleManager] 移除事件监听器失败: {e}")
+
+    async def _on_of_wall_updated(self, event_data: Dict[str, Any]):
+        """
+        处理隐形墙价格变化事件
+        注意：此回调在事件循环中异步执行，不阻塞主线程
+        """
+        # 🛡️ 线程安全地获取状态
+        with self._lock:
+            if not self._is_running:
+                return
+            current_stage = self._current_stage
+
+        # 阶段1和阶段3需要立即响应隐形墙变化
+        if current_stage in [1, 3]:
+            logger.info(f"[LifecycleManager] 收到隐形墙更新事件: {event_data['new_price']:.2f}")
+
+            # 立即触发阶段逻辑处理（跳过轮询等待）
+            if current_stage == 1:
+                await self._stage1_breakeven_defense()
+            elif current_stage == 3:
+                await self._stage3_infinite_moon()
+
+    async def _on_of_squeeze_updated(self, event_data: Dict[str, Any]):
+        """
+        处理空头挤压标志变化事件
+        注意：此回调在事件循环中异步执行，不阻塞主线程
+        """
+        new_flag = event_data['new_flag']
+
+        # 🛡️ 线程安全地获取状态
+        with self._lock:
+            if not self._is_running:
+                return
+            current_stage = self._current_stage
+
+        # 只有阶段2关心空头挤压标志
+        if current_stage == 2 and new_flag:
+            logger.warning("[LifecycleManager] 收到空头挤压警报事件，立即进入无限登月模式！")
+
+            # 立即执行阶段2的空头挤压处理逻辑
+            with self._lock:
+                self._current_stage = 3
+
+            # 触发阶段3处理
+            await self._stage3_infinite_moon()
+
+    async def _on_position_updated(self, event_data: Dict[str, Any]):
+        """
+        处理持仓变化事件（主要用于状态同步）
+        注意：此回调在事件循环中异步执行，不阻塞主线程
+        """
+        # 可以用于同步状态或记录日志
+        # 目前仅记录调试信息
+        logger.debug(f"[LifecycleManager] 收到持仓更新事件: 持仓状态={event_data['is_in_position']}")
+
     async def start_lifecycle(self, execution_result: ExecutionResult):
         """
         启动订单生命周期管理
@@ -100,12 +183,18 @@ class LifecycleManager:
 
     async def stop_lifecycle(self):
         """停止生命周期管理"""
+        # 首先检查是否正在运行
         with self._lock:
             if not self._is_running:
                 return
 
             self._is_running = False
 
+        # 🛡️ 移除事件监听器（锁外执行，避免死锁）
+        self._remove_event_listeners()
+
+        # 停止监控任务
+        with self._lock:
             if self._monitor_task and not self._monitor_task.done():
                 self._monitor_task.cancel()
                 try:
@@ -113,7 +202,7 @@ class LifecycleManager:
                 except asyncio.CancelledError:
                     pass
 
-            logger.info("[LifecycleManager] 生命周期管理已停止")
+        logger.info("[LifecycleManager] 生命周期管理已停止")
 
     async def _lifecycle_monitor(self):
         """生命周期主监控循环"""
