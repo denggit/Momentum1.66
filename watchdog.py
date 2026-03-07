@@ -34,14 +34,34 @@ def slay_zombies():
 def main():
     # 🌟 启动看门狗的第一件事：清理门户！
     slay_zombies()
-    
-    # 接收终端传入的参数 (比如 live)
+
+    # 解析命令行参数
     mode = "collect"
-    if len(sys.argv) > 1:
-        mode = sys.argv[1]
+    symbol = "ETH-USDT-SWAP"
+
+    # 更健壮的参数解析，支持任意顺序的 --mode 和 --symbol
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--mode" and i + 1 < len(sys.argv):
+            mode = sys.argv[i + 1]
+            i += 2
+        elif arg == "--symbol" and i + 1 < len(sys.argv):
+            symbol = sys.argv[i + 1]
+            i += 2
+        elif arg.startswith("--"):
+            # 未知参数，跳过
+            i += 1
+            if i < len(sys.argv) and not sys.argv[i].startswith("--"):
+                i += 1  # 跳过参数值
+        elif arg in ["collect", "live"]:  # 向后兼容：直接参数模式
+            mode = arg
+            i += 1
+        else:
+            i += 1
 
     main_script = os.path.join(current_dir, "main.py")
-    cmd = [sys.executable, main_script, mode]
+    cmd = [sys.executable, main_script, "--mode", mode, "--symbol", symbol]
 
     restart_delay = 5
 

@@ -61,8 +61,8 @@ class CSVTracker:
             # 1. 破位止损 (跌破了触发时的坑底价)
             if current_price < sl_price:
                 self._write_to_csv(track, current_ts, "破位止损")
-            # 2. 时间到了 (60分钟自动归档)
-            elif current_ts - track['entry_time'] > 3600:
+            # 2. 时间到了 (30分钟自动归档)
+            elif current_ts - track['entry_time'] > 1800:
                 self._write_to_csv(track, current_ts, "时间到了(1h)")
             else:
                 remaining.append(track)

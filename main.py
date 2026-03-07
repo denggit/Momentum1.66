@@ -52,27 +52,47 @@ async def notify_crash(engine_name, exit_code):
 
 
 def main():
-    # 接收来自 watchdog 的参数 (默认 collect)
+    # 解析命令行参数
     mode = "collect"
-    if len(sys.argv) > 1 and sys.argv[1] in ['live', 'collect']:
-        mode = sys.argv[1]
+    symbol = "ETH-USDT-SWAP"
 
-    # 🌟 核心改动：只有在 live 模式下，总司令才会拉起“财务审计员”微服务！
+    # 参数解析，支持 --mode 和 --symbol（任意顺序）
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == "--mode" and i + 1 < len(sys.argv):
+            mode = sys.argv[i + 1]
+            i += 2
+        elif arg == "--symbol" and i + 1 < len(sys.argv):
+            symbol = sys.argv[i + 1]
+            i += 2
+        elif arg.startswith("--"):
+            # 未知参数，跳过
+            i += 1
+            if i < len(sys.argv) and not sys.argv[i].startswith("--"):
+                i += 1  # 跳过参数值
+        elif arg in ["collect", "live"]:  # 向后兼容：直接参数模式
+            mode = arg
+            i += 1
+        else:
+            i += 1
+
+    # 🌟 核心改动：只有在 live 模式下，总司令才会拉起"财务审计员"微服务！
     if mode == "live":
         ENGINES.append({
             "name": "Financial_Auditor",
             "script": os.path.join(current_dir, "src", "execution", "auditor.py")
         })
 
-    logger.warning(f"👑 [Main总司令] 上线！全军将进入【{mode.upper()}】模式！")
+    logger.warning(f"👑 [Main总司令] 上线！全军将进入【{mode.upper()}】模式，交易对: {symbol}")
 
     active_processes = {}
     restart_delay = 5
 
     # 1. 初始列队：为每个引擎分配独立的子进程
     for engine in ENGINES:
-        cmd = [sys.executable, engine["script"], "--mode", mode]
-        logger.info(f"🚀 [Main总司令] 正在点火: {engine['name']}")
+        cmd = [sys.executable, engine["script"], "--mode", mode, "--symbol", symbol]
+        logger.info(f"🚀 [Main总司令] 正在点火: {engine['name']} (交易对: {symbol})")
         p = subprocess.Popen(cmd)
         active_processes[engine['name']] = {"process": p, "cmd": cmd}
 
