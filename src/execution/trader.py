@@ -231,8 +231,6 @@ class OKXTrader:
 
         logger.warning("🏁 [三连发完毕] 交易已托管给交易所，等待止盈或止损触发！")
 
-        asyncio.create_task(self.fetch_balance())
-
         # 🌟 核心新增：如果仓位够分批，且拿到了双方 ID，立刻启动后台保本护卫 2.0！
         if sz >= 2 and tp1_ord_id and sl_algo_id:
             # 把所有需要的参数统统传给 2.0 护卫
@@ -418,30 +416,52 @@ class OKXTrader:
                 # 🔴 阶段四：登月舱 (无限拔高止损)
                 # -------------------------------------------------
                 elif phase == 3:
-                    # 获取现价和最近的 1m K线来判断“直线”还是“波段”
+                    # 🌟 Zijun 铁律：抛弃1m噪音，拉取最近的 15 根 5m K线！
                     kline_res = await self._request("GET",
-                                                    f"/api/v5/market/candles?instId={self.symbol}&bar=1m&limit=5")
+                                                    f"/api/v5/market/candles?instId={self.symbol}&bar=5m&limit=15")
                     if kline_res and kline_res.get('code') == '0':
-                        klines = kline_res['data']  # [0]是最新一根, [1]是上一根
-                        last_px = float(klines[0][4])  # close
+                        klines = kline_res['data']
+                        # OKX K线数据结构: [ts, open, high, low, close, vol...] (索引 0 是最新未走完的 K 线)
 
                         target_sl_moon = current_sl_px
 
-                        # 策略 A：直线拉升防守 (前一根 1m K 线的 Low)
-                        prev_candle_low = float(klines[1][3])
-                        target_sl_moon = max(target_sl_moon, prev_candle_low * 0.9995)
+                        # =========================================================
+                        # 策略 A：实体 >= 0.2% 强推力阳线 + 确认阳线 (过滤长上影骗炮)
+                        # =========================================================
+                        # 从索引 2 开始往后找 (因为我们需要 k1(实体K) 和 k2(确认K)，且都必须是已闭合的)
+                        for i in range(2, 10):
+                            k1_open, k1_low, k1_close = float(klines[i][1]), float(klines[i][3]), float(klines[i][4])
+                            k2_open, k2_close = float(klines[i - 1][1]), float(klines[i - 1][4])  # k2 是 k1 之后的一根K线
 
-                        # 策略 B：波段上涨防守 (最近 5 分钟的最低点，简单的 Swing Low)
-                        recent_low = min([float(k[3]) for k in klines[1:5]])
-                        target_sl_moon = max(target_sl_moon, recent_low * 0.9995)
+                            # 1. k1 必须是一根阳线，且实体高度 >= 0.2%
+                            k1_body_pct = (k1_close - k1_open) / k1_open
+                            if k1_body_pct >= 0.002:
+                                # 2. k2 必须也是阳线 (走完行情的确认线)
+                                if k2_close > k2_open:
+                                    sl_a = k1_low * 0.9995  # 挂在起爆 K 线的最底端
+                                    target_sl_moon = max(target_sl_moon, sl_a)
+                                    break  # 找到最近的一组就够了
 
-                        # 策略 C：横盘吸收的隐形筹码墙防守
+                        # =========================================================
+                        # 策略 B：标准的 5m Swing Low 波段低点防守
+                        # =========================================================
+                        # 寻找标准的 5 根 K 线分型 (中间最低，左右各两根较高)
+                        for i in range(3, 10):
+                            l0, l1, l2, l3, l4 = [float(klines[j][3]) for j in range(i - 2, i + 3)]
+                            if l2 < l0 and l2 < l1 and l2 < l3 and l2 < l4:
+                                sl_b = l2 * 0.9995
+                                target_sl_moon = max(target_sl_moon, sl_b)
+                                break  # 找到最近的一个有效前低
+
+                        # =========================================================
+                        # 策略 C：微观横盘吸收的隐形筹码墙防守
+                        # =========================================================
                         if self.of_wall_price > 0:
                             target_sl_moon = max(target_sl_moon, self.of_wall_price * 0.9995)
 
-                        # 如果这三种算出来的新止损，比当前止损高出了一段距离，立刻推上去！
+                        # 如果算出的终极天花板止损，比当前高出了 0.1%，立刻拔高！
                         if target_sl_moon > current_sl_px + min_move_dist:
-                            logger.warning(f"🚀 [无限登月] 利润狂飙！防线极速拔高至: {target_sl_moon}")
+                            logger.warning(f"🚀 [无限登月] 利润狂飙！最新防线极速拔高至: {target_sl_moon:.2f}")
                             await self._request("POST", "/api/v5/trade/cancel-algos",
                                                 [{"instId": self.symbol, "algoId": current_sl_algo_id}])
                             new_sl = {
@@ -455,6 +475,8 @@ class OKXTrader:
                                 current_sl_algo_id = res_new['data'][0]['algoId']
                                 current_sl_px = target_sl_moon
 
+                    # 无限登月状态下，每 5（3+2）秒探测一次 K 线形态就足够了 (降低 API 频率)
+                    await asyncio.sleep(3)
 
             except Exception as e:
                 logger.error(f"⚠️ [护卫2.0] 异常: {e}")
@@ -483,15 +505,13 @@ class OKXTrader:
         pos_res = await self._request("GET", f"/api/v5/account/positions?instId={self.symbol}")
         if pos_res and pos_res.get('code') == '0':
             positions = pos_res.get('data', [])
-            # 默认设为空仓
-            self.is_in_position = False
-            for p in positions:
-                pos_amt = abs(float(p.get('pos', 0)))
-                # 🌟 核心优化：只有持仓数量大于一个微小的阈值（比如 0.01 张）才认为是在持仓
-                # 对于以太坊，0.1张是1手，这里可以设为 0.05 或更小
-                if pos_amt > 0.05:
-                    self.is_in_position = True
-                    break
+            has_pos = any(abs(float(p.get('pos', 0))) > 0.05 for p in positions)
+
+            if has_pos:
+                self.is_in_position = True
+            else:
+                # 只有当我们本身没有强制持仓时，才设为 False
+                self.is_in_position = False
 
         # 查询当前余额
         balance_res = await self._request("GET", "/api/v5/account/balance")

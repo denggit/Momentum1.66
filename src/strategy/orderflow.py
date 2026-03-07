@@ -1,6 +1,11 @@
 import time
+import logging
 from collections import deque
 
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
 
 class OrderFlowMath:
     def __init__(self):
@@ -39,6 +44,9 @@ class OrderFlowMath:
         self.avg_wave_effort_m = 5.0  # 近期平均波段砸盘资金 (单位: 百万 USDT)
         self.avg_resistance_bps = 0.5  # 近期平均推进阻力 (单位: 百万 USDT / bps)
 
+        # 用于记录区间最低价
+        self.interval_min_price = float('inf')
+
     def process_tick(self, tick: dict):
         """每秒可能接收几十上百个tick，全速 O(1) 运算"""
         self.current_price = tick['price']
@@ -56,14 +64,19 @@ class OrderFlowMath:
         else:
             self.cvd -= size
 
+        # 🌟 必须加上这行：每次 Tick 进来都更新区间最低价！
+        self.interval_min_price = min(self.interval_min_price, self.current_price)
+
         # 2. 维护历史锚点 (仅为了获取"3分钟前"的CVD基准，极低频操作)
         if current_ts - self.last_snapshot_time >= 10:
             self.snapshots.append({
                 'ts': current_ts,
                 'cvd': self.cvd,
-                'price': self.current_price  # 🌟 新增：记录当时的现价，用于计算真实跌幅
+                'price': self.current_price,  # 🌟 新增：记录当时的现价，用于计算真实跌幅
+                'min_price': self.interval_min_price
             })
             self.last_snapshot_time = current_ts
+            self.interval_min_price = self.current_price
 
         # 刚开机，数据不够 3 分钟 (18个快照)，保持沉默防飞刀
         if len(self.snapshots) < 18:
@@ -219,55 +232,36 @@ class OrderFlowMath:
         self.round_max_resistance = 0.0
 
     def detect_absorption_wall(self, tick: dict) -> float:
-        """
-        🧱 隐形墙探测 (Absorption Wall)
-        微观逻辑：空头在短时间内疯狂砸盘，但价格跌不下去，说明下方藏着极其巨大的限价买单(冰山单)！
-        返回：隐形墙的价格（如果没有则返回 0.0）
-        """
-        # 至少需要 2 个快照（大约 10~20 秒前的数据）
-        if len(self.snapshots) < 2:
-            return 0.0
+        """🧱 隐形墙探测 (Absorption Wall) - 合约高流动性专用版"""
+        if len(self.snapshots) < 2: return 0.0
 
         snapshot = self.snapshots[-2]
-        CONTRACT_SIZE = 0.1  # ETH 每张合约 0.1 个币
+        CONTRACT_SIZE = 0.1
 
-        # 计算过去 10~20 秒内的纯砸盘资金 (负数)
+        lowest_since_snap = min(snapshot['min_price'], self.snapshots[-1]['min_price'], self.interval_min_price)
         recent_cvd_delta = (self.cvd - snapshot['cvd']) * CONTRACT_SIZE * self.current_price
-        # 计算这段时间内的价格变化
-        price_change_pct = (self.current_price - snapshot['price']) / snapshot['price'] * 100
+        max_drop_pct = (lowest_since_snap - snapshot['price']) / snapshot['price'] * 100
 
-        # 🌟 判定条件：遭遇核武级砸盘，但价格纹丝不动
-        # 如果短时间内砸盘超过 50 万美金
-        if recent_cvd_delta < -500_000:
-            # 但价格跌幅竟然连 0.02% 都没有（甚至微涨）
-            if price_change_pct >= -0.02:
-                # 说明主力在这里架了一堵看不见的墙，硬吃了所有抛压！
-                # 我们返回现价作为墙的位置，保镖会把止损躲在这堵墙下面
-                return self.current_price
-
+        # 🌟 门槛暴增：20秒内必须爆砸超过 800 万美金！
+        if recent_cvd_delta < -8_000_000:
+            # 价格竟然被死死按住，最大下潜不到 0.02% (约 0.6 刀)！
+            if max_drop_pct >= -0.02:
+                logger.warning(
+                    f"🧱 [隐形墙] 逆天护盘！硬扛 ${abs(recent_cvd_delta) / 10000:.0f}万 连环砸盘，下潜仅 {max_drop_pct:.3f}%！")
+                return lowest_since_snap
         return 0.0
 
     def detect_short_squeeze(self, tick: dict) -> bool:
-        """
-        🔥 动能破冰探测 (Short Squeeze / Breakout)
-        微观逻辑：短时间内爆出天量市价买单，上方挂单被瞬间清空，引发空头踩踏平仓！
-        返回：True (发生踩踏) / False (未发生)
-        """
-        if len(self.snapshots) < 1:
-            return False
+        """🔥 动能破冰探测 (Short Squeeze) - 合约专用版"""
+        if len(self.snapshots) < 1: return False
 
-        # 取最近的一次快照（代表 0~10 秒前的状态，反应极其敏锐）
         snapshot = self.snapshots[-1]
         CONTRACT_SIZE = 0.1
 
-        # 计算极短时间内的突发资金流向
         recent_cvd_delta = (self.cvd - snapshot['cvd']) * CONTRACT_SIZE * self.current_price
         price_change_pct = (self.current_price - snapshot['price']) / snapshot['price'] * 100
 
-        # 🌟 判定条件：多头暴力点火 + 盘口瞬间破冰
-        # 如果短短几秒内涌入超过 80 万美金的纯买盘
-        # 并且价格瞬间被拔高超过 0.08%（说明上方阻力极弱，发生连环爆仓）
-        if recent_cvd_delta > 800_000 and price_change_pct > 0.08:
+        # 🌟 门槛暴增：10秒内多头狂买超过 500 万美金，且瞬间撕裂盘口拉升 > 0.08%！
+        if recent_cvd_delta > 5_000_000 and price_change_pct > 0.08:
             return True
-
         return False
