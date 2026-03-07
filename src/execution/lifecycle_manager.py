@@ -254,8 +254,14 @@ class LifecycleManager:
             if order_status == 'filled':
                 logger.warning(f"[LifecycleManager] TP1已成交，进入阶段1")
 
+                # 获取入场价和当前保本参数
+                entry_price = self._execution_result.entry_price
+                breakeven_pct = self.breakeven_pct
+                logger.info(f"[LifecycleManager] 入场价: {entry_price:.4f}, 保本比例: {breakeven_pct:.4f} ({breakeven_pct*100:.2f}%)")
+
                 # 计算保本价
                 breakeven_price = self._calculate_breakeven_price()
+                logger.info(f"[LifecycleManager] 计算保本价: {entry_price:.4f} * (1 + {breakeven_pct:.4f}) = {breakeven_price:.4f}")
 
                 # 移动止损到保本价
                 success = await self._move_stop_loss(
@@ -271,7 +277,9 @@ class LifecycleManager:
                     # 更新MarketContext中的持仓阶段
                     self._update_context_stage(1)
 
-                    logger.info(f"[LifecycleManager] 止损已移至保本价: {breakeven_price:.2f}")
+                    logger.info(f"[LifecycleManager] 止损已移至保本价: {breakeven_price:.4f}")
+                else:
+                    logger.error("[LifecycleManager] 移动止损到保本价失败，保持阶段0")
 
             elif order_status in ['canceled', 'mismatch']:
                 logger.info("[LifecycleManager] TP1订单被取消或失效，停止生命周期管理")
@@ -456,19 +464,27 @@ class LifecycleManager:
             bool: 是否成功
         """
         try:
+            logger.info(f"[LifecycleManager] 准备移动止损线到: {trigger_price:.4f}, 当前止损单ID: {self._current_sl_algo_id}")
+
             # 取消旧止损单
             if self._current_sl_algo_id:
-                await self.trader.cancel_algo_order(self._current_sl_algo_id)
+                logger.info(f"[LifecycleManager] 正在取消旧止损单: {self._current_sl_algo_id}")
+                success = await self.trader.cancel_algo_order(self._current_sl_algo_id)
+                if not success:
+                    logger.warning(f"[LifecycleManager] 取消旧止损单失败，但继续创建新止损单")
 
             # 创建新止损单
+            logger.info(f"[LifecycleManager] 创建新止损单，触发价: {trigger_price:.4f}, 数量: {size}")
             algo_id = await self.trader.create_stop_loss_order(size, trigger_price)
 
             if algo_id:
                 with self._lock:
                     self._current_sl_algo_id = algo_id
+                    self._current_sl_price = trigger_price
+                logger.info(f"[LifecycleManager] 止损线移动成功! 新止损单ID: {algo_id}, 价格: {trigger_price:.4f}")
                 return True
             else:
-                logger.error("[LifecycleManager] 创建止损单失败")
+                logger.error("[LifecycleManager] 创建止损单失败，返回空ID")
                 return False
 
         except Exception as e:
@@ -481,7 +497,13 @@ class LifecycleManager:
             return 0.0
 
         entry_price = self._execution_result.entry_price
-        return round(entry_price * (1 + self.breakeven_pct), 2)
+        breakeven_price = round(entry_price * (1 + self.breakeven_pct), 2)
+
+        # 调试日志
+        logger.debug(f"[LifecycleManager] 保本价计算: entry={entry_price:.4f}, pct={self.breakeven_pct:.6f}, result={breakeven_price:.4f}")
+        logger.debug(f"[LifecycleManager] 保本价相对入场价涨幅: {(breakeven_price/entry_price-1)*100:.4f}%")
+
+        return breakeven_price
 
     def _calculate_moonbag_warning_price(self) -> float:
         """计算吹哨预警价格（距离TP2一定比例的位置）"""

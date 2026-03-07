@@ -250,9 +250,23 @@ class OrderFlowOrchestrator:
             signal_data['price']
         )
 
-        # 如果SMC没有找到阻力位，使用配置的默认比例
-        if not tp2_target:
-            tp2_target = signal_data['price'] * (1 + self.config.tp2_pct)
+        entry_price = signal_data['price']
+
+        if tp2_target:
+            # 计算阻力位涨幅
+            resistance_pct = (tp2_target - entry_price) / entry_price
+            logger.info(f"🎯 [TP2决策] SMC找到阻力位: {tp2_target:.2f} (涨幅: {resistance_pct*100:.2f}%)")
+
+            # 风控检查：阻力位是否太近
+            min_tp2_price = entry_price * (1 + self.config.tp1_pct * 2)  # 0.8%
+            if tp2_target < min_tp2_price:
+                logger.warning(f"🛡️ [TP2决策] 阻力位太近({tp2_target:.2f} < {min_tp2_price:.2f})，使用配置比例")
+                tp2_target = entry_price * (1 + self.config.tp2_pct)
+        else:
+            logger.warning("🎯 [TP2决策] SMC未找到阻力位，使用配置比例")
+            tp2_target = entry_price * (1 + self.config.tp2_pct)
+
+        logger.info(f"🎯 [TP2最终] 入场价: {entry_price:.2f}, TP2目标: {tp2_target:.2f} (涨幅: {(tp2_target/entry_price-1)*100:.2f}%)")
 
         # 执行交易并获取结果
         execution_result = await self.executor.execute_snipe(

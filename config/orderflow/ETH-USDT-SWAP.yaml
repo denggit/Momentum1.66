@@ -55,7 +55,7 @@ orderflow:
 execution:
   tp1_pct: 0.004    # 第一止盈位0.4%
   tp2_pct: 0.012    # 第二止盈位1.2%
-  sl_pct: 0.0015    # 初始止损0.15%
+  sl_pct: 0.001    # 初始止损0.1%
 
   # 防阴跌拦截
   anti_slide_threshold: 4_000_000  # 第104行：防阴跌拦截阈值4百万美元

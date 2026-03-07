@@ -100,7 +100,7 @@ ORDERFLOW_DEFAULT_CONFIG = {
         "sl_pct": 0.0015,
         "anti_slide_threshold": 4_000_000,
         # 生命周期参数
-        "breakeven_pct": 0.0006,
+        "breakeven_pct": 0.0015,  # 保本价上浮0.15%（考虑手续费）
         "mech_step1_trigger_pct": 0.008,
         "mech_step1_sl_pct": 0.004,
         "wall_sl_offset_pct": 0.0005,
