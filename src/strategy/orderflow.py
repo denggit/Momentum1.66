@@ -41,8 +41,8 @@ class OrderFlowMath:
         # 🧠 动态流动性记忆 (Dynamic Liquidity Memory)
         # ==========================================
         # 初始给一个偏小的默认值，系统跑几分钟后会通过 EMA 自动修正为真实的盘口数据
-        self.avg_wave_effort_m = 5.0  # 近期平均波段砸盘资金 (单位: 百万 USDT)
-        self.avg_resistance_bps = 0.5  # 近期平均推进阻力 (单位: 百万 USDT / bps)
+        self.avg_wave_effort_m = 10.0  # 近期平均波段砸盘资金 (单位: 百万 USDT)
+        self.avg_resistance_bps = 1.5  # 近期平均推进阻力 (单位: 百万 USDT / bps)
 
         # 用于记录区间最低价
         self.interval_min_price = float('inf')
@@ -91,13 +91,15 @@ class OrderFlowMath:
         recent_cvd_delta_usdt = (self.cvd - snapshot_3m_ago['cvd']) * CONTRACT_SIZE * self.current_price
 
         # 阶段 1：触发上膛 (ARMED)
-        # 只要 3 分钟内被砸了 100 万刀，系统立刻进入备战状态，死死盯住盘口
+        # 只要 3 分钟内被砸了 500 万刀，系统立刻进入备战状态，死死盯住盘口
         if self.state == "IDLE":
-            if recent_cvd_delta_usdt < -1_000_000 and (current_ts - self.last_fire_time > 300):
+            if recent_cvd_delta_usdt < -5_000_000 and (current_ts - self.last_fire_time > 300):
                 self.state = "ARMED"
                 self.armed_time = current_ts
                 self.local_low = self.current_price
                 self.local_low_cvd = self.cvd
+                # 每次新波段上膛时，才给予一次向科考船汇报 BROAD 的权利！
+                self.broad_fired_this_round = False
                 return None
 
         # 阶段 2：让子弹飞 (Tracking Bottom) & 击发 (FIRE)
@@ -119,7 +121,6 @@ class OrderFlowMath:
                 self.local_low = self.current_price
                 self.local_low_cvd = self.cvd
                 self.armed_time = current_ts
-                self.broad_fired_this_round = False
                 self.ema_updated_this_round = False  # 🌟 解锁！因为砸盘量变大了，等下需要重新记录
 
             # 🌟 提前计算出反弹幅度，供动作 B 和 动作 C 共同判定
@@ -172,14 +173,12 @@ class OrderFlowMath:
                     rebound_ratio = 0.0
 
                 # (哪怕反弹来得晚，只要这波曾经有过 > 1.2 倍的狂砸，现在反包了，照样开火！)
-                # 🌟 进化版 V 反判定：
-                # 1. 绝对反击门槛提高到 50 万刀 (过滤散户噪音)
-                # 2. 反击量必须达到刚刚砸盘量的 12% 以上！
+                # 🌟 进化版 V 反判定 (基于数据校准)：
                 cond_v_reversal = (
                         effort_anomaly > 1.2 and
                         micro_cvd_usdt > 500_000 and
-                        rebound_ratio > 0.15 and
-                        0.12 < bounce_pct <= 0.25
+                        rebound_ratio > 0.08 and
+                        0.05 < bounce_pct <= 0.25
                 )
 
                 # 🎯 击发判定 (后续逻辑不变...)
@@ -205,8 +204,8 @@ class OrderFlowMath:
                         "ts": current_ts
                     }
 
-                # 🧪 宽口径击发：反弹 0.02% 时，向科考船汇报，但枪口继续死死瞄准！
-                elif micro_cvd_usdt > 30_000 and 0.02 < bounce_pct <= 0.30 and not self.broad_fired_this_round:
+                # 🧪 宽口径击发：反弹 0.03% 时，向科考船汇报，但枪口继续死死瞄准！
+                elif micro_cvd_usdt > 150_000 and 0.03 < bounce_pct <= 0.30 and not self.broad_fired_this_round:
                     self.broad_fired_this_round = True
                     return {
                         "level": "BROAD",
