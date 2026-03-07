@@ -26,7 +26,7 @@ from src.execution.trader import OKXTrader
 from src.execution.orderflow_executor import OrderFlowExecutor
 from src.execution.lifecycle_manager import LifecycleManager
 from engines.engine_3_orderflow.tracker import CSVTracker
-from engines.engine_2_smc.strategy import MicroSMCRadar
+from src.strategy.smc_validator import SMCValidator
 from src.context.market_context import MarketContext
 from config.loader import load_orderflow_config
 
@@ -56,8 +56,8 @@ class Engine3Commander:
 
         self.tracker = CSVTracker(project_root)
 
-        # 🌟 雇佣二号引擎雷达兵！
-        self.smc_radar = MicroSMCRadar(symbol=symbol)
+        # 🌟 集成 SMC 验证模块
+        self.smc_validator = SMCValidator(symbol=symbol, timeframes=self.config.smc_timeframes)
 
         # 🌟 实例化你的实盘枪手（纯API层）
         self.trader = OKXTrader(
@@ -126,7 +126,7 @@ class Engine3Commander:
 
     # 🌟 新增的异步验证与狙击函数
     async def _async_evaluate_and_snipe(self, signal_data):
-        is_safe, smc_msg = await asyncio.to_thread(self.smc_radar.final_check, signal_data['local_low'])
+        is_safe, smc_msg = await asyncio.to_thread(self.smc_validator.final_check, signal_data['local_low'])
         signal_data['smc_msg'] = smc_msg
 
         is_perfect_terrain = "完美共振" in smc_msg
@@ -152,7 +152,7 @@ class Engine3Commander:
             if self.mode == "live":
                 logger.warning("🔫 [实盘模式] 正在向 OKX 发送真实买入指令！")
 
-                tp2_target = await asyncio.to_thread(self.smc_radar.get_nearest_resistance, signal_data['price'])
+                tp2_target = await asyncio.to_thread(self.smc_validator.get_nearest_resistance, signal_data['price'])
                 if not tp2_target:
                     # 从配置获取tp2_pct
                     tp2_target = signal_data['price'] * (1 + self.config.tp2_pct)
@@ -198,8 +198,8 @@ class Engine3Commander:
     async def run(self):
         logger.info("🚀 启动 Engine 3 订单流总指挥部...")
 
-        # 🌟 1. 启动 SMC 雷达后台静默扫描 (严格对齐 00 秒)
-        asyncio.create_task(self.smc_radar.background_update_loop())
+        # 🌟 1. 启动 SMC 验证器后台静默扫描 (严格对齐 00 秒)
+        asyncio.create_task(self.smc_validator.background_update_loop())
 
         # 🌟 2. 如果是实盘模式，启动后台闲时查账功能
         if self.mode == "live":
