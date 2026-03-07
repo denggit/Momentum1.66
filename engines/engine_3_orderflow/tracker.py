@@ -17,9 +17,10 @@ logger = get_logger(__name__)
 
 
 class CSVTracker:
-    def __init__(self, project_root):
+    def __init__(self, project_root, context=None):
         self.active_trackings = []
         self.csv_file = os.path.join(project_root, "data", "bounce_records.csv")
+        self.context = context  # MarketContext实例，用于获取实时价格和时间戳
 
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
         # 🌟 重新设计表头：引入异常度诊断维度
@@ -50,8 +51,20 @@ class CSVTracker:
         })
         logger.info(f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}，砸盘：{round(signal.get('cvd_delta_usdt', 0)/1000000, 2)}百万，反转：{round(signal.get('micro_cvd', 0)/1000000, 2)}百万")
 
-    def update_trackings(self, current_price, current_ts):
-        """更新所有追踪单的最大反弹值，并检查止损"""
+    def update_trackings(self):
+        """更新所有追踪单的最大反弹值，并检查止损（从MarketContext获取实时数据）"""
+        if not self.context:
+            logger.warning("⚠️ [科考船] 未提供MarketContext，无法更新追踪")
+            return
+
+        # 从MarketContext获取当前价格和时间戳
+        current_price = self.context.get_current_price()
+        current_ts = self.context.get_last_tick_ts()
+
+        if current_price <= 0 or current_ts <= 0:
+            logger.warning(f"⚠️ [科考船] 从MarketContext获取的数据无效: price={current_price}, ts={current_ts}")
+            return
+
         remaining = []
         for track in self.active_trackings:
             track['max_price'] = max(track['max_price'], current_price)

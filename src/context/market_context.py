@@ -326,6 +326,11 @@ class MarketContext:
         with self._lock:
             return self.tick_info.get('price', 0.0) if self.tick_info else 0.0
 
+    def get_last_tick_ts(self) -> float:
+        """获取最新Tick的时间戳"""
+        with self._lock:
+            return self.last_tick_ts
+
     def get_tick_age(self) -> float:
         """获取Tick数据的年龄（秒）"""
         with self._lock:

@@ -8,13 +8,8 @@
               实际实现已移至 src.strategy.smc_validator
               此文件仅作为包装器保持向后兼容
 """
-import asyncio
-import datetime
 import os
 import sys
-
-import numpy as np
-import pandas as pd
 
 # 确保能导入 src 目录下的模块
 current_file = os.path.abspath(__file__)

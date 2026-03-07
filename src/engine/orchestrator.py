@@ -88,7 +88,7 @@ class OrderFlowOrchestrator:
         )
 
         # 3. 科考船追踪器 (信号记录)
-        self.tracker = CSVTracker(project_root)
+        self.tracker = CSVTracker(project_root, context=self.context)
 
         # 4. 实盘交易器 (纯API层)
         self.trader = OKXTrader(
@@ -144,7 +144,7 @@ class OrderFlowOrchestrator:
             await self._process_signal(signal_data, tick)
 
         # 4. 科考船更新 (最高价和止损追踪)
-        self.tracker.update_trackings(tick['price'], tick['ts'])
+        self.tracker.update_trackings()
 
     def _scan_intelligence(self, tick: Dict[str, Any]):
         """扫描订单流情报：隐形墙和空头挤压"""
