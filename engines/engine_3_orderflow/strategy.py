@@ -23,6 +23,7 @@ from src.strategy.orderflow import OrderFlowMath
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
 from src.execution.trader import OKXTrader
+from src.execution.orderflow_executor import OrderFlowExecutor
 from src.execution.lifecycle_manager import LifecycleManager
 from engines.engine_3_orderflow.tracker import CSVTracker
 from engines.engine_2_smc.strategy import MicroSMCRadar
@@ -58,8 +59,7 @@ class Engine3Commander:
         # 🌟 雇佣二号引擎雷达兵！
         self.smc_radar = MicroSMCRadar(symbol=symbol)
 
-        # 🌟 实例化你的实盘枪手（从配置获取参数）
-        # config是OrderFlowConfig对象，直接访问属性
+        # 🌟 实例化你的实盘枪手（纯API层）
         self.trader = OKXTrader(
             symbol=symbol,
             leverage=self.config.leverage,
@@ -67,6 +67,9 @@ class Engine3Commander:
             sl_pct=self.config.sl_pct,
             context=self.context  # 传递MarketContext
         )
+
+        # 🌟 创建OrderFlow执行策略器（封装三连发逻辑）
+        self.executor = OrderFlowExecutor(trader=self.trader, config=self.config)
 
         # 🌟 创建生命周期管理器
         self.lifecycle_manager = LifecycleManager(
@@ -154,8 +157,8 @@ class Engine3Commander:
                     # 从配置获取tp2_pct
                     tp2_target = signal_data['price'] * (1 + self.config.tp2_pct)
 
-                # 执行交易并获取结果
-                execution_result = await self.trader.execute_snipe(
+                # 执行交易并获取结果（通过OrderFlow执行策略器）
+                execution_result = await self.executor.execute_snipe(
                     price=signal_data['price'],
                     local_low=signal_data['local_low'],
                     tp2_price=tp2_target
