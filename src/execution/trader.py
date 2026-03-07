@@ -241,7 +241,12 @@ class OKXTrader:
                 # 只有当我们本身没有强制持仓时，才设为 False
                 self.is_in_position = False
                 if self.context:
-                    self.context.is_in_position = False
+                    # 🆕 检测到仓位消失，清除持仓信息并触发事件
+                    if self.context.is_in_position:
+                        logger.warning(f"💰 [财务官] 检测到仓位已消失（可能被手动平仓），清除持仓状态")
+                        self.context.clear_position()  # 这会触发position_updated事件
+                    else:
+                        self.context.is_in_position = False
 
         # 查询当前余额
         balance_res = await self._request("GET", "/api/v5/account/balance")

@@ -154,9 +154,23 @@ class LifecycleManager:
         处理持仓变化事件（主要用于状态同步）
         注意：此回调在事件循环中异步执行，不阻塞主线程
         """
-        # 可以用于同步状态或记录日志
-        # 目前仅记录调试信息
-        logger.debug(f"[LifecycleManager] 收到持仓更新事件: 持仓状态={event_data['is_in_position']}")
+        new_position = event_data.get('new_position')
+        is_in_position = event_data.get('is_in_position', False)
+
+        logger.debug(f"[LifecycleManager] 收到持仓更新事件: 持仓状态={is_in_position}, 新持仓信息={new_position is not None}")
+
+        # 🆕 检测到仓位消失（手动平仓或止损止盈触发）
+        if not is_in_position and self._is_running:
+            logger.warning(f"[LifecycleManager] 检测到仓位已消失，停止生命周期管理")
+
+            # 尝试取消所有未完成的订单（尽力而为）
+            try:
+                await self._cancel_all_pending_orders()
+            except Exception as e:
+                logger.error(f"[LifecycleManager] 取消未完成订单失败: {e}")
+
+            # 停止生命周期管理
+            await self.stop_lifecycle()
 
     async def start_lifecycle(self, execution_result: ExecutionResult):
         """
@@ -564,6 +578,61 @@ class LifecycleManager:
         """获取当前阶段"""
         with self._lock:
             return self._current_stage
+
+    async def _cancel_all_pending_orders(self):
+        """
+        取消所有未完成的订单（TP1、TP2、止损单）
+        用于仓位消失时的清理工作
+        """
+        try:
+            with self._lock:
+                # 保存引用，避免竞争条件
+                tp1_order_id = self._execution_result.tp1_order_id if self._execution_result else None
+                tp2_order_id = self._execution_result.tp2_order_id if self._execution_result else None
+                sl_algo_id = self._current_sl_algo_id
+
+            cancelled_count = 0
+
+            # 取消TP1订单（如果存在且未成交）
+            if tp1_order_id:
+                try:
+                    success = await self.trader.cancel_order(tp1_order_id)
+                    if success:
+                        logger.info(f"[LifecycleManager] 已取消TP1订单: {tp1_order_id}")
+                        cancelled_count += 1
+                    else:
+                        logger.warning(f"[LifecycleManager] TP1订单取消失败或已成交: {tp1_order_id}")
+                except Exception as e:
+                    logger.error(f"[LifecycleManager] 取消TP1订单异常: {e}")
+
+            # 取消TP2订单（如果存在且未成交）
+            if tp2_order_id:
+                try:
+                    success = await self.trader.cancel_order(tp2_order_id)
+                    if success:
+                        logger.info(f"[LifecycleManager] 已取消TP2订单: {tp2_order_id}")
+                        cancelled_count += 1
+                    else:
+                        logger.warning(f"[LifecycleManager] TP2订单取消失败或已成交: {tp2_order_id}")
+                except Exception as e:
+                    logger.error(f"[LifecycleManager] 取消TP2订单异常: {e}")
+
+            # 取消止损算法订单（如果存在）
+            if sl_algo_id:
+                try:
+                    success = await self.trader.cancel_algo_order(sl_algo_id)
+                    if success:
+                        logger.info(f"[LifecycleManager] 已取消止损算法订单: {sl_algo_id}")
+                        cancelled_count += 1
+                    else:
+                        logger.warning(f"[LifecycleManager] 止损算法订单取消失败或已触发: {sl_algo_id}")
+                except Exception as e:
+                    logger.error(f"[LifecycleManager] 取消止损算法订单异常: {e}")
+
+            logger.info(f"[LifecycleManager] 清理完成，共取消 {cancelled_count} 个未完成订单")
+
+        except Exception as e:
+            logger.error(f"[LifecycleManager] 取消订单过程中发生异常: {e}")
 
     def is_running(self) -> bool:
         """检查是否正在运行"""
