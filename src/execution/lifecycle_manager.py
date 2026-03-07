@@ -70,6 +70,11 @@ class LifecycleManager:
         self._current_sl_price = 0.0
         self._execution_result: Optional[ExecutionResult] = None
 
+        # 阶段3无限登月模式专用状态
+        self._moon_phase_highest_price: float = 0.0  # 阶段3期间的最高价
+        self._moon_phase_sl_base_pct: float = 0.0    # 阶段3止损基准百分比（相对于入场价）
+        self._moon_phase_initialized: bool = False   # 阶段3追踪是否已初始化
+
         # 线程安全
         self._lock = threading.RLock()
 
@@ -215,6 +220,12 @@ class LifecycleManager:
                     await self._monitor_task
                 except asyncio.CancelledError:
                     pass
+
+        # 重置阶段3无限登月状态
+        with self._lock:
+            self._moon_phase_highest_price = 0.0
+            self._moon_phase_sl_base_pct = 0.0
+            self._moon_phase_initialized = False
 
         logger.info("[LifecycleManager] 生命周期管理已停止")
 
@@ -402,12 +413,83 @@ class LifecycleManager:
             return
 
         try:
+            # 获取当前价格
+            current_price = self._get_current_price()
+            if current_price <= 0:
+                return
+
             # 获取5分钟K线数据
             klines = await self.trader.get_klines("5m", limit=15)
             if not klines:
                 return
 
-            target_sl = self._current_sl_price
+            # ==================== 阶段3无限登月动态追踪逻辑 ====================
+            # 1. 初始化阶段3追踪状态
+            if not self._moon_phase_initialized:
+                entry_price = self._execution_result.entry_price
+                # 计算当前止损相对于入场价的百分比
+                if self._current_sl_price > 0 and entry_price > 0:
+                    current_sl_pct = (self._current_sl_price / entry_price) - 1
+                else:
+                    # 默认从保本价开始（0.15%）
+                    current_sl_pct = self.breakeven_pct
+
+                with self._lock:
+                    self._moon_phase_highest_price = current_price
+                    self._moon_phase_sl_base_pct = max(current_sl_pct, 0.0)  # 确保非负
+                    self._moon_phase_initialized = True
+
+                logger.info(
+                    f"[LifecycleManager] 阶段3动态追踪初始化 | "
+                    f"当前价: {current_price:.2f} | "
+                    f"入场价: {entry_price:.2f} | "
+                    f"初始止损基准: {self._moon_phase_sl_base_pct*100:.3f}%"
+                )
+
+            # 2. 更新阶段3最高价
+            with self._lock:
+                if current_price > self._moon_phase_highest_price:
+                    self._moon_phase_highest_price = current_price
+                    logger.debug(f"[LifecycleManager] 阶段3最高价刷新: {current_price:.2f}")
+
+            # 3. 动态追踪止损：最高价每抬升0.4%，止损上移0.4%
+            entry_price = self._execution_result.entry_price
+            highest_pct = (self._moon_phase_highest_price / entry_price) - 1
+
+            # 计算基于涨幅的动态止损价（初始为当前止损价）
+            dynamic_sl = self._current_sl_price
+            move_count = 0
+
+            # 🚀 循环处理：最高价每抬升0.4%，止损基准就上移0.4%
+            # 这样可以处理一次大幅上涨触发多次上移的情况
+            while highest_pct >= self._moon_phase_sl_base_pct + 0.004:
+                # 计算新的止损基准百分比
+                new_sl_base_pct = self._moon_phase_sl_base_pct + 0.004
+
+                # 计算基于涨幅的止损价
+                price_based_sl = entry_price * (1 + new_sl_base_pct)
+                dynamic_sl = max(dynamic_sl, price_based_sl)
+
+                # 更新止损基准
+                with self._lock:
+                    old_base_pct = self._moon_phase_sl_base_pct
+                    self._moon_phase_sl_base_pct = new_sl_base_pct
+
+                move_count += 1
+                logger.warning(
+                    f"[LifecycleManager] 🚀 动态追踪触发 (第{move_count}次) | "
+                    f"最高价涨幅: {highest_pct*100:.3f}% | "
+                    f"止损基准 {old_base_pct*100:.3f}% → {new_sl_base_pct*100:.3f}% | "
+                    f"动态止损价: {price_based_sl:.2f}"
+                )
+
+                # 继续检查是否还需要上移
+                # 注意：highest_pct 不变，但 sl_base_pct 已更新，继续循环检查
+
+            if move_count > 0:
+                logger.info(f"[LifecycleManager] 本轮动态追踪共触发 {move_count} 次止损上移")
+
+            target_sl = max(dynamic_sl, self._current_sl_price)
 
             # 策略A：强推力阳线 + 确认阳线
             for i in range(2, 10):
