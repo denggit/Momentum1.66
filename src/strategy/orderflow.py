@@ -1,5 +1,7 @@
 import time
 import logging
+import json
+import os
 from collections import deque
 
 from src.utils.log import get_logger
@@ -38,14 +40,16 @@ class OrderFlowMath:
         self.round_max_resistance = 0.0
 
         # ==========================================
-        # 🧠 动态流动性记忆 (Dynamic Liquidity Memory)
+        # 🧠 动态流动性记忆 (带本地持久化存档)
         # ==========================================
-        # 初始给一个偏小的默认值，系统跑几分钟后会通过 EMA 自动修正为真实的盘口数据
-        self.avg_wave_effort_m = 10.0  # 近期平均波段砸盘资金 (单位: 百万 USDT)
-        self.avg_resistance_bps = 1.5  # 近期平均推进阻力 (单位: 百万 USDT / bps)
+        # 设定记忆文件的保存路径
+        self.memory_file = "ema_memory.json"
+        self._load_ema_memory()
 
         # 用于记录区间最低价
         self.interval_min_price = float('inf')
+
+
 
     def process_tick(self, tick: dict):
         """每秒可能接收几十上百个tick，全速 O(1) 运算"""
@@ -222,13 +226,41 @@ class OrderFlowMath:
         return None
 
     def _commit_ema_memory(self):
-        """波段结束时，统一把这波的最大数据结算进大脑"""
+        """波段结束时，统一把这波的最大数据结算进大脑，并存档"""
         if self.round_max_effort_m > 2.0:
             self.avg_wave_effort_m = (self.avg_wave_effort_m * 0.9) + (self.round_max_effort_m * 0.1)
             self.avg_resistance_bps = (self.avg_resistance_bps * 0.9) + (self.round_max_resistance * 0.1)
+
+            # 🌟 每次更新完，立刻写入本地 JSON 文件
+            try:
+                with open(self.memory_file, 'w') as f:
+                    json.dump({
+                        "avg_wave_effort_m": self.avg_wave_effort_m,
+                        "avg_resistance_bps": self.avg_resistance_bps
+                    }, f)
+            except Exception as e:
+                logger.error(f"⚠️ [记忆存档] 保存失败: {e}")
+
         # 结算完清零，准备迎接下一次暴跌
         self.round_max_effort_m = 0.0
         self.round_max_resistance = 0.0
+
+    def _load_ema_memory(self):
+        """开机时读取上一次的盘感记忆"""
+        if os.path.exists(self.memory_file):
+            try:
+                with open(self.memory_file, 'r') as f:
+                    data = json.load(f)
+                    self.avg_wave_effort_m = data.get("avg_wave_effort_m", 10.0)
+                    self.avg_resistance_bps = data.get("avg_resistance_bps", 1.5)
+                    logger.warning(f"🧠 [记忆读取] 成功恢复盘感！当前大盘砸盘均值: {self.avg_wave_effort_m:.2f}M")
+                    return
+            except Exception as e:
+                logger.error(f"⚠️ [记忆读取] 失败: {e}，将使用默认初始值。")
+
+        # 如果没有文件，就用默认的偏小初始值
+        self.avg_wave_effort_m = 10.0
+        self.avg_resistance_bps = 1.5
 
     def detect_absorption_wall(self, tick: dict) -> float:
         """🧱 隐形墙探测 (Absorption Wall) - 合约高流动性专用版"""
@@ -243,8 +275,8 @@ class OrderFlowMath:
 
         # 🌟 门槛暴增：20秒内必须爆砸超过 800 万美金！
         if recent_cvd_delta < -8_000_000:
-            # 价格竟然被死死按住，最大下潜不到 0.02% (约 0.6 刀)！
-            if max_drop_pct >= -0.02:
+            # 价格竟然被死死按住，最大下潜不到 0.08% (约 1.6 刀)！
+            if max_drop_pct >= -0.08:
                 logger.warning(
                     f"🧱 [隐形墙] 逆天护盘！硬扛 ${abs(recent_cvd_delta) / 10000:.0f}万 连环砸盘，下潜仅 {max_drop_pct:.3f}%！")
                 return lowest_since_snap
