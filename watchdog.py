@@ -39,11 +39,19 @@ def main():
     mode = "collect"
     symbol = "ETH-USDT-SWAP"
 
-    # 更健壮的参数解析，支持任意顺序的 --mode 和 --symbol
+    # 更健壮的参数解析，支持任意顺序的 --mode 和 --symbol，以及 --symbol=VALUE 格式
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
-        if arg == "--mode" and i + 1 < len(sys.argv):
+
+        # 处理 --symbol=VALUE 或 --mode=VALUE 格式
+        if arg.startswith("--symbol="):
+            symbol = arg.split("=", 1)[1]
+            i += 1
+        elif arg.startswith("--mode="):
+            mode = arg.split("=", 1)[1]
+            i += 1
+        elif arg == "--mode" and i + 1 < len(sys.argv):
             mode = sys.argv[i + 1]
             i += 2
         elif arg == "--symbol" and i + 1 < len(sys.argv):

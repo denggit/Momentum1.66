@@ -41,7 +41,7 @@ class OKXTickStreamer:
                                     'ts': float(trade['ts']) / 1000.0  # 转为秒级时间戳
                                 }
                                 # 将干净的字典抛给 Engine3Commander 的 on_tick 函数
-                                self.on_tick_callback(tick_clean)
+                                await self.on_tick_callback(tick_clean)
 
             except Exception as e:
                 logger.error(f"❌ [数据层] 链路断开，准备 3 秒后重连: {e}")
