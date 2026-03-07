@@ -6,14 +6,15 @@
 @File       : trader.py
 @Description: 极速订单执行器 (Taker买入 -> Maker止盈 -> 条件止损)
 """
+import asyncio
 import base64
+import datetime
 import hmac
 import json
-import asyncio
-import datetime
-import requests
-import sys
 import os
+import sys
+
+import requests
 
 current_file = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(current_file))
@@ -38,7 +39,7 @@ class OKXTrader:
         self.td_mode = td_mode
         self.risk_pct = risk_pct  # 🌟 比如 0.5 表示每次下注可用余额的 50%
         self.available_usdt = 0.0  # 🌟 缓存在本地的可用余额
-        self.is_in_position = False # 默认为空仓
+        self.is_in_position = False  # 默认为空仓
 
         self.of_wall_price = 0.0  # 三号引擎发现的“隐形筹码墙”价格
         self.of_squeeze_flag = False  # 三号引擎拉响的“极速拉升爆仓”警报
@@ -101,7 +102,7 @@ class OKXTrader:
         if self.is_in_position:
             logger.warning("🛡️ [拦截] 手里还有单子没跑完，为了仓位安全，拒绝开第二枪！")
             return
-        
+
         if not self.api_key:
             logger.error("❌ 实盘 API 未配置，拒绝下单。")
             return
@@ -220,8 +221,8 @@ class OKXTrader:
 
         logger.info(f"📡 [3/3] 发送止损单请求 (条件宽幅市价) -> 护城河触发价: {sl_price}")
         res_sl = await self._request("POST", "/api/v5/trade/order-algo", sl_payload)
-        
-        sl_algo_id = None # 🌟 提取原止损单的 ID
+
+        sl_algo_id = None  # 🌟 提取原止损单的 ID
         if res_sl and res_sl.get('code') == '0':
             sl_algo_id = res_sl['data'][0]['algoId']
             logger.info(f"✅ 护城河止损单已架设！")
@@ -247,30 +248,30 @@ class OKXTrader:
     async def _breakeven_monitor(self, tp1_ord_id, sl_algo_id, entry_price, remaining_sz):
         """🌟 保本护卫：异步轮询 TP1 状态，一旦成交，立刻将止损线上移至保本价"""
         logger.info(f"🛡️ [保本护卫] 已启动！正在静默监视 TP1 订单 ({tp1_ord_id})...")
-        
+
         # 💡 顶级细节：开仓要 0.05% 的吃单手续费，平仓也要 0.05%。
         # 所以真正的“保本价”不是开盘价，而是开盘价上浮 0.06%，这样连手续费都不会亏！
         breakeven_px = round(entry_price * 1.0006, 2)
-        
+
         # 循环监控，最多监控 2 个小时 (7200 秒)，防止死循环
         for _ in range(7200):
-            await asyncio.sleep(1) # 每秒查一次，绝不阻塞主线程
-            
+            await asyncio.sleep(1)  # 每秒查一次，绝不阻塞主线程
+
             try:
                 res = await self._request("GET", f"/api/v5/trade/order?instId={self.symbol}&ordId={tp1_ord_id}")
                 if not res or res.get('code') != '0':
                     continue
-                
+
                 state = res['data'][0]['state']
-                
+
                 # 如果发现 TP1 已经成交！
                 if state == 'filled':
                     logger.warning(f"🚀 [保本护卫] 侦测到 TP1 已止盈落袋！立即执行保本上移机制...")
-                    
+
                     # 1. 撤销旧的坑底护城河止损
                     cancel_payload = [{"instId": self.symbol, "algoId": sl_algo_id}]
                     await self._request("POST", "/api/v5/trade/cancel-algos", cancel_payload)
-                    
+
                     # 2. 挂出全新的保本止损单
                     new_sl_payload = {
                         "instId": self.symbol,
@@ -280,22 +281,23 @@ class OKXTrader:
                         "sz": str(remaining_sz),
                         "slTriggerPx": str(breakeven_px),
                         "slTriggerPxType": "last",
-                        "slOrdPx": "-1", # 触发后市价平仓
+                        "slOrdPx": "-1",  # 触发后市价平仓
                         "reduceOnly": True
                     }
                     res_new_sl = await self._request("POST", "/api/v5/trade/order-algo", new_sl_payload)
                     if res_new_sl and res_new_sl.get('code') == '0':
-                        logger.warning(f"✅ [保本护卫] 成功！剩余 {remaining_sz} 张合约的止损线已上移至保本价: {breakeven_px}！这单已立于不败之地！")
+                        logger.warning(
+                            f"✅ [保本护卫] 成功！剩余 {remaining_sz} 张合约的止损线已上移至保本价: {breakeven_px}！这单已立于不败之地！")
                     else:
                         logger.error(f"❌ [保本护卫] 保本止损单架设失败: {res_new_sl}")
-                    
-                    break # 任务完成，退出护卫线程
-                
+
+                    break  # 任务完成，退出护卫线程
+
                 # 如果 TP1 被手动撤销，或者行情直接暴跌打穿了原止损导致订单失效
                 elif state in ['canceled', 'mismatch']:
                     logger.info("🛑 [保本护卫] 侦测到 TP1 订单已被撤销或失效，保本监控结束。")
                     break
-                    
+
             except Exception as e:
                 logger.error(f"⚠️ [保本护卫] 监控发生异常: {e}")
 
@@ -464,7 +466,7 @@ class OKXTrader:
 
         # 🌟 新增：启动时第一件事，先把枪管的威力（杠杆）调好！
         await self.set_leverage_on_startup()
-        
+
         while True:
             await self.fetch_balance()
             if self.is_in_position:
@@ -477,35 +479,33 @@ class OKXTrader:
 
     async def fetch_balance(self):
         """请求 OKX 获取 USDT 可用余额"""
-        res = await self._request("GET", "/api/v5/account/balance")
-        if res and res.get('code') == '0':
-            details = res['data'][0]['details']
+        # 查询当前品种持仓
+        pos_res = await self._request("GET", f"/api/v5/account/positions?instId={self.symbol}")
+        if pos_res and pos_res.get('code') == '0':
+            positions = pos_res.get('data', [])
+            # 默认设为空仓
+            self.is_in_position = False
+            for p in positions:
+                pos_amt = abs(float(p.get('pos', 0)))
+                # 🌟 核心优化：只有持仓数量大于一个微小的阈值（比如 0.01 张）才认为是在持仓
+                # 对于以太坊，0.1张是1手，这里可以设为 0.05 或更小
+                if pos_amt > 0.05:
+                    self.is_in_position = True
+                    break
+
+        # 查询当前余额
+        balance_res = await self._request("GET", "/api/v5/account/balance")
+        if balance_res and balance_res.get('code') == '0':
+            details = balance_res['data'][0]['details']
             for asset in details:
                 if asset['ccy'] == 'USDT':
                     self.available_usdt = float(asset['availEq'])
                     logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
                     break
 
-        # 查询当前品种持仓
-        pos_res = await self._request("GET", f"/api/v5/account/positions?instId={self.symbol}")
-        
-        if pos_res and pos_res.get('code') == '0':
-            positions = pos_res.get('data', [])
-            
-            # 默认设为空仓
-            self.is_in_position = False
-            
-            for p in positions:
-                pos_amt = abs(float(p.get('pos', 0)))
-                # 🌟 核心优化：只有持仓数量大于一个微小的阈值（比如 0.01 张）才认为是在持仓
-                # 对于以太坊，0.1张是1手，这里可以设为 0.05 或更小
-                if pos_amt > 0.05: 
-                    self.is_in_position = True
-                    break
-
     async def set_leverage_on_startup(self):
         """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
-        
+
         # 1. 强制切换保证金模式 (全仓 cross / 逐仓 isolated)
         # 注意：OKX 要求切换模式时不能有持仓或挂单
         mode_payload = {
@@ -524,7 +524,7 @@ class OKXTrader:
         }
         logger.info(f"⚙️ [实盘初始化] 正在设置杠杆倍数为: {self.leverage}X")
         res = await self._request("POST", "/api/v5/account/set-leverage", lev_payload)
-        
+
         if res and res.get('code') == '0':
             logger.info(f"✅ 状态同步成功！{self.symbol} 已锁定为 【{self.td_mode.upper()} {self.leverage}X】")
         else:
