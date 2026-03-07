@@ -152,6 +152,9 @@ class OKXTrader:
         # 稍微等 100ms 确保仓位已经结算到账户，防止 reduceOnly 报错
         await asyncio.sleep(0.1)
 
+        # 🌟 核心修复 1：不要等查账，直接手动标记为持仓中
+        self.is_in_position = True
+
         # ==========================================
         # 3. 分批挂出止盈单 (50%保底 + 50%格局)
         # ==========================================
@@ -317,6 +320,8 @@ class OKXTrader:
         min_move_dist = entry_price * 0.001
 
         for _ in range(14400):
+            await asyncio.sleep(2)  # 极速拉升时，2秒校准一次止损线
+
             if not self.is_in_position:
                 logger.info("🛑 [护卫2.0] 仓位已清空(打止损或吃满)，光荣退役！")
                 self.of_wall_price = 0.0
@@ -356,7 +361,7 @@ class OKXTrader:
                 elif phase in [1, 2]:
                     ticker_res = await self._request("GET", f"/api/v5/market/ticker?instId={self.symbol}")
                     if not ticker_res or ticker_res.get('code') != '0':
-                        await asyncio.sleep(1);
+                        await asyncio.sleep(1)
                         continue
 
                     last_px = float(ticker_res['data'][0]['last'])
@@ -448,7 +453,6 @@ class OKXTrader:
                                 current_sl_algo_id = res_new['data'][0]['algoId']
                                 current_sl_px = target_sl_moon
 
-                    await asyncio.sleep(2)  # 极速拉升时，2秒校准一次止损线
 
             except Exception as e:
                 logger.error(f"⚠️ [护卫2.0] 异常: {e}")
