@@ -49,8 +49,6 @@ class OrderFlowMath:
         # 用于记录区间最低价
         self.interval_min_price = float('inf')
 
-
-
     def process_tick(self, tick: dict):
         """每秒可能接收几十上百个tick，全速 O(1) 运算"""
         self.current_price = tick['price']

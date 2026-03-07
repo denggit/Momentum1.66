@@ -193,20 +193,27 @@ class OKXTrader:
 
             logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
 
-            # 🌟 核心修改：同时捕获 TP1 和 TP2 的下单返回值
-            tp_responses = await asyncio.gather(
-                self._request("POST", "/api/v5/trade/order", tp1_payload),
-                self._request("POST", "/api/v5/trade/order", tp2_payload)
-            )
+            # 🌟 工程优化：增加重试机制，对抗交易所仓位延迟
+            max_retries = 3
+            for attempt in range(max_retries):
+                tp_responses = await asyncio.gather(
+                    self._request("POST", "/api/v5/trade/order", tp1_payload),
+                    self._request("POST", "/api/v5/trade/order", tp2_payload)
+                )
+                res_tp1, res_tp2 = tp_responses[0], tp_responses[1]
 
-            res_tp1 = tp_responses[0]
-            res_tp2 = tp_responses[1]  # 拿到 TP2 的响应
+                if res_tp1 and res_tp1.get('code') == '0':
+                    tp1_ord_id = res_tp1['data'][0]['ordId']
+                if res_tp2 and res_tp2.get('code') == '0':
+                    tp2_ord_id = res_tp2['data'][0]['ordId']
 
-            if res_tp1 and res_tp1.get('code') == '0':
-                tp1_ord_id = res_tp1['data'][0]['ordId']  # 拿到 TP1 单号！
+                # 如果两个单号都拿到了，完美退出重试
+                if tp1_ord_id and tp2_ord_id:
+                    break
 
-            if res_tp2 and res_tp2.get('code') == '0':
-                tp2_ord_id = res_tp2['data'][0]['ordId']  # 🌟 拿到 TP2 单号！
+                # 否则说明碰到了 reduceOnly 报错，再等 0.2 秒重试！
+                logger.warning(f"⚠️ 挂止盈单遇到延迟 (尝试 {attempt + 1}/{max_retries})，0.2秒后重试...")
+                await asyncio.sleep(0.2)
 
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)
@@ -244,7 +251,7 @@ class OKXTrader:
             ))
 
     async def _breakeven_monitor(self, tp1_ord_id, sl_algo_id, entry_price, remaining_sz):
-        """🌟 保本护卫：异步轮询 TP1 状态，一旦成交，立刻将止损线上移至保本价"""
+        """🌟 保本护卫 V1.0 (当前已经不用了)：异步轮询 TP1 状态，一旦成交，立刻将止损线上移至保本价"""
         logger.info(f"🛡️ [保本护卫] 已启动！正在静默监视 TP1 订单 ({tp1_ord_id})...")
 
         # 💡 顶级细节：开仓要 0.05% 的吃单手续费，平仓也要 0.05%。

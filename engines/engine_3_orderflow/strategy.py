@@ -56,12 +56,18 @@ class Engine3Commander:
         signal_data = self.math_brain.process_tick(tick)
 
         # =========================================================
-        # 🌟 关键新增：情报实时同步给 Trader 的保镖！
+        # 🌟 关键新增：情报实时同步给 Trader 的保镖 (性能洁癖版)
         # =========================================================
         curr_ts = time.time()
-        # 🌟 每 100ms (0.1秒) 才扫描一次情报，CPU 压力瞬间降低 90%
+        # 每 100ms 扫描一次情报，直接同步执行数学运算，抛弃 create_task 的调度开销！
         if self.trader.is_in_position and (curr_ts - self.last_intel_time > 0.1):
-            asyncio.create_task(self._async_update_guard_intelligence(tick))
+            wall_price = self.math_brain.detect_absorption_wall(tick)
+            if wall_price:
+                self.trader.of_wall_price = wall_price
+
+            if self.math_brain.detect_short_squeeze(tick):
+                self.trader.of_squeeze_flag = True
+
             self.last_intel_time = curr_ts
         # =========================================================
 
@@ -81,17 +87,6 @@ class Engine3Commander:
 
         # 3. 让科考船更新最高价和止损
         self.tracker.update_trackings(tick['price'], tick['ts'])
-
-    async def _async_update_guard_intelligence(self, tick: dict):
-        """后台静默计算情报，不占用 Tick 处理窗口"""
-        # 1. 隐形墙探测
-        wall_price = self.math_brain.detect_absorption_wall(tick)
-        if wall_price:
-            self.trader.of_wall_price = wall_price
-
-        # 2. 破冰探测
-        if self.math_brain.detect_short_squeeze(tick):
-            self.trader.of_squeeze_flag = True
 
     # 🌟 新增的异步验证与狙击函数
     async def _async_evaluate_and_snipe(self, signal_data):
