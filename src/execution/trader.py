@@ -146,15 +146,16 @@ class OKXTrader:
             logger.error(f"[Trader] 取消算法订单异常: {e}")
             return False
 
-    async def create_stop_loss_order(self, size: float, trigger_price: float) -> Optional[str]:
+        # 🌟 参数里加上 sl_side: str
+    async def create_stop_loss_order(self, size: float, trigger_price: float, sl_side: str) -> Optional[str]:
         """创建止损订单"""
         try:
             payload = {
                 "instId": self.symbol,
                 "tdMode": self.td_mode,
-                "side": "sell",
+                "side": sl_side,  # 🌟 这里改成动态获取的变量
                 "ordType": "conditional",
-                "sz": str(size),
+                "sz": str(int(size)),  # 🌟 这里必须加上 int() 防止报小数错误！
                 "slTriggerPx": str(trigger_price),
                 "slTriggerPxType": "last",
                 "slOrdPx": "-1",

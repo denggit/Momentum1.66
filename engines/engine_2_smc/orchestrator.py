@@ -278,32 +278,32 @@ class SMCOrchestrator:
                     logger.warning(f"⚠️ 止损单挂单失败，等待 1 秒后进行第 {attempt + 2} 次重试...")
                     await asyncio.sleep(1)  # 等待 1 秒让网络或交易所限流恢复
 
-                # ==========================================
-                # 💣 终极防御：重试耗尽后的核武器
-                # ==========================================
-                if not sl_algo_id:
-                    logger.error(f"❌ 连续 {max_retries} 次创建止损单失败！坚决拒绝裸奔，启动紧急平仓！")
+            # ==========================================
+            # 💣 终极防御：重试耗尽后的核武器
+            # ==========================================
+            if not sl_algo_id:
+                logger.error(f"❌ 连续 {max_retries} 次创建止损单失败！坚决拒绝裸奔，启动紧急平仓！")
 
-                    # 紧急调动市价反向减仓，把刚才买的直接卖掉
-                    if side == "buy":
-                        await self.trader.market_sell(position_size, reduce_only=True)
-                    else:
-                        await self.trader.market_buy(position_size, reduce_only=True)
+                # 紧急调动市价反向减仓，把刚才买的直接卖掉
+                if side == "buy":
+                    await self.trader.market_sell(position_size, reduce_only=True)
+                else:
+                    await self.trader.market_buy(position_size, reduce_only=True)
 
-                    # 🌟 新增：发送紧急预警邮件！
-                    alert_details = (
-                        f"⚠️ 警告！实盘开仓后，连续 {max_retries} 次无法在 OKX 挂出条件止损单！\n"
-                        f"系统为了防止裸奔爆仓，已经触发了紧急市价平仓程序。\n"
-                        f"请立即检查服务器网络或 OKX API 是否被限流！"
-                    )
-                    await send_trading_signal_email(
-                        symbol=self.symbol,
-                        signal_type="🚨 挂单失败 & 紧急平仓",
-                        price=latest_close,
-                        details=alert_details
-                    )
+                # 🌟 新增：发送紧急预警邮件！
+                alert_details = (
+                    f"⚠️ 警告！实盘开仓后，连续 {max_retries} 次无法在 OKX 挂出条件止损单！\n"
+                    f"系统为了防止裸奔爆仓，已经触发了紧急市价平仓程序。\n"
+                    f"请立即检查服务器网络或 OKX API 是否被限流！"
+                )
+                await send_trading_signal_email(
+                    symbol=self.symbol,
+                    signal_type="🚨 挂单失败 & 紧急平仓",
+                    price=latest_close,
+                    details=alert_details
+                )
 
-                    return  # 退出执行，不记录这笔失败的持仓状态
+                return  # 退出执行，不记录这笔失败的持仓状态
 
             # 计算初始风险
             initial_risk = abs(latest_close - initial_stop_loss)
@@ -453,13 +453,16 @@ class SMCOrchestrator:
                     position_size = self._current_position['position_size']
                     old_algo_id = self._current_position.get('sl_algo_id')
 
-                    # 取消旧止损单
                     if old_algo_id:
                         logger.info(f"🔧 取消旧止损单: {old_algo_id}")
                         await self.trader.cancel_algo_order(old_algo_id)
 
-                    # 创建新止损单
-                    new_algo_id = await self.trader.create_stop_loss_order(position_size, new_stop_loss)
+                    # 🌟 必须算出移动止损的方向
+                    sl_side = "sell" if side == "buy" else "buy"
+
+                    # 🌟 必须把 sl_side 传给 trader
+                    new_algo_id = await self.trader.create_stop_loss_order(position_size, new_stop_loss, sl_side)
+
                     if new_algo_id:
                         self._current_position['sl_algo_id'] = new_algo_id
                         logger.info(f"✅ 止损单更新成功，新算法单ID: {new_algo_id}")
