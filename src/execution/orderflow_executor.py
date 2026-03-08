@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 @dataclass
 class OrderFlowExecutionConfig:
     """OrderFlow执行策略配置"""
-    tp1_split_ratio: float = 0.3  # TP1仓位分割比例 (30%去TP1，70%去TP2)
+    tp1_split_ratio: float = 0.5  # TP1仓位分割比例 (50%去TP1，70%去TP2)
     tp1_min_size: int = 1  # TP1最小张数
 
 

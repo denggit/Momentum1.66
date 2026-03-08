@@ -194,10 +194,17 @@ class OrderFlowOrchestrator:
         """
         try:
             # 1. SMC宏观验证 (在后台线程中执行)
-            is_safe, smc_msg = await asyncio.to_thread(
-                self.smc_validator.final_check,
-                signal_data['local_low']
-            )
+            # 🌟 新增：SMC 旁路机制 (支持纯高频剥头皮模式)
+            if not self.config.smc_validation_enabled:
+                is_safe = True
+                # 伪造一个完美共振消息，骗过后面的防阴跌拦截机制
+                smc_msg = "完美共振 [SMC已关闭，纯高频订单流模式]"
+            else:
+                # 原有的 SMC 宏观验证
+                is_safe, smc_msg = await asyncio.to_thread(
+                    self.smc_validator.final_check,
+                    signal_data['local_low']
+                )
             signal_data['smc_msg'] = smc_msg
 
             # 提取SMC验证结果标记
