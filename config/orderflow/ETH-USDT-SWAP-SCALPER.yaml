@@ -1,0 +1,86 @@
+# config/orderflow/ETH-USDT-SWAP.yaml
+# 🌟 高频剥头皮模式 (Pure Scalper) 🌟
+symbol: "ETH-USDT-SWAP"  # 交易对标识 (OKX永续合约交易对)
+
+# 合约配置 (永续合约参数)
+contract:
+  contract_size: 0.1  # 合约面值 (1张合约对应的现货数量，单位：ETH)
+
+# 交易参数 (账户与下单相关配置)
+trading:
+  leverage: 50        # 杠杆倍数 (50倍杠杆，放大收益与风险)
+  risk_pct: 0.4       # 单次风险比例 (使用40%可用余额作为单笔下注金额)
+  email_cooldown: 60  # 邮件通知冷却时间 (秒，防止频繁发送通知邮件)
+  scan_interval: 0.1  # 行情扫描间隔 (秒，100毫秒扫描一次盘口数据)
+
+# 订单流核心参数 (策略状态机与信号检测)
+orderflow:
+  # 状态机参数 (控制策略状态转换)
+  armed_threshold_usdt: 1_000_000  # 触发上膛(ARMED)状态的砸盘阈值 (单位：USD，3分钟窗口内净卖出资金超过100万进入备战状态)
+  fire_cooldown_sec: 30            # 开火冷却时间 (秒，上次开单后必须等待30秒才能再次开单)
+  recent_stop_loss_window: 120     # 近期止损记忆窗口 (秒，2分钟内的止损会被记录为"近期扫损")
+  rebound_threshold: 1.0005        # 解除死锁的反弹阈值 (价格反弹超过0.05%则解除智能空间拦截)
+
+  # 耐心潜伏参数 (控制等待与追击行为)
+  patience_latency: 900            # 耐心潜伏时间 (秒，进入ARMED状态后最多观察15分钟，超时自动退膛)
+  price_silence_threshold: 0.05    # 价格静默漂移阈值 (百分比，反弹超过0.05%不追高，避免追涨杀跌)
+
+  # 冰山吸收条件 (检测大单吸收行为)
+  price_drop_threshold: 0.08     # 价格跌幅阈值 (百分比，价格下跌超过0.08%才考虑吸收场景)
+  safe_drop_min: 0.005           # 最小安全跌幅阈值 (百分比，确保有足够的价格下跌空间)
+  dump_anomaly_threshold: 0      # 砸盘异常度阈值 (倍数，设为0表示禁用该条件)
+  resistance_anomaly_threshold: 0.1  # 阻力异常度阈值 (倍数，反转资金量与砸盘资金量的比例要求)
+
+  # V型反转条件 (检测V型底部反转信号)
+  v_reversal_dump_threshold: 0     # V反砸盘异常度阈值 (倍数，设为0表示不要求异常砸盘)
+  v_reversal_counter_threshold: 200_000 # 反击资金阈值 (单位：USD，反转期间的净买入资金量必须超过20万美元)
+  v_reversal_rebound_ratio: 0.1    # 反弹资金占比阈值 (反击资金量 / 砸盘资金量 > 10%)
+  v_reversal_min_rebound: 0.0005   # 最小反弹幅度阈值 (百分比，从底部向上反转必须超过0.05%)
+  v_reversal_max_rebound: 0.002    # 最大反弹幅度阈值 (百分比，反弹幅度不超过0.2%，避免追高)
+
+  # 宽口径汇报条件 (BROAD信号，向科考船汇报但不立即开单)
+  broad_report_threshold: 30_000     # 宽口径汇报阈值 (单位：USD，反转期间的净买入CVD金额必须超过3万美元)
+  broad_min_bounce: 0.0002           # 最小反弹幅度阈值 (百分比，价格反弹必须超过0.02%)
+  broad_max_bounce: 0.005            # 最大反弹幅度阈值 (百分比，反弹幅度不超过0.5%)
+
+  # 物理掩体探测 (检测支撑阻力位)
+  wall_threshold_usdt: 4_000_000   # 隐形墙砸盘阈值 (单位：USD，砸盘资金超过400万美元可能形成支撑墙)
+  wall_max_drop_pct: 0.10          # 隐形墙最大下潜比例 (百分比，价格从砸盘点最多下跌0.10%)
+  squeeze_buy_threshold: 3_000_000 # 空头挤压买入阈值 (单位：USD，买入资金超过300万美元可能触发空头挤压)
+  squeeze_price_change: 0.05       # 空头挤压价格变化阈值 (百分比，价格上涨超过0.05%确认挤压)
+
+# 执行参数 (下单与仓位管理)
+execution:
+  # 止盈止损参数
+  tp1_pct: 0.003    # 第一止盈位比例 (百分比，价格上涨0.3%时触发TP1止盈)
+  tp2_pct: 0.0001   # 第二止盈位比例 (百分比，设为极小值表示不使用TP2)
+  sl_pct: 0.0       # 初始止损比例 (百分比，止损价严格等于local low，无偏移)
+
+  # 风险控制参数
+  anti_slide_threshold: 1_500_000  # 防阴跌拦截阈值 (单位：USD，连续下跌期间的累计卖出资金超过150万美元时熔断停止开单)
+
+  # 仓位分割参数
+  tp1_split_ratio: 1    # TP1仓位分割比例 (1.0表示100%仓位去TP1，无TP2仓位)
+  tp1_min_size: 1       # TP1最小张数 (即使计算出的TP1仓位小于1张，也至少下1张单)
+
+  # 生命周期管理参数 (持仓期间动态调整止损)
+  breakeven_pct: 0.001             # 保本线上浮比例 (百分比，价格上涨0.1%后将止损移到保本价以上)
+  mech_step1_trigger_pct: 0.003    # 机械阶梯阶段1触发阈值 (百分比，价格上涨0.3%进入阶段1防守)
+  mech_step1_sl_pct: 0.0015        # 阶段1止损位置 (百分比，阶段1的止损位于开仓价上方0.15%)
+  wall_sl_offset_pct: 0.0005       # 隐形墙止损偏移 (百分比，检测到隐形墙后将止损设在墙下0.05%)
+  moonbag_warning_ratio: 0.60      # 登月包预警比例 (距离TP2价格60%时发出预警)
+  fallback_threshold_pct: 0.0015   # 回落阈值 (百分比，价格从高点回落0.15%时考虑移动止损)
+  min_move_pct: 0.001              # 最小止损移动距离 (百分比，止损每次至少移动0.1%)
+  moon_strong_candle_pct: 0.002    # 登月强推力阳线阈值 (百分比，单根K线上涨0.2%视为强推力)
+  moon_sl_offset_pct: 0.0005       # 登月止损偏移 (百分比，登月模式下的止损偏移量)
+
+  # 监控频率参数 (持仓期间不同阶段的检查间隔)
+  stage0_interval: 0.5  # 阶段0监控间隔 (秒，持仓初期每0.5秒检查TP1是否成交)
+  stage1_interval: 1.0  # 阶段1监控间隔 (秒，进入阶段1后每1秒检查一次)
+  stage2_interval: 1.0  # 阶段2监控间隔 (秒，进入阶段2后每1秒检查一次)
+  stage3_interval: 2.0  # 阶段3监控间隔 (秒，进入阶段3后每2秒检查一次)
+
+# SMC验证参数 (Smart Money Concepts 智能资金概念验证)
+smc_validation:
+  enabled: false   # 是否启用SMC验证 (false表示纯微观盘口策略，不验证宏观结构)
+  timeframes: ["5m"]  # 时间框架列表 (当启用SMC时检查的时间周期)

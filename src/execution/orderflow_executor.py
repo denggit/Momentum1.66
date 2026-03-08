@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 @dataclass
 class OrderFlowExecutionConfig:
     """OrderFlow执行策略配置"""
-    tp1_split_ratio: float = 0.5  # TP1仓位分割比例 (50%去TP1，70%去TP2)
+    tp1_split_ratio: float = 0.5  # TP1仓位分割比例 (30%去TP1，70%去TP2)
     tp1_min_size: int = 1  # TP1最小张数
 
 
@@ -37,7 +37,10 @@ class OrderFlowExecutor:
         self.config = config
 
         # 执行策略配置（可以从config中扩展）
-        self.exec_config = OrderFlowExecutionConfig()
+        self.exec_config = OrderFlowExecutionConfig(
+            tp1_split_ratio=config.tp1_split_ratio,
+            tp1_min_size=config.tp1_min_size
+        )
 
     async def execute_snipe(self, price: float, local_low: float, tp2_price: float = None) -> Optional[ExecutionResult]:
         """
@@ -133,7 +136,7 @@ class OrderFlowExecutor:
                 tp1_ord_id = res_tp['data'][0]['ordId']
             sz_rest = 0  # 没有剩余仓位
         else:
-            # 正常分批：30%去TP1，70%去TP2
+            # 正常分批：根据比例分配TP1和TP2仓位
             sz_half = max(self.exec_config.tp1_min_size, int(sz * self.exec_config.tp1_split_ratio))
             sz_rest = sz - sz_half
 
@@ -141,34 +144,49 @@ class OrderFlowExecutor:
                 "instId": self.trader.symbol, "tdMode": self.trader.td_mode, "side": "sell",
                 "ordType": "post_only", "sz": str(sz_half), "px": str(tp1_price), "reduceOnly": True
             }
-            tp2_payload = {
-                "instId": self.trader.symbol, "tdMode": self.trader.td_mode, "side": "sell",
-                "ordType": "post_only", "sz": str(sz_rest), "px": str(tp2_price), "reduceOnly": True
-            }
 
-            logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
+            # 如果没有TP2仓位（sz_rest <= 0），则只下TP1单
+            if sz_rest <= 0:
+                logger.info(f"📡 [2/3] 无TP2仓位，全部仓位挂到TP1: {sz_half}张, 目标价: {tp1_price}")
 
-            # 🌟 工程优化：增加重试机制，对抗交易所仓位延迟
-            max_retries = 3
-            for attempt in range(max_retries):
-                tp_responses = await asyncio.gather(
-                    self.trader._request("POST", "/api/v5/trade/order", tp1_payload),
-                    self.trader._request("POST", "/api/v5/trade/order", tp2_payload)
-                )
-                res_tp1, res_tp2 = tp_responses[0], tp_responses[1]
+                max_retries = 3
+                for attempt in range(max_retries):
+                    res_tp1 = await self.trader._request("POST", "/api/v5/trade/order", tp1_payload)
+                    if res_tp1 and res_tp1.get('code') == '0':
+                        tp1_ord_id = res_tp1['data'][0]['ordId']
+                        break
+                    logger.warning(f"⚠️ 挂TP1单遇到延迟 (尝试 {attempt + 1}/{max_retries})，0.2秒后重试...")
+                    await asyncio.sleep(0.2)
+            else:
+                # 有TP2仓位，正常下两个单
+                tp2_payload = {
+                    "instId": self.trader.symbol, "tdMode": self.trader.td_mode, "side": "sell",
+                    "ordType": "post_only", "sz": str(sz_rest), "px": str(tp2_price), "reduceOnly": True
+                }
 
-                if res_tp1 and res_tp1.get('code') == '0':
-                    tp1_ord_id = res_tp1['data'][0]['ordId']
-                if res_tp2 and res_tp2.get('code') == '0':
-                    tp2_ord_id = res_tp2['data'][0]['ordId']
+                logger.info(f"📡 [2/3] 🚀 分批止盈！TP1({sz_half}张): {tp1_price}, TP2({sz_rest}张 结构顶): {tp2_price}")
 
-                # 如果两个单号都拿到了，完美退出重试
-                if tp1_ord_id and tp2_ord_id:
-                    break
+                # 🌟 工程优化：增加重试机制，对抗交易所仓位延迟
+                max_retries = 3
+                for attempt in range(max_retries):
+                    tp_responses = await asyncio.gather(
+                        self.trader._request("POST", "/api/v5/trade/order", tp1_payload),
+                        self.trader._request("POST", "/api/v5/trade/order", tp2_payload)
+                    )
+                    res_tp1, res_tp2 = tp_responses[0], tp_responses[1]
 
-                # 否则说明碰到了 reduceOnly 报错，再等 0.2 秒重试！
-                logger.warning(f"⚠️ 挂止盈单遇到延迟 (尝试 {attempt + 1}/{max_retries})，0.2秒后重试...")
-                await asyncio.sleep(0.2)
+                    if res_tp1 and res_tp1.get('code') == '0':
+                        tp1_ord_id = res_tp1['data'][0]['ordId']
+                    if res_tp2 and res_tp2.get('code') == '0':
+                        tp2_ord_id = res_tp2['data'][0]['ordId']
+
+                    # 如果两个单号都拿到了，完美退出重试
+                    if tp1_ord_id and tp2_ord_id:
+                        break
+
+                    # 否则说明碰到了 reduceOnly 报错，再等 0.2 秒重试！
+                    logger.warning(f"⚠️ 挂止盈单遇到延迟 (尝试 {attempt + 1}/{max_retries})，0.2秒后重试...")
+                    await asyncio.sleep(0.2)
 
         # ==========================================
         # 4. 挂出条件止损单 (Conditional Market Sell)

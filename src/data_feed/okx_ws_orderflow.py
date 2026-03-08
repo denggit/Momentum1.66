@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import csv  # 新增 csv 模块
 import datetime
@@ -26,8 +27,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 
 class OrderFlowSniper:
-    def __init__(self, symbol="ETH-USDT-SWAP"):
+    def __init__(self, symbol="ETH-USDT-SWAP", mode="collect"):
         self.symbol = symbol
+        self.mode = mode  # 'collect' 或 'live'
         # 使用 AWS 专线域名，在东京节点极其稳定
         self.ws_url = "wss://ws.okx.com:8443/ws/v5/public"
 
@@ -268,6 +270,11 @@ class OrderFlowSniper:
     async def _send_bottom_fishing_email(self, symbol: str, price: float,
                                          cvd_delta_usdt: float, time_window_minutes: float):
         """发送抄底机会邮件通知"""
+        # collect模式下不发送交易信号邮件
+        if self.mode == "collect":
+            logger.info(f"📝 [收集模式] 检测到抄底信号但不发送邮件: 价格={price}, 砸盘=${abs(cvd_delta_usdt):,.0f} USDT")
+            return
+
         current_time = time.time()
         if current_time - self._last_email_sent_time < self._email_cooldown:
             logger.debug(
@@ -313,6 +320,15 @@ class OrderFlowSniper:
 
 
 if __name__ == "__main__":
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="订单流狙击手 (OrderFlowSniper)")
+    parser.add_argument('--symbol', type=str, default='ETH-USDT-SWAP',
+                        help='交易对符号，例如: ETH-USDT-SWAP, BTC-USDT-SWAP')
+    parser.add_argument('--mode', type=str, default='collect',
+                        choices=['collect', 'live'],
+                        help="运行模式: 'collect' (只收集数据不发邮件) 或 'live' (发送邮件通知)")
+    args = parser.parse_args()
+
     # 🌟 新增：信号转换器。当收到 kill -15 (SIGTERM) 时，主动抛出 KeyboardInterrupt
     def handle_sigterm(*args):
         logger.warning("🔔 收到 kill -15 (SIGTERM) 信号！转换为安全迫降指令...")
@@ -322,7 +338,9 @@ if __name__ == "__main__":
     # 监听 kill -15 信号
     signal.signal(signal.SIGTERM, handle_sigterm)
 
-    sniper = OrderFlowSniper(symbol="ETH-USDT-SWAP")
+    sniper = OrderFlowSniper(symbol=args.symbol, mode=args.mode)
+    logger.info(f"🚀 订单流狙击手启动: 交易对={args.symbol}, 模式={args.mode}")
+
     try:
         asyncio.run(sniper.connect_and_listen())
     except KeyboardInterrupt:

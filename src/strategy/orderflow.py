@@ -203,6 +203,7 @@ class OrderFlowMath:
                 # (哪怕反弹来得晚，只要这波曾经有过 > 1.2 倍的狂砸，现在反包了，照样开火！)
                 # 🌟 进化版 V 反判定 (基于数据校准)：
                 cond_v_reversal = (
+                        -recent_cvd_delta_usdt > 2_000_000 and  # 砸盘大于200万
                         effort_anomaly > self.config.v_reversal_dump_threshold and
                         micro_cvd_usdt > self.config.v_reversal_counter_threshold and
                         rebound_ratio > self.config.v_reversal_rebound_ratio and
@@ -240,7 +241,7 @@ class OrderFlowMath:
                     return signal_data
 
                 # 🧪 宽口径击发：反弹 0.03% 时，向科考船汇报，但枪口继续死死瞄准！
-                elif micro_cvd_usdt > self.config.broad_report_threshold and self.config.broad_min_bounce < bounce_pct <= self.config.broad_max_bounce and not self.broad_fired_this_round:
+                elif -recent_cvd_delta_usdt > 1_000_000 and micro_cvd_usdt > self.config.broad_report_threshold and self.config.broad_min_bounce < bounce_pct <= self.config.broad_max_bounce and not self.broad_fired_this_round:
                     self.broad_fired_this_round = True
 
                     # 构建信号数据

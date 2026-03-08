@@ -69,6 +69,8 @@ class OrderFlowConfig:
     tp2_pct: float = 0.012
     sl_pct: float = 0.0015
     anti_slide_threshold: float = 4_000_000
+    tp1_split_ratio: float = 0.5  # TP1仓位分割比例 (30%去TP1，70%去TP2)
+    tp1_min_size: int = 1  # TP1最小张数
 
     # ==================== 快照参数 ====================
     snapshot_interval_seconds: int = 10  # 快照间隔秒数
@@ -185,6 +187,8 @@ class OrderFlowConfig:
         config.tp2_pct = execution_config.get("tp2_pct", config.tp2_pct)
         config.sl_pct = execution_config.get("sl_pct", config.sl_pct)
         config.anti_slide_threshold = execution_config.get("anti_slide_threshold", config.anti_slide_threshold)
+        config.tp1_split_ratio = execution_config.get("tp1_split_ratio", config.tp1_split_ratio)
+        config.tp1_min_size = execution_config.get("tp1_min_size", config.tp1_min_size)
 
         # 生命周期配置（可以在execution配置中提供）
         config.breakeven_pct = execution_config.get("breakeven_pct", config.breakeven_pct)
@@ -255,6 +259,8 @@ class OrderFlowConfig:
                 "tp2_pct": self.tp2_pct,
                 "sl_pct": self.sl_pct,
                 "anti_slide_threshold": self.anti_slide_threshold,
+                "tp1_split_ratio": self.tp1_split_ratio,
+                "tp1_min_size": self.tp1_min_size,
                 # 生命周期参数
                 "breakeven_pct": self.breakeven_pct,
                 "mech_step1_trigger_pct": self.mech_step1_trigger_pct,
