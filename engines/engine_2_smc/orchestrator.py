@@ -42,6 +42,7 @@ from src.strategy.smc import SMCStrategy
 from src.execution.trader import OKXTrader
 from src.context.market_context import MarketContext
 from config.loader import load_strategy_config
+from src.utils.email_sender import send_trading_signal_email
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -176,7 +177,7 @@ class SMCOrchestrator:
                 logger.error("❌ 获取数据失败，跳过本次扫描")
                 return
 
-            df = df.iloc[:-1]
+            df = df.iloc[:-1].copy()
 
             # 2. 计算 SMC 指标
             df = add_smc_indicators(df)
@@ -260,12 +261,49 @@ class SMCOrchestrator:
                 initial_stop_loss = latest_close - self._current_atr * atr_multiplier if signal == 1 else latest_close + self._current_atr * atr_multiplier
 
             # 创建止损单
-            sl_algo_id = await self.trader.create_stop_loss_order(position_size, initial_stop_loss)
-            if not sl_algo_id:
-                logger.error("❌ 创建止损单失败")
-                # 可以考虑取消开仓订单，但暂时只记录日志
-            else:
-                logger.info(f"✅ 止损单创建成功，算法单ID: {sl_algo_id}")
+            # ==========================================
+            # 🛡️ 止损单挂单与重试机制 (最大重试 3 次)
+            # ==========================================
+            sl_algo_id = None
+            max_retries = 3
+
+            for attempt in range(max_retries):
+                sl_algo_id = await self.trader.create_stop_loss_order(position_size, initial_stop_loss)
+                if sl_algo_id:
+                    logger.info(f"✅ 止损单创建成功，算法单ID: {sl_algo_id} (第 {attempt + 1} 次尝试)")
+                    break  # 成功了就跳出循环
+
+                # 如果失败了，但还没到最后一次，就休息一下再试
+                if attempt < max_retries - 1:
+                    logger.warning(f"⚠️ 止损单挂单失败，等待 1 秒后进行第 {attempt + 2} 次重试...")
+                    await asyncio.sleep(1)  # 等待 1 秒让网络或交易所限流恢复
+
+                # ==========================================
+                # 💣 终极防御：重试耗尽后的核武器
+                # ==========================================
+                if not sl_algo_id:
+                    logger.error(f"❌ 连续 {max_retries} 次创建止损单失败！坚决拒绝裸奔，启动紧急平仓！")
+
+                    # 紧急调动市价反向减仓，把刚才买的直接卖掉
+                    if side == "buy":
+                        await self.trader.market_sell(position_size, reduce_only=True)
+                    else:
+                        await self.trader.market_buy(position_size, reduce_only=True)
+
+                    # 🌟 新增：发送紧急预警邮件！
+                    alert_details = (
+                        f"⚠️ 警告！实盘开仓后，连续 {max_retries} 次无法在 OKX 挂出条件止损单！\n"
+                        f"系统为了防止裸奔爆仓，已经触发了紧急市价平仓程序。\n"
+                        f"请立即检查服务器网络或 OKX API 是否被限流！"
+                    )
+                    await send_trading_signal_email(
+                        symbol=self.symbol,
+                        signal_type="🚨 挂单失败 & 紧急平仓",
+                        price=latest_close,
+                        details=alert_details
+                    )
+
+                    return  # 退出执行，不记录这笔失败的持仓状态
 
             # 计算初始风险
             initial_risk = abs(latest_close - initial_stop_loss)
