@@ -19,6 +19,7 @@
 import asyncio
 import threading
 import time
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from src.context.market_context import MarketContext
@@ -636,6 +637,14 @@ class LifecycleManager:
         if not self._execution_result:
             return
 
+        # 获取现有持仓的entry_time（如果存在）
+        existing_position = self.context.get_position()
+        entry_time = None
+        if existing_position and existing_position.entry_time:
+            entry_time = existing_position.entry_time
+        else:
+            entry_time = datetime.fromtimestamp(time.time())
+
         position_info = {
             "symbol": self._execution_result.symbol,
             "side": "long",
@@ -648,7 +657,8 @@ class LifecycleManager:
             "take_profit_price": self._execution_result.tp2_price,
             "initial_stop_loss": self._execution_result.local_low * (1 - self.config.sl_pct),
             "stage": self._current_stage,
-            "stage_start_price": self._execution_result.entry_price
+            "stage_start_price": self._execution_result.entry_price,
+            "entry_time": entry_time
         }
 
         self.context.update_position(position_info)
@@ -658,7 +668,7 @@ class LifecycleManager:
         position = self.context.get_position()
         if position:
             position.stage = stage
-            position.stage_start_time = time.time()
+            position.stage_start_time = datetime.fromtimestamp(time.time())
             self.context.update_position(position)
 
     def get_current_stage(self) -> int:

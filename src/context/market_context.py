@@ -318,6 +318,13 @@ class MarketContext:
                         pos.entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
                     elif isinstance(entry_time, datetime):
                         pos.entry_time = entry_time
+                    elif isinstance(entry_time, (int, float)):
+                        # 处理时间戳（可能是秒或毫秒）
+                        timestamp = float(entry_time)
+                        if timestamp > 2e10:  # 可能是毫秒
+                            timestamp = timestamp / 1000.0
+                        pos.entry_time = datetime.fromtimestamp(timestamp)
+                    # 其他类型忽略，保持默认值
 
                 stage_start_time = position_info.get("stage_start_time")
                 if stage_start_time:
@@ -325,16 +332,48 @@ class MarketContext:
                         pos.stage_start_time = datetime.fromisoformat(stage_start_time.replace('Z', '+00:00'))
                     elif isinstance(stage_start_time, datetime):
                         pos.stage_start_time = stage_start_time
+                    elif isinstance(stage_start_time, (int, float)):
+                        # 处理时间戳（可能是秒或毫秒）
+                        timestamp = float(stage_start_time)
+                        if timestamp > 2e10:  # 可能是毫秒
+                            timestamp = timestamp / 1000.0
+                        pos.stage_start_time = datetime.fromtimestamp(timestamp)
+                    # 其他类型忽略，保持默认值
 
                 self.position_info = pos
             else:
-                self.position_info = position_info
+                # 确保PositionInfo对象的时间字段是datetime类型
+                pos = copy.copy(position_info)
+                if isinstance(pos.stage_start_time, (int, float)):
+                    timestamp = float(pos.stage_start_time)
+                    if timestamp > 2e10:
+                        timestamp = timestamp / 1000.0
+                    pos.stage_start_time = datetime.fromtimestamp(timestamp)
+                if isinstance(pos.entry_time, (int, float)):
+                    timestamp = float(pos.entry_time)
+                    if timestamp > 2e10:
+                        timestamp = timestamp / 1000.0
+                    pos.entry_time = datetime.fromtimestamp(timestamp)
+                self.position_info = pos
 
             self.is_in_position = self.position_info is not None
             if self.is_in_position and self.position_entry_ts == 0:
                 self.position_entry_ts = self._current_timestamp()
 
             logger.debug(f"[MarketContext] 更新持仓: {self.position_info}")
+
+        # 转换可能为浮点数的时间字段（旧持仓）
+        if old_position:
+            if isinstance(old_position.stage_start_time, (int, float)):
+                timestamp = float(old_position.stage_start_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                old_position.stage_start_time = datetime.fromtimestamp(timestamp)
+            if isinstance(old_position.entry_time, (int, float)):
+                timestamp = float(old_position.entry_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                old_position.entry_time = datetime.fromtimestamp(timestamp)
 
         # 🛡️ 锁外触发事件（极低频，仅在持仓状态变化时）
         # 注意：即使频繁更新，事件回调也是异步的，不会阻塞主线程
@@ -355,6 +394,19 @@ class MarketContext:
             self.position_entry_ts = 0
             logger.debug("[MarketContext] 清空持仓")
 
+        # 转换可能为浮点数的时间字段
+        if old_position:
+            if isinstance(old_position.stage_start_time, (int, float)):
+                timestamp = float(old_position.stage_start_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                old_position.stage_start_time = datetime.fromtimestamp(timestamp)
+            if isinstance(old_position.entry_time, (int, float)):
+                timestamp = float(old_position.entry_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                old_position.entry_time = datetime.fromtimestamp(timestamp)
+
         # 🛡️ 触发持仓更新事件
         self._trigger_event('position_updated', {
             'old_position': old_position.to_dict() if old_position else None,
@@ -365,12 +417,26 @@ class MarketContext:
     def get_position(self) -> Optional[PositionInfo]:
         """获取持仓信息"""
         with self._lock:
-            return copy.deepcopy(self.position_info) if self.position_info else None
+            if not self.position_info:
+                return None
+            position = copy.deepcopy(self.position_info)
+            # 确保时间字段是datetime类型
+            if isinstance(position.stage_start_time, (int, float)):
+                timestamp = float(position.stage_start_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                position.stage_start_time = datetime.fromtimestamp(timestamp)
+            if isinstance(position.entry_time, (int, float)):
+                timestamp = float(position.entry_time)
+                if timestamp > 2e10:
+                    timestamp = timestamp / 1000.0
+                position.entry_time = datetime.fromtimestamp(timestamp)
+            return position
 
     def get_position_dict(self) -> Optional[Dict[str, Any]]:
         """获取持仓信息（字典形式）"""
-        with self._lock:
-            return self.position_info.to_dict() if self.position_info else None
+        position = self.get_position()
+        return position.to_dict() if position else None
 
     # ==================== 信号管理 ====================
 
