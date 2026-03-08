@@ -180,26 +180,20 @@ class OKXTrader:
             logger.error(f"[Trader] 获取K线数据异常: {e}")
             return []
 
-    async def market_buy(self, size: float) -> Dict:
-        """市价买入"""
+    async def market_buy(self, size: float, reduce_only: bool = False) -> Dict:
         payload = {
-            "instId": self.symbol,
-            "tdMode": self.td_mode,
-            "side": "buy",
-            "ordType": "market",
-            "sz": str(size)
+            "instId": self.symbol, "tdMode": self.td_mode, "side": "buy",
+            "ordType": "market", "sz": str(int(size))
         }
+        if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
 
-    async def market_sell(self, size: float) -> Dict:
-        """市价卖出"""
+    async def market_sell(self, size: float, reduce_only: bool = False) -> Dict:
         payload = {
-            "instId": self.symbol,
-            "tdMode": self.td_mode,
-            "side": "sell",
-            "ordType": "market",
-            "sz": str(size)
+            "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
+            "ordType": "market", "sz": str(int(size))
         }
+        if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
 
     async def post_only_sell(self, size: float, price: float) -> Dict:

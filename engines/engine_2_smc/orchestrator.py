@@ -176,6 +176,8 @@ class SMCOrchestrator:
                 logger.error("❌ 获取数据失败，跳过本次扫描")
                 return
 
+            df = df.iloc[:-1]
+
             # 2. 计算 SMC 指标
             df = add_smc_indicators(df)
             if df.empty:
@@ -329,12 +331,16 @@ class SMCOrchestrator:
 
             # 根据合约面值调整
             ct_val = self.trader.ct_val_map.get(self.symbol, 0.1)
-            position_size = position_size / ct_val
+            position_size = int(position_size / ct_val)
+
+            if position_size < 1:
+                logger.error(f"❌ 资金不足以开哪怕 1 张合约！计算值: {position_size}")
+                return 0
 
             logger.debug(
                 f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 仓位={position_size:.2f}张")
 
-            return position_size
+            return float(position_size)
         except Exception as e:
             logger.error(f"❌ 计算仓位大小异常: {e}")
             return 0
@@ -349,6 +355,25 @@ class SMCOrchestrator:
             return
 
         try:
+            # 🌟 新增：时间止损逻辑 (对齐回测)
+            time_stop_hours = self.engine_cfg.get('time_stop', 48)  # 默认48小时
+            hold_hours = (time.time() - self._current_position['entry_time']) / 3600
+
+            if hold_hours >= time_stop_hours:
+                entry_price = self._current_position['entry_price']
+                initial_risk = self._current_position.get('initial_risk', 1.0)
+
+                # 计算当前 MFE(R)
+                if self._current_position['side'] == 'buy':
+                    mfe_r = (self._current_position['highest_price'] - entry_price) / initial_risk
+                else:
+                    mfe_r = (entry_price - self._current_position['lowest_price']) / initial_risk
+
+                if mfe_r < 1.0:
+                    logger.warning(f"⏳ [时间止损] 仓位钝化！持仓 {hold_hours:.1f} 小时未触及 1R，主动撤退！")
+                    await self._close_position("time_stop", df.iloc[-1]['close'])
+                    return
+
             latest_close = df.iloc[-1]['close']
             latest_high = df.iloc[-1]['high']
             latest_low = df.iloc[-1]['low']
@@ -439,10 +464,10 @@ class SMCOrchestrator:
                 logger.warning(f"🔫 执行市价平仓: {side} -> {position_size}张")
                 if side == "buy":
                     # 多头平仓：市价卖出
-                    close_result = await self.trader.market_sell(position_size)
+                    close_result = await self.trader.market_sell(position_size, reduce_only=True)
                 else:
                     # 空头平仓：市价买入
-                    close_result = await self.trader.market_buy(position_size)
+                    close_result = await self.trader.market_buy(position_size, reduce_only=True)
 
                 if close_result and close_result.get('code') == '0':
                     logger.info(f"✅ 平仓成功！订单ID: {close_result.get('data', [{}])[0].get('ordId')}")
@@ -472,7 +497,7 @@ class SMCOrchestrator:
                     # 说明持仓可能已被交易所平仓（止损触发或手动平仓）
                     logger.warning("🔄 检测到持仓状态不一致，清理本地持仓记录")
                     self._current_position = None
-                await asyncio.sleep(60)  # 每分钟检查一次
+                await asyncio.sleep(5)  # 每分钟检查一次
         except asyncio.CancelledError:
             logger.info("📊 持仓监控任务被取消")
         except Exception as e:
