@@ -23,12 +23,12 @@ SMC 二号引擎编排器 (SMCOrchestrator)
 """
 import argparse
 import asyncio
+import os
 import signal
 import sys
-import os
 import time
+
 import pandas as pd
-from typing import Dict, Any, Optional
 
 # 确保能导入项目根目录的模块
 current_file = os.path.abspath(__file__)
@@ -39,7 +39,7 @@ if project_root not in sys.path:
 from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
-from src.execution.trader import OKXTrader, ExecutionResult
+from src.execution.trader import OKXTrader
 from src.context.market_context import MarketContext
 from config.loader import load_strategy_config
 from src.utils.log import get_logger
@@ -108,7 +108,6 @@ class SMCOrchestrator:
         self._hourly_task = None
         self._monitor_task = None
         self._current_position = None  # 当前持仓信息
-        self._current_stop_loss = 0.0  # 当前止损价
         self._current_atr = 0.0  # 当前 ATR 值
 
         logger.info(f"🚀 SMC 编排器初始化完成: {symbol} [{mode.upper()}]")
@@ -154,7 +153,7 @@ class SMCOrchestrator:
                 # 计算到下一个整点小时的时间
                 now = time.time()
                 next_hour = ((now // 3600) + 1) * 3600
-                sleep_seconds = next_hour - now
+                sleep_seconds = next_hour - now + 3
 
                 logger.info(f"⏰ 下一个执行时间: {time.ctime(next_hour)} ({sleep_seconds:.0f} 秒后)")
                 await asyncio.sleep(sleep_seconds)
@@ -266,6 +265,9 @@ class SMCOrchestrator:
             else:
                 logger.info(f"✅ 止损单创建成功，算法单ID: {sl_algo_id}")
 
+            # 计算初始风险
+            initial_risk = abs(latest_close - initial_stop_loss)
+
             # 记录持仓信息
             self._current_position = {
                 'entry_price': latest_close,
@@ -274,6 +276,7 @@ class SMCOrchestrator:
                 'entry_time': time.time(),
                 'initial_stop_loss': initial_stop_loss,
                 'current_stop_loss': initial_stop_loss,
+                'initial_risk': initial_risk,
                 'order_id': order_id,
                 'sl_algo_id': sl_algo_id,
                 'highest_price': latest_close,
@@ -328,7 +331,8 @@ class SMCOrchestrator:
             ct_val = self.trader.ct_val_map.get(self.symbol, 0.1)
             position_size = position_size / ct_val
 
-            logger.debug(f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 仓位={position_size:.2f}张")
+            logger.debug(
+                f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 仓位={position_size:.2f}张")
 
             return position_size
         except Exception as e:
@@ -336,7 +340,11 @@ class SMCOrchestrator:
             return 0
 
     async def _update_stop_loss(self, df: pd.DataFrame):
-        """更新追踪止损（基于最新价格和 ATR）"""
+        """更新追踪止损（基于最新价格和 ATR）
+
+        注意：完全依赖交易所条件止损单，不进行手动止损检测。
+        当价格触发止损单时，交易所自动平仓，程序通过持仓状态变化检测平仓。
+        """
         if not self._current_position:
             return
 
@@ -354,25 +362,19 @@ class SMCOrchestrator:
             current_stop_loss = self._current_position['current_stop_loss']
             atr_multiplier = self.engine_cfg.get('atr_multiplier', 7.0)
 
+            # 更新最高价和最低价（用于时间止损计算）
+            self._current_position['highest_price'] = max(self._current_position['highest_price'], latest_high)
+            self._current_position['lowest_price'] = min(self._current_position['lowest_price'], latest_low)
+
             new_stop_loss = current_stop_loss
 
-            # 根据仓位方向更新止损
+            # 根据仓位方向更新止损（提灯止损逻辑）
             if side == "buy":
                 # 多头：止损上移，不低于当前止损价
                 new_stop_loss = max(current_stop_loss, latest_close - latest_atr * atr_multiplier)
-                # 检查是否触发止损
-                if latest_low <= current_stop_loss:
-                    logger.warning(f"🛑 触发止损！当前价={latest_low}, 止损价={current_stop_loss}")
-                    await self._close_position("stop_loss", latest_close)
-                    return
             else:
                 # 空头：止损下移，不高于当前止损价
                 new_stop_loss = min(current_stop_loss, latest_close + latest_atr * atr_multiplier)
-                # 检查是否触发止损
-                if latest_high >= current_stop_loss:
-                    logger.warning(f"🛑 触发止损！当前价={latest_high}, 止损价={current_stop_loss}")
-                    await self._close_position("stop_loss", latest_close)
-                    return
 
             # 如果止损价有变化，更新止损单
             if abs(new_stop_loss - current_stop_loss) > 0.0001:
@@ -405,7 +407,10 @@ class SMCOrchestrator:
             logger.error(f"❌ 更新止损异常: {e}")
 
     async def _close_position(self, reason: str, close_price: float):
-        """平仓"""
+        """手动平仓（用于时间止损或其他手动平仓情况）
+
+        注意：正常止损平仓由交易所条件止损单自动处理，不调用此方法。
+        """
         logger.warning(f"🏁 平仓: 原因={reason}, 价格={close_price}")
 
         if not self._current_position:
@@ -419,7 +424,8 @@ class SMCOrchestrator:
             sl_algo_id = self._current_position.get('sl_algo_id')
 
             # 计算盈亏
-            pnl_pct = (close_price - entry_price) / entry_price * 100 if side == 'buy' else (entry_price - close_price) / entry_price * 100
+            pnl_pct = (close_price - entry_price) / entry_price * 100 if side == 'buy' else (
+                                                                                                        entry_price - close_price) / entry_price * 100
             logger.info(f"💰 平仓盈亏: {pnl_pct:.2f}%")
 
             # 实盘模式下执行平仓操作
@@ -454,47 +460,24 @@ class SMCOrchestrator:
             self.context.clear_position()
 
     async def _monitor_position_loop(self):
-        """持仓监控循环（更频繁地检查止损）"""
+        """持仓监控循环（状态同步）
+
+        通过定期检查持仓状态是否一致，检测交易所自动平仓（止损触发或手动平仓）。
+        不进行手动止损检测，完全依赖交易所条件止损单。
+        """
         try:
             while self._is_running:
-                if self.context.is_in_position:
-                    # 每分钟检查一次止损
-                    await self._check_stop_loss()
+                if self._current_position and not self.context.is_in_position:
+                    # 本地有持仓记录，但市场上下文显示无持仓
+                    # 说明持仓可能已被交易所平仓（止损触发或手动平仓）
+                    logger.warning("🔄 检测到持仓状态不一致，清理本地持仓记录")
+                    self._current_position = None
                 await asyncio.sleep(60)  # 每分钟检查一次
         except asyncio.CancelledError:
             logger.info("📊 持仓监控任务被取消")
         except Exception as e:
             logger.error(f"❌ 持仓监控异常: {e}")
 
-    async def _check_stop_loss(self):
-        """检查止损触发"""
-        if not self._current_position:
-            return
-
-        try:
-            # 获取当前价格（简单方法：拉取最新 K 线）
-            # 注意：这里应该使用 tick 数据，但为了简单先使用 K 线
-            df = self.data_loader.fetch_historical_data(limit=2)
-            if df.empty:
-                return
-
-            latest_close = df.iloc[-1]['close']
-            latest_high = df.iloc[-1]['high']
-            latest_low = df.iloc[-1]['low']
-
-            side = self._current_position['side']
-            stop_loss = self._current_position['current_stop_loss']
-
-            # 检查止损触发
-            if side == "buy" and latest_low <= stop_loss:
-                logger.warning(f"🛑 监控发现止损触发！当前最低价={latest_low}, 止损价={stop_loss}")
-                await self._close_position("stop_loss", stop_loss)
-            elif side == "sell" and latest_high >= stop_loss:
-                logger.warning(f"🛑 监控发现止损触发！当前最高价={latest_high}, 止损价={stop_loss}")
-                await self._close_position("stop_loss", stop_loss)
-
-        except Exception as e:
-            logger.error(f"❌ 检查止损异常: {e}")
 
 
 def main():
