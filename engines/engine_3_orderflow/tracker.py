@@ -40,16 +40,17 @@ class CSVTracker:
             'level': signal.get('level', 'UNKNOWN'),
             'entry_price': signal['price'],
             'cvd_delta_usdt': signal.get('cvd_delta_usdt', 0),
-            'micro_cvd': signal.get('micro_cvd', 0),           # 🌟 物理反转
-            'entry_bounce': signal.get('price_diff_pct', 0),   # 🌟 物理入场位
-            'effort_anomaly': signal.get('effort_anomaly', 0), # 🌟 诊断倍数
-            'res_anomaly': signal.get('res_anomaly', 0),       # 🌟 诊断阻力
-            'terrain': signal.get('smc_msg', 'N/A'),           # 🌟 地形标签
+            'micro_cvd': signal.get('micro_cvd', 0),  # 🌟 物理反转
+            'entry_bounce': signal.get('price_diff_pct', 0),  # 🌟 物理入场位
+            'effort_anomaly': signal.get('effort_anomaly', 0),  # 🌟 诊断倍数
+            'res_anomaly': signal.get('res_anomaly', 0),  # 🌟 诊断阻力
+            'terrain': signal.get('smc_msg', 'N/A'),  # 🌟 地形标签
             'max_price': signal['price'],
             'local_low': signal.get('local_low', signal['price']),
             'last_update': signal['ts']
         })
-        logger.info(f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}，砸盘：{round(signal.get('cvd_delta_usdt', 0)/1000000, 2)}百万，反转：{round(signal.get('micro_cvd', 0)/1000000, 2)}百万")
+        logger.info(
+            f"📊 [科考船] 捕获 {signal['level']} 级别信号，地形: {signal.get('smc_msg', '未知')}，砸盘：{round(signal.get('cvd_delta_usdt', 0) / 1000000, 2)}百万，反转：{round(signal.get('micro_cvd', 0) / 1000000, 2)}百万")
 
     def update_trackings(self):
         """更新所有追踪单的最大反弹值，并检查止损（从MarketContext获取实时数据）"""
@@ -103,10 +104,10 @@ class CSVTracker:
                     datetime.datetime.fromtimestamp(track['entry_time']).strftime('%H:%M:%S'),
                     track['level'],
                     round(effort_m, 2),
-                    round(rebound_m, 2),              # 物理反转量
+                    round(rebound_m, 2),  # 物理反转量
                     round(track['entry_bounce'], 3),  # 入场时的偏离
-                    round(track['effort_anomaly'], 2), # 异常倍数
-                    round(track['res_anomaly'], 2),    # 阻力倍数
+                    round(track['effort_anomaly'], 2),  # 异常倍数
+                    round(track['res_anomaly'], 2),  # 阻力倍数
                     track['entry_price'],
                     track['max_price'],
                     round(bounce_pct, 4),

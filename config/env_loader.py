@@ -4,7 +4,6 @@
 环境变量配置加载器，用于读取 .env 文件中的配置。
 """
 import os
-from typing import Optional
 
 
 def load_env_config() -> dict:

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
+
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

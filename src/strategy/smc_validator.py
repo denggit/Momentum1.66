@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 
 from src.data_feed.okx_loader import OKXDataLoader
-from src.utils.volume_profile import CompositeVolumeProfile
 from src.utils.log import get_logger
+from src.utils.volume_profile import CompositeVolumeProfile
 
 logger = get_logger(__name__)
 

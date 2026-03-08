@@ -4,11 +4,10 @@
 日志模块，提供按日期分割的日志文件功能。
 每天一个日志文件，程序运行时如果日期变更会自动切换到新的日志文件。
 """
-import os
-import sys
 import logging
 import logging.handlers
-from datetime import datetime
+import os
+import sys
 
 _setup_done = False
 
@@ -55,8 +54,8 @@ def setup_logging(log_level=logging.INFO, log_dir='logs'):
     file_handler = logging.handlers.TimedRotatingFileHandler(
         filename=log_file,
         when='midnight',  # 每天午夜轮转
-        interval=1,       # 间隔1天
-        backupCount=30,   # 保留最近30天的日志
+        interval=1,  # 间隔1天
+        backupCount=30,  # 保留最近30天的日志
         encoding='utf-8'
     )
     file_handler.suffix = '%Y-%m-%d'  # 日志文件后缀格式

@@ -17,6 +17,7 @@ if project_root not in sys.path:
 
 import sqlite3
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 # 连接到你的本地数据库

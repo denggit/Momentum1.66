@@ -6,7 +6,6 @@
 @File       : squeeze.py
 @Description: 
 """
-import logging
 
 import pandas as pd
 
@@ -29,10 +28,10 @@ class SqueezeStrategy:
 
         # -- 多头突破 (LONG) --
         long_cond = (
-                (df['Squeeze_On'].shift(1)) &  
+                (df['Squeeze_On'].shift(1)) &
                 (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) &
-                (df['Squeeze_Off']) &  
-                (df['close'] > df['BB_upper']) &  
+                (df['Squeeze_Off']) &
+                (df['close'] > df['BB_upper']) &
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor) &
                 (df['close'] > df['EMA_200']) &
                 (df['ADX'] > min_adx_trend_strength)  # <--- 【极度硬核：拒绝死水微澜里的假突破！】
@@ -43,14 +42,14 @@ class SqueezeStrategy:
                 (df['Squeeze_On'].shift(1)) &
                 (df['Squeeze_Count'].shift(1) >= min_squeeze_duration) &
                 (df['Squeeze_Off']) &
-                (df['close'] < df['BB_lower']) &  
+                (df['close'] < df['BB_lower']) &
                 (df['volume'] > df['Vol_SMA'] * self.volume_factor) &
                 (df['close'] < df['EMA_200']) &
                 (df['ADX'] > min_adx_trend_strength)  # <--- 【确认空头动能强劲】
         )
 
         df['Signal'] = 0
-        df.loc[long_cond, 'Signal'] = 1  
-        df.loc[short_cond, 'Signal'] = -1  
+        df.loc[long_cond, 'Signal'] = 1
+        df.loc[short_cond, 'Signal'] = -1
 
         return df

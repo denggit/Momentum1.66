@@ -312,7 +312,8 @@ class OKXDataLoader:
                 expected_bars = self._calculate_bars_needed(start_date, end_date)
                 # 容错 5% 的缺失，如果够了直接返回
                 if len(local_in_range) >= expected_bars * 0.95:
-                    logging.debug(f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
+                    logging.debug(
+                        f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
                     return local_in_range
 
         # 2. 本地数据不足，进行精准【定向拉取】
@@ -329,7 +330,7 @@ class OKXDataLoader:
             end_utc -= pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
         elif "-" in TIMEZONE:
             end_utc += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
-            
+
         # 加上 1000 毫秒的冗余，确保能拿到 end_date 那个周期本身的 K 线
         end_ts_ms = str(int(end_utc.timestamp() * 1000) + 1000)
 
@@ -355,6 +356,7 @@ class OKXDataLoader:
         result_df = combined_df[mask]
 
         if not result_df.empty:
-            logging.debug(f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
-        
+            logging.debug(
+                f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
+
         return result_df

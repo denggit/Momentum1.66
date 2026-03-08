@@ -10,11 +10,11 @@
 3. 最小化共享：只共享必要的情报，不共享业务逻辑状态
 """
 import asyncio
-import threading
 import copy
-from typing import Optional, Dict, Any, Union, Callable
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Optional, Dict, Any, Union, Callable
 
 from src.utils.log import get_logger
 
@@ -108,9 +108,9 @@ class MarketContext:
 
         # 🛡️ 安全事件系统：仅用于低频状态变化
         self._event_listeners = {
-            'of_wall_updated': [],      # 隐形墙变化（低频）
-            'of_squeeze_updated': [],   # 空头挤压（低频）
-            'position_updated': []      # 持仓变化（极低频）
+            'of_wall_updated': [],  # 隐形墙变化（低频）
+            'of_squeeze_updated': [],  # 空头挤压（低频）
+            'position_updated': []  # 持仓变化（极低频）
         }
 
     def _reset(self):
@@ -501,11 +501,11 @@ class MarketContext:
 
         log_method(f"[MarketContext] 上下文快照:")
         log_method(f"  订单流: 墙={snapshot['of_wall_price']:.2f}({snapshot['of_wall_age']:.1f}s), "
-                  f"挤压={snapshot['of_squeeze_flag']}({snapshot['of_squeeze_age']:.1f}s)")
+                   f"挤压={snapshot['of_squeeze_flag']}({snapshot['of_squeeze_age']:.1f}s)")
         log_method(f"  SMC: 支撑={snapshot['smc_support']:.2f}, 阻力={snapshot['smc_resistance']:.2f} "
-                  f"({snapshot['smc_age']:.1f}s)")
+                   f"({snapshot['smc_age']:.1f}s)")
         log_method(f"  持仓: {'有' if snapshot['has_position'] else '无'}, "
-                  f"阶段={snapshot['position_stage']}, 持有={snapshot['position_entry_age']:.1f}s")
+                   f"阶段={snapshot['position_stage']}, 持有={snapshot['position_entry_age']:.1f}s")
         log_method(f"  信号: 总数={snapshot['signal_count']}, 最后={snapshot['last_signal_level']}")
         log_method(f"  市场: 现价={snapshot['current_price']:.2f}, Tick年龄={snapshot['tick_age']:.3f}s")
 

@@ -13,6 +13,7 @@ import pandas as pd
 import pandas_ta as ta
 from src.data_feed.okx_loader import OKXDataLoader
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -60,7 +61,7 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
 
     # 维度 4: K 线形态学 (当前K线实体的强弱比例)
     df_klines['Body_Ratio'] = abs(df_klines['close'] - df_klines['open']) / (
-                df_klines['high'] - df_klines['low'] + 1e-8)
+            df_klines['high'] - df_klines['low'] + 1e-8)
 
     # 维度 5: 时空特征
     df_klines['Hour'] = df_klines.index.hour
@@ -112,9 +113,10 @@ def build_ml_dataset(trade_log_path: str, symbol: str, timeframe: str, start_dat
 if __name__ == "__main__":
     SYMBOL = "SOL-USDT-SWAP"
     # 请确保这个路径指向你刚刚跑出来的那个 1H SMC 纯净版的 TradeLog.csv
-    log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-                            "data", "reports", "SMC",
-                            f"SMC_(1H_Order_Block)_{SYMBOL}_2021-02-02_2025-12-31_False.csv")
+    log_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+        "data", "reports", "SMC",
+        f"SMC_(1H_Order_Block)_{SYMBOL}_2021-02-02_2025-12-31_False.csv")
     # 执行构建
     build_ml_dataset(
         trade_log_path=log_path,

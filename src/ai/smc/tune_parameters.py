@@ -20,6 +20,7 @@ from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 warnings.filterwarnings('ignore')

@@ -19,12 +19,12 @@
 import asyncio
 import threading
 import time
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any
 
-from src.utils.log import get_logger
 from src.context.market_context import MarketContext
-from src.strategy.orderflow_config import OrderFlowConfig
 from src.execution.trader import ExecutionResult
+from src.strategy.orderflow_config import OrderFlowConfig
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
@@ -72,8 +72,8 @@ class LifecycleManager:
 
         # 阶段3无限登月模式专用状态
         self._moon_phase_highest_price: float = 0.0  # 阶段3期间的最高价
-        self._moon_phase_sl_base_pct: float = 0.0    # 阶段3止损基准百分比（相对于入场价）
-        self._moon_phase_initialized: bool = False   # 阶段3追踪是否已初始化
+        self._moon_phase_sl_base_pct: float = 0.0  # 阶段3止损基准百分比（相对于入场价）
+        self._moon_phase_initialized: bool = False  # 阶段3追踪是否已初始化
 
         # 线程安全
         self._lock = threading.RLock()
@@ -162,7 +162,8 @@ class LifecycleManager:
         new_position = event_data.get('new_position')
         is_in_position = event_data.get('is_in_position', False)
 
-        logger.debug(f"[LifecycleManager] 收到持仓更新事件: 持仓状态={is_in_position}, 新持仓信息={new_position is not None}")
+        logger.debug(
+            f"[LifecycleManager] 收到持仓更新事件: 持仓状态={is_in_position}, 新持仓信息={new_position is not None}")
 
         # 🆕 检测到仓位消失（手动平仓或止损止盈触发）
         if not is_in_position and self._is_running:
@@ -282,11 +283,13 @@ class LifecycleManager:
                 # 获取入场价和当前保本参数
                 entry_price = self._execution_result.entry_price
                 breakeven_pct = self.breakeven_pct
-                logger.info(f"[LifecycleManager] 入场价: {entry_price:.4f}, 保本比例: {breakeven_pct:.4f} ({breakeven_pct*100:.2f}%)")
+                logger.info(
+                    f"[LifecycleManager] 入场价: {entry_price:.4f}, 保本比例: {breakeven_pct:.4f} ({breakeven_pct * 100:.2f}%)")
 
                 # 计算保本价
                 breakeven_price = self._calculate_breakeven_price()
-                logger.info(f"[LifecycleManager] 计算保本价: {entry_price:.4f} * (1 + {breakeven_pct:.4f}) = {breakeven_price:.4f}")
+                logger.info(
+                    f"[LifecycleManager] 计算保本价: {entry_price:.4f} * (1 + {breakeven_pct:.4f}) = {breakeven_price:.4f}")
 
                 # 移动止损到保本价
                 success = await self._move_stop_loss(
@@ -443,7 +446,7 @@ class LifecycleManager:
                     f"[LifecycleManager] 阶段3动态追踪初始化 | "
                     f"当前价: {current_price:.2f} | "
                     f"入场价: {entry_price:.2f} | "
-                    f"初始止损基准: {self._moon_phase_sl_base_pct*100:.3f}%"
+                    f"初始止损基准: {self._moon_phase_sl_base_pct * 100:.3f}%"
                 )
 
             # 2. 更新阶段3最高价
@@ -478,8 +481,8 @@ class LifecycleManager:
                 move_count += 1
                 logger.warning(
                     f"[LifecycleManager] 🚀 动态追踪触发 (第{move_count}次) | "
-                    f"最高价涨幅: {highest_pct*100:.3f}% | "
-                    f"止损基准 {old_base_pct*100:.3f}% → {new_sl_base_pct*100:.3f}% | "
+                    f"最高价涨幅: {highest_pct * 100:.3f}% | "
+                    f"止损基准 {old_base_pct * 100:.3f}% → {new_sl_base_pct * 100:.3f}% | "
                     f"动态止损价: {price_based_sl:.2f}"
                 )
 
@@ -500,10 +503,10 @@ class LifecycleManager:
                 k1_low = float(klines[i][3])
                 k1_close = float(klines[i][4])
 
-                if i-1 >= len(klines):
+                if i - 1 >= len(klines):
                     break
-                k2_open = float(klines[i-1][1])
-                k2_close = float(klines[i-1][4])
+                k2_open = float(klines[i - 1][1])
+                k2_close = float(klines[i - 1][4])
 
                 # k1必须是一根阳线，且实体高度 >= 强推力阈值
                 k1_body_pct = (k1_close - k1_open) / k1_open
@@ -516,10 +519,10 @@ class LifecycleManager:
 
             # 策略B：标准的5分钟Swing Low波段低点防守
             for i in range(3, 10):
-                if i+2 >= len(klines):
+                if i + 2 >= len(klines):
                     break
 
-                lows = [float(klines[j][3]) for j in range(i-2, i+3)]
+                lows = [float(klines[j][3]) for j in range(i - 2, i + 3)]
                 if len(lows) == 5:
                     l0, l1, l2, l3, l4 = lows
                     if l2 < l0 and l2 < l1 and l2 < l3 and l2 < l4:
@@ -560,7 +563,8 @@ class LifecycleManager:
             bool: 是否成功
         """
         try:
-            logger.info(f"[LifecycleManager] 准备移动止损线到: {trigger_price:.4f}, 当前止损单ID: {self._current_sl_algo_id}")
+            logger.info(
+                f"[LifecycleManager] 准备移动止损线到: {trigger_price:.4f}, 当前止损单ID: {self._current_sl_algo_id}")
 
             # 取消旧止损单
             if self._current_sl_algo_id:
@@ -596,8 +600,9 @@ class LifecycleManager:
         breakeven_price = round(entry_price * (1 + self.breakeven_pct), 2)
 
         # 调试日志
-        logger.debug(f"[LifecycleManager] 保本价计算: entry={entry_price:.4f}, pct={self.breakeven_pct:.6f}, result={breakeven_price:.4f}")
-        logger.debug(f"[LifecycleManager] 保本价相对入场价涨幅: {(breakeven_price/entry_price-1)*100:.4f}%")
+        logger.debug(
+            f"[LifecycleManager] 保本价计算: entry={entry_price:.4f}, pct={self.breakeven_pct:.6f}, result={breakeven_price:.4f}")
+        logger.debug(f"[LifecycleManager] 保本价相对入场价涨幅: {(breakeven_price / entry_price - 1) * 100:.4f}%")
 
         return breakeven_price
 

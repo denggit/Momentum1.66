@@ -4,9 +4,9 @@
 OrderFlow策略配置类
 将分散的配置参数统一管理，简化OrderFlowMath的初始化
 """
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
 import logging
+from dataclasses import dataclass, field
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +149,14 @@ class OrderFlowConfig:
         config.price_drop_threshold = orderflow_config.get("price_drop_threshold", config.price_drop_threshold)
         config.safe_drop_min = orderflow_config.get("safe_drop_min", config.safe_drop_min)
         config.dump_anomaly_threshold = orderflow_config.get("dump_anomaly_threshold", config.dump_anomaly_threshold)
-        config.resistance_anomaly_threshold = orderflow_config.get("resistance_anomaly_threshold", config.resistance_anomaly_threshold)
-        config.v_reversal_dump_threshold = orderflow_config.get("v_reversal_dump_threshold", config.v_reversal_dump_threshold)
-        config.v_reversal_counter_threshold = orderflow_config.get("v_reversal_counter_threshold", config.v_reversal_counter_threshold)
-        config.v_reversal_rebound_ratio = orderflow_config.get("v_reversal_rebound_ratio", config.v_reversal_rebound_ratio)
+        config.resistance_anomaly_threshold = orderflow_config.get("resistance_anomaly_threshold",
+                                                                   config.resistance_anomaly_threshold)
+        config.v_reversal_dump_threshold = orderflow_config.get("v_reversal_dump_threshold",
+                                                                config.v_reversal_dump_threshold)
+        config.v_reversal_counter_threshold = orderflow_config.get("v_reversal_counter_threshold",
+                                                                   config.v_reversal_counter_threshold)
+        config.v_reversal_rebound_ratio = orderflow_config.get("v_reversal_rebound_ratio",
+                                                               config.v_reversal_rebound_ratio)
         config.v_reversal_min_rebound = orderflow_config.get("v_reversal_min_rebound", config.v_reversal_min_rebound)
         config.v_reversal_max_rebound = orderflow_config.get("v_reversal_max_rebound", config.v_reversal_max_rebound)
         config.broad_report_threshold = orderflow_config.get("broad_report_threshold", config.broad_report_threshold)
@@ -164,7 +168,8 @@ class OrderFlowConfig:
         config.squeeze_price_change = orderflow_config.get("squeeze_price_change", config.squeeze_price_change)
 
         # 快照参数（如果在orderflow配置中提供）
-        config.snapshot_interval_seconds = orderflow_config.get("snapshot_interval_seconds", config.snapshot_interval_seconds)
+        config.snapshot_interval_seconds = orderflow_config.get("snapshot_interval_seconds",
+                                                                config.snapshot_interval_seconds)
         config.snapshot_window_minutes = orderflow_config.get("snapshot_window_minutes", config.snapshot_window_minutes)
         config.snapshot_count = orderflow_config.get("snapshot_count", config.snapshot_count)
         config.analysis_snapshot_count = orderflow_config.get("analysis_snapshot_count", config.analysis_snapshot_count)
@@ -172,7 +177,8 @@ class OrderFlowConfig:
         # 记忆参数（如果在orderflow配置中提供）
         config.memory_decay_factor = orderflow_config.get("memory_decay_factor", config.memory_decay_factor)
         config.memory_update_factor = orderflow_config.get("memory_update_factor", config.memory_update_factor)
-        config.memory_update_threshold_m = orderflow_config.get("memory_update_threshold_m", config.memory_update_threshold_m)
+        config.memory_update_threshold_m = orderflow_config.get("memory_update_threshold_m",
+                                                                config.memory_update_threshold_m)
 
         # 执行配置
         config.tp1_pct = execution_config.get("tp1_pct", config.tp1_pct)
@@ -273,5 +279,5 @@ class OrderFlowConfig:
     def __str__(self) -> str:
         """简洁的字符串表示"""
         return f"OrderFlowConfig(symbol={self.symbol}, contract_size={self.contract_size}, " \
-               f"armed_threshold=${self.armed_threshold_usdt/1_000_000:.1f}M, " \
+               f"armed_threshold=${self.armed_threshold_usdt / 1_000_000:.1f}M, " \
                f"fire_cooldown={self.fire_cooldown_sec}s)"

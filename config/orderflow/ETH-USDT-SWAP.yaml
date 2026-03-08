@@ -63,4 +63,4 @@ execution:
 # SMC验证参数（可选）
 smc_validation:
   enabled: true
-  timeframes: ["5m", "15m", "1H"]
+  timeframes: [ "5m", "15m", "1H" ]

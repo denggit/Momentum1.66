@@ -18,6 +18,7 @@ from src.data_feed.okx_loader import OKXDataLoader
 from src.strategy.indicators import add_squeeze_indicators
 from src.strategy.squeeze import SqueezeStrategy
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -241,7 +242,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         logger.info("\n" + "=" * 65)
         logger.info(" 📅 逐年绩效拆解 (Yearly Breakdown)")
         logger.info("=" * 65)
-        logger.info(f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<10} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
+        logger.info(
+            f"{'年份':<6} | {'初始资金':<10} | {'净盈亏':<10} | {'当年收益率':<10} | {'胜率':<6} | {'最大回撤':<8}")
         logger.info("-" * 65)
 
         current_year_cap = initial_capital
@@ -324,7 +326,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1000.0):
         logger.info("\n" + "=" * 65)
         logger.info(f"初始资金 (Initial Cap):   ${initial_capital:.2f}")
         logger.info(f"最终资金 (Final Cap):     ${capital:.2f}")
-        logger.info(f"总净利润 (Net PnL):       +${(capital - initial_capital):.2f} (总收益率: {net_profit_pct * 100:.2f}%)")
+        logger.info(
+            f"总净利润 (Net PnL):       +${(capital - initial_capital):.2f} (总收益率: {net_profit_pct * 100:.2f}%)")
         logger.info(f"复合年化收益率 (CAGR):    {cagr * 100:.2f}%  <--- 🚀 华尔街核心考核指标")
         logger.info("=" * 65)
     else:

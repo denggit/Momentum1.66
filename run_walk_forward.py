@@ -19,6 +19,7 @@ import pandas as pd
 import xgboost as xgb
 from dateutil.relativedelta import relativedelta
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -78,7 +79,8 @@ def run_walk_forward():
 
             pass_count = df_test['AI_Pass'].sum()
             total_count = len(df_test)
-            logger.info(f"✅ 阶段 [{current_test_start.date()} -> {test_end.date()}] | 训练样本: {len(df_train)} | 拦截率: {(1 - pass_count / total_count) * 100:.1f}%")
+            logger.info(
+                f"✅ 阶段 [{current_test_start.date()} -> {test_end.date()}] | 训练样本: {len(df_train)} | 拦截率: {(1 - pass_count / total_count) * 100:.1f}%")
 
         # 时间轴推进
         current_test_start = test_end
@@ -99,7 +101,8 @@ def run_walk_forward():
     logger.info("\n" + "=" * 60)
     logger.info("🏆 终极滚动回测报告 (2024-2025 样本外盲测)")
     logger.info("=" * 60)
-    logger.info(f"📊 交易频次: 裸跑 {raw_trades} 次 -> AI 过滤后 {ai_trades} 次 (拦截了 {raw_trades - ai_trades} 笔垃圾单)")
+    logger.info(
+        f"📊 交易频次: 裸跑 {raw_trades} 次 -> AI 过滤后 {ai_trades} 次 (拦截了 {raw_trades - ai_trades} 笔垃圾单)")
     logger.info(f"🎯 综合胜率: 裸跑 {raw_win_rate:.2f}% -> AI 过滤后 {ai_win_rate:.2f}%")
     logger.info(f"💰 累计利润: 裸跑 ${raw_pnl:.2f} -> AI 过滤后 ${ai_pnl:.2f}")
 

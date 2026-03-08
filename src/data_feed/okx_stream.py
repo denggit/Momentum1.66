@@ -1,9 +1,12 @@
 import asyncio
 import json
+
 import websockets
+
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
+
 
 class OKXTickStreamer:
     def __init__(self, symbol="ETH-USDT-SWAP", on_tick_callback=None):

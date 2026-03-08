@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import os
-import yaml
-import logging
 import copy
-
+import logging
+import os
 # 为了类型提示
 from typing import Dict, Any, Union
+
+import yaml
 
 
 def load_strategy_config(strategy_name: str, symbol: str) -> dict:
@@ -172,7 +172,8 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         # 确保contract.contract_size与全局映射一致
         if "contract" in merged_config and "contract_size" in merged_config["contract"]:
             if merged_config["contract"]["contract_size"] != contract_size:
-                logging.warning(f"⚠️  合约面值不一致: 配置中为{merged_config['contract']['contract_size']}, 全局映射中为{contract_size}, 使用全局值")
+                logging.warning(
+                    f"⚠️  合约面值不一致: 配置中为{merged_config['contract']['contract_size']}, 全局映射中为{contract_size}, 使用全局值")
                 merged_config["contract"]["contract_size"] = contract_size
         else:
             merged_config.setdefault("contract", {})["contract_size"] = contract_size
@@ -194,5 +195,3 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         # 延迟导入以避免循环依赖
         from src.strategy.orderflow_config import OrderFlowConfig
         return OrderFlowConfig.from_dict(merged_config)
-
-

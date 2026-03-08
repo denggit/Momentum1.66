@@ -27,7 +27,7 @@ import os
 import signal
 import sys
 import time
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 # 确保能导入项目根目录的模块
 current_file = os.path.abspath(__file__)
@@ -255,7 +255,7 @@ class OrderFlowOrchestrator:
         if tp2_target:
             # 计算阻力位涨幅
             resistance_pct = (tp2_target - entry_price) / entry_price
-            logger.info(f"🎯 [TP2决策] SMC找到阻力位: {tp2_target:.2f} (涨幅: {resistance_pct*100:.2f}%)")
+            logger.info(f"🎯 [TP2决策] SMC找到阻力位: {tp2_target:.2f} (涨幅: {resistance_pct * 100:.2f}%)")
 
             # 风控检查：阻力位是否太近
             min_tp2_price = entry_price * (1 + self.config.tp1_pct * 2)  # 0.8%
@@ -266,7 +266,8 @@ class OrderFlowOrchestrator:
             logger.warning("🎯 [TP2决策] SMC未找到阻力位，使用配置比例")
             tp2_target = entry_price * (1 + self.config.tp2_pct)
 
-        logger.info(f"🎯 [TP2最终] 入场价: {entry_price:.2f}, TP2目标: {tp2_target:.2f} (涨幅: {(tp2_target/entry_price-1)*100:.2f}%)")
+        logger.info(
+            f"🎯 [TP2最终] 入场价: {entry_price:.2f}, TP2目标: {tp2_target:.2f} (涨幅: {(tp2_target / entry_price - 1) * 100:.2f}%)")
 
         # 执行交易并获取结果
         execution_result = await self.executor.execute_snipe(
@@ -338,10 +339,10 @@ def main():
     """主函数：命令行入口"""
     parser = argparse.ArgumentParser(description="Momentum 1.66 - 订单流引擎编排器")
     parser.add_argument('--symbol', type=str, default='ETH-USDT-SWAP',
-                       help='交易对符号，例如: ETH-USDT-SWAP, BTC-USDT-SWAP')
+                        help='交易对符号，例如: ETH-USDT-SWAP, BTC-USDT-SWAP')
     parser.add_argument('--mode', type=str, default='collect',
-                       choices=['collect', 'live'],
-                       help="运行模式: 'collect' (只收集数据和发邮件) 或 'live' (实盘自动交易)")
+                        choices=['collect', 'live'],
+                        help="运行模式: 'collect' (只收集数据和发邮件) 或 'live' (实盘自动交易)")
     args = parser.parse_args()
 
     # 创建编排器实例

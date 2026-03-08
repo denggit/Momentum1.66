@@ -20,9 +20,11 @@ import xgboost as xgb
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
-ML_DATASET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "reports",
+ML_DATASET_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data",
+                               "reports",
                                "SMC", 'SMC_ML_Dataset_COMBINE.csv')
 # 1. 加载数据
 df = pd.read_csv(ML_DATASET_FILE)

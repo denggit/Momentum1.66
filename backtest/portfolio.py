@@ -16,6 +16,7 @@ from src.strategy.indicators import add_smc_indicators
 from src.strategy.smc import SMCStrategy
 from config.loader import load_strategy_config  # 【引入新加载器】
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')

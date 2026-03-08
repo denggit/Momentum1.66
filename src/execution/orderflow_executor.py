@@ -5,11 +5,12 @@ OrderFlow执行策略器
 封装三号引擎特有的"三连发"执行逻辑，使OKXTrader保持为纯API层
 """
 import asyncio
-from typing import Optional
 from dataclasses import dataclass
-from src.utils.log import get_logger
+from typing import Optional
+
 from src.execution.trader import OKXTrader, ExecutionResult
 from src.strategy.orderflow_config import OrderFlowConfig
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
@@ -112,7 +113,8 @@ class OrderFlowExecutor:
 
         if not tp2_price or tp2_price < min_tp2_price:
             tp2_price = round(price * (1 + self.config.tp2_pct), 2)
-            logger.info(f"🛡️ [风控介入] SMC 阻力位缺失或距离太近，强制将 TP2 目标拔高至 {self.config.tp2_pct*100:.1f}%: {tp2_price}")
+            logger.info(
+                f"🛡️ [风控介入] SMC 阻力位缺失或距离太近，强制将 TP2 目标拔高至 {self.config.tp2_pct * 100:.1f}%: {tp2_price}")
         else:
             tp2_price = round(tp2_price, 2)
 

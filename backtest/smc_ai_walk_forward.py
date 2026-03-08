@@ -9,9 +9,9 @@ if project_root not in sys.path:
 
 import pandas as pd
 import xgboost as xgb
-import numpy as np
 from dateutil.relativedelta import relativedelta
 from src.utils.log import get_logger
+
 logger = get_logger(__name__)
 
 

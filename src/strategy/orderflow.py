@@ -3,11 +3,11 @@ import logging
 import os
 import time
 from collections import deque
-from typing import Optional, Dict, Any
+from typing import Optional
 
-from src.utils.log import get_logger
 from src.context.market_context import MarketContext
 from src.strategy.orderflow_config import OrderFlowConfig
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(message)s')
@@ -38,8 +38,8 @@ class OrderFlowMath:
 
         # 记录配置加载
         logger.info(f"[OrderFlowMath] 配置加载完成: contract_size={self.config.contract_size}, "
-                   f"armed_threshold=${abs(self.config.armed_threshold_usdt)/1_000_000:.1f}M, "
-                   f"fire_cooldown={self.config.fire_cooldown_sec}s")
+                    f"armed_threshold=${abs(self.config.armed_threshold_usdt) / 1_000_000:.1f}M, "
+                    f"fire_cooldown={self.config.fire_cooldown_sec}s")
 
         # ==========================================
         # 🔧 运行时状态初始化
@@ -120,7 +120,8 @@ class OrderFlowMath:
         # 阶段 1：触发上膛 (ARMED)
         # 只要 3 分钟内被砸了 500 万刀，系统立刻进入备战状态，死死盯住盘口
         if self.state == "IDLE":
-            if recent_cvd_delta_usdt < -self.config.armed_threshold_usdt and (current_ts - self.last_fire_time > self.config.fire_cooldown_sec):
+            if recent_cvd_delta_usdt < -self.config.armed_threshold_usdt and (
+                    current_ts - self.last_fire_time > self.config.fire_cooldown_sec):
                 self.state = "ARMED"
                 self.armed_time = current_ts
                 self.local_low = self.current_price
@@ -266,8 +267,10 @@ class OrderFlowMath:
     def _commit_ema_memory(self):
         """波段结束时，统一把这波的最大数据结算进大脑，并存档"""
         if self.round_max_effort_m > self.config.memory_update_threshold_m:
-            self.avg_wave_effort_m = (self.avg_wave_effort_m * self.config.memory_decay_factor) + (self.round_max_effort_m * self.config.memory_update_factor)
-            self.avg_resistance_bps = (self.avg_resistance_bps * self.config.memory_decay_factor) + (self.round_max_resistance * self.config.memory_update_factor)
+            self.avg_wave_effort_m = (self.avg_wave_effort_m * self.config.memory_decay_factor) + (
+                        self.round_max_effort_m * self.config.memory_update_factor)
+            self.avg_resistance_bps = (self.avg_resistance_bps * self.config.memory_decay_factor) + (
+                        self.round_max_resistance * self.config.memory_update_factor)
 
             # 🌟 每次更新完，立刻写入本地 JSON 文件
             try:

@@ -111,6 +111,7 @@ def run_universal_backtest(df: pd.DataFrame, strategy_name: str, initial_capital
                 trade_max_price = trade_min_price = entry_price
 
     if out_logs:
-        print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, ai_enabled, symbol=symbol)
+        print_full_report(trade_history, df, initial_capital, capital, strategy_name, total_days, ai_enabled,
+                          symbol=symbol)
 
     return trade_history
