@@ -191,6 +191,17 @@ class OKXTrader:
         }
         return await self._request("POST", "/api/v5/trade/order", payload)
 
+    async def market_sell(self, size: float) -> Dict:
+        """市价卖出"""
+        payload = {
+            "instId": self.symbol,
+            "tdMode": self.td_mode,
+            "side": "sell",
+            "ordType": "market",
+            "sz": str(size)
+        }
+        return await self._request("POST", "/api/v5/trade/order", payload)
+
     async def post_only_sell(self, size: float, price: float) -> Dict:
         """Maker卖出"""
         payload = {
