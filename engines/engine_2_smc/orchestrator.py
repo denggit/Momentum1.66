@@ -114,6 +114,7 @@ class SMCOrchestrator:
         self._last_balance_restart = 0.0  # 上次重启时间戳
         self._current_position = None  # 当前持仓信息
         self._current_atr = 0.0  # 当前 ATR 值
+        self._external_alerted = False  # 🌟 新增：防外部持仓邮件轰炸的标志位
 
         logger.info(f"🚀 SMC 编排器初始化完成: {symbol} [{mode.upper()}]")
 
@@ -632,10 +633,18 @@ class SMCOrchestrator:
                     logger.warning("🔄 交易所无持仓但本地有记录，清理本地持仓记录")
                     self._current_position = None
                     self.context.clear_position()
+                    self._external_alerted = False  # 🌟 状态清空时，重置保险销
+
                 elif not self._current_position and has_position_on_exchange:
                     # 交易所有持仓但本地无记录（可能手动开仓或外部操作）
-                    logger.warning("🔄 交易所有持仓但本地无记录，尝试同步持仓信息")
-                    await self._sync_position_from_exchange()
+                    if not self._external_alerted:  # 🌟 拦截邮件轰炸：如果没报过警，才发邮件
+                        logger.warning("🔄 交易所有持仓但本地无记录，尝试同步持仓信息")
+                        await self._sync_position_from_exchange()
+                        self._external_alerted = True  # 🌟 发完邮件拉起保险销，下次循环不再发！
+
+                elif not has_position_on_exchange:
+                    self._external_alerted = False  # 🌟 明确空仓时，确保保险销复位
+
                 elif self._current_position and has_position_on_exchange:
                     # 状态一致，更新上下文确保 is_in_position 为 True
                     if not self.context.is_in_position:
