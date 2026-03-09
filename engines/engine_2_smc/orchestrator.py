@@ -23,6 +23,7 @@ SMC 二号引擎编排器 (SMCOrchestrator)
 """
 import argparse
 import asyncio
+import math
 import os
 import signal
 import sys
@@ -98,9 +99,10 @@ class SMCOrchestrator:
         # 实盘交易器（仅在 live 模式下真正执行）
         self.trader = OKXTrader(
             symbol=symbol,
-            leverage=50,  # 默认杠杆，可根据配置调整
+            leverage=self.engine_cfg.get('leverage', 50),  # 从配置读取杠杆
+            td_mode=self.engine_cfg.get('td_mode', 'cross'),  # 保证金模式
             risk_pct=self.engine_cfg.get('max_risk', 0.02),  # 使用 max_risk 作为风险百分比
-            sl_pct=0.0015,  # 默认止损百分比，实际使用 ATR 追踪止损
+            sl_pct=self.engine_cfg.get('default_sl_pct', 0.0015),  # 默认止损百分比
             context=self.context
         )
 
@@ -148,15 +150,21 @@ class SMCOrchestrator:
         logger.info("✅ SMC 编排器已安全关闭")
 
     async def _hourly_loop(self):
-        """每小时执行的主任务"""
+        """每小时执行的主任务（UTC+8时区）"""
         try:
             while self._is_running:
-                # 计算到下一个整点小时的时间
-                now = time.time()
-                next_hour = ((now // 3600) + 1) * 3600
-                sleep_seconds = next_hour - now + 3
+                # UTC+8 时区计算
+                utc_now = time.time()
+                utc8_offset = 8 * 3600  # 8小时偏移
+                utc8_now = utc_now + utc8_offset
 
-                logger.info(f"⏰ 下一个执行时间: {time.ctime(next_hour)} ({sleep_seconds:.0f} 秒后)")
+                # 计算下一个UTC+8整点小时
+                next_utc8_hour = ((utc8_now // 3600) + 1) * 3600
+                sleep_seconds = next_utc8_hour - utc8_now + 3  # 加3秒缓冲
+
+                # 转换为UTC时间戳用于显示
+                next_utc_timestamp = next_utc8_hour - utc8_offset
+                logger.info(f"⏰ 下一个执行时间(UTC+8): {time.ctime(next_utc_timestamp)} ({sleep_seconds:.0f} 秒后)")
                 await asyncio.sleep(sleep_seconds)
 
                 # 执行每小时任务
@@ -176,8 +184,6 @@ class SMCOrchestrator:
             if df.empty:
                 logger.error("❌ 获取数据失败，跳过本次扫描")
                 return
-
-            df = df.iloc[:-1].copy()
 
             # 2. 计算 SMC 指标
             df = add_smc_indicators(df)
@@ -266,9 +272,10 @@ class SMCOrchestrator:
             # ==========================================
             sl_algo_id = None
             max_retries = 3
+            sl_side = "sell" if side == "buy" else "buy"  # 开多时止损单方向为卖出，开空时为买入
 
             for attempt in range(max_retries):
-                sl_algo_id = await self.trader.create_stop_loss_order(position_size, initial_stop_loss)
+                sl_algo_id = await self.trader.create_stop_loss_order(position_size, initial_stop_loss, sl_side)
                 if sl_algo_id:
                     logger.info(f"✅ 止损单创建成功，算法单ID: {sl_algo_id} (第 {attempt + 1} 次尝试)")
                     break  # 成功了就跳出循环
@@ -284,21 +291,43 @@ class SMCOrchestrator:
             if not sl_algo_id:
                 logger.error(f"❌ 连续 {max_retries} 次创建止损单失败！坚决拒绝裸奔，启动紧急平仓！")
 
-                # 紧急调动市价反向减仓，把刚才买的直接卖掉
-                if side == "buy":
-                    await self.trader.market_sell(position_size, reduce_only=True)
+                # 首先检查开仓订单状态
+                order_status = "unknown"
+                if order_id:
+                    try:
+                        order_status = await self.trader.get_order_status(order_id)
+                        logger.info(f"📊 开仓订单状态: {order_status}")
+                    except Exception as e:
+                        logger.error(f"❌ 查询开仓订单状态失败: {e}")
+
+                # 根据订单状态决定处理方式
+                if order_status in ['filled', 'partially_filled']:
+                    # 订单已成交，使用 reduce_only 平仓避免反向开仓
+                    logger.warning(f"🔫 开仓订单已成交，使用 reduce_only 进行紧急平仓")
+                    if side == "buy":
+                        await self.trader.market_sell(position_size, reduce_only=True)
+                    else:
+                        await self.trader.market_buy(position_size, reduce_only=True)
                 else:
-                    await self.trader.market_buy(position_size, reduce_only=True)
+                    # 订单未成交或状态未知，尝试取消开仓订单
+                    logger.warning(f"🔫 开仓订单未完全成交，尝试取消订单")
+                    if order_id:
+                        cancel_success = await self.trader.cancel_order(order_id)
+                        if cancel_success:
+                            logger.info(f"✅ 成功取消开仓订单: {order_id}")
+                        else:
+                            logger.error(f"❌ 取消开仓订单失败: {order_id}")
 
                 # 🌟 新增：发送紧急预警邮件！
                 alert_details = (
                     f"⚠️ 警告！实盘开仓后，连续 {max_retries} 次无法在 OKX 挂出条件止损单！\n"
-                    f"系统为了防止裸奔爆仓，已经触发了紧急市价平仓程序。\n"
+                    f"开仓订单状态: {order_status}\n"
+                    f"系统已触发紧急处理程序：{'平仓' if order_status in ['filled', 'partially_filled'] else '取消开仓订单'}\n"
                     f"请立即检查服务器网络或 OKX API 是否被限流！"
                 )
                 await send_trading_signal_email(
                     symbol=self.symbol,
-                    signal_type="🚨 挂单失败 & 紧急平仓",
+                    signal_type="🚨 挂单失败 & 紧急处理",
                     price=latest_close,
                     details=alert_details
                 )
@@ -342,7 +371,7 @@ class SMCOrchestrator:
         except Exception as e:
             logger.error(f"❌ 执行交易异常: {e}")
 
-    async def _calculate_position_size(self, entry_price: float, stop_loss: float) -> int:
+    async def _calculate_position_size(self, entry_price: float, stop_loss: float) -> float:
         """计算仓位大小（基于风险百分比）"""
         try:
             # 获取可用余额
@@ -369,14 +398,16 @@ class SMCOrchestrator:
 
             # 根据合约面值调整
             ct_val = self.trader.ct_val_map.get(self.symbol, 0.1)
-            position_size = int(position_size / ct_val)
+            # 计算理论张数，向上取整确保至少1张合约（OKX最小交易单位）
+            raw_contracts = position_size / ct_val
+            position_size = math.ceil(raw_contracts)
 
             if position_size < 1:
                 logger.error(f"❌ 资金不足以开哪怕 1 张合约！计算值: {position_size}")
                 return 0
 
             logger.debug(
-                f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 仓位={position_size:.2f}张")
+                f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 原始张数={raw_contracts:.2f}, 最终仓位={position_size}张")
 
             return position_size
         except Exception as e:
@@ -547,20 +578,67 @@ class SMCOrchestrator:
             self._current_position = None
             self.context.clear_position()
 
+    async def _check_exchange_position(self) -> bool:
+        """检查交易所实际持仓状态"""
+        try:
+            # 通过trader的fetch_balance方法更新持仓状态
+            await self.trader.fetch_balance()
+            # trader.is_in_position 会在fetch_balance中更新
+            return self.trader.is_in_position
+        except Exception as e:
+            logger.error(f"❌ 查询交易所持仓状态异常: {e}")
+            return False
+
+    async def _sync_position_from_exchange(self):
+        """从交易所同步持仓信息到本地"""
+        try:
+            # 通过fetch_balance同步持仓状态
+            await self.trader.fetch_balance()
+            if self.trader.is_in_position and not self.context.is_in_position:
+                logger.warning("🔄 检测到交易所持仓但本地无记录，设置上下文状态")
+                # 设置上下文状态，但无法恢复完整的_current_position
+                self.context.is_in_position = True
+                # 发送警报，因为SMC策略无法管理外部开仓的止损
+                alert_details = (
+                    f"⚠️ 警告！检测到交易所持仓但本地无记录。\n"
+                    f"可能是手动开仓或其他系统开的仓位。\n"
+                    f"SMC策略无法管理该仓位的止损，请手动处理！"
+                )
+                await send_trading_signal_email(
+                    symbol=self.symbol,
+                    signal_type="🚨 外部持仓检测",
+                    price=0.0,
+                    details=alert_details
+                )
+        except Exception as e:
+            logger.error(f"❌ 同步交易所持仓异常: {e}")
+
     async def _monitor_position_loop(self):
         """持仓监控循环（状态同步）
 
-        通过定期检查持仓状态是否一致，检测交易所自动平仓（止损触发或手动平仓）。
-        不进行手动止损检测，完全依赖交易所条件止损单。
+        主动查询交易所持仓状态，确保本地状态与实际持仓一致。
         """
         try:
             while self._is_running:
-                if self._current_position and not self.context.is_in_position:
-                    # 本地有持仓记录，但市场上下文显示无持仓
-                    # 说明持仓可能已被交易所平仓（止损触发或手动平仓）
-                    logger.warning("🔄 检测到持仓状态不一致，清理本地持仓记录")
+                # 查询交易所实际持仓状态
+                has_position_on_exchange = await self._check_exchange_position()
+
+                # 状态一致性检查
+                if self._current_position and not has_position_on_exchange:
+                    # 本地有持仓记录，但交易所无持仓
+                    logger.warning("🔄 交易所无持仓但本地有记录，清理本地持仓记录")
                     self._current_position = None
-                await asyncio.sleep(5)  # 每分钟检查一次
+                    self.context.clear_position()
+                elif not self._current_position and has_position_on_exchange:
+                    # 交易所有持仓但本地无记录（可能手动开仓或外部操作）
+                    logger.warning("🔄 交易所有持仓但本地无记录，尝试同步持仓信息")
+                    await self._sync_position_from_exchange()
+                elif self._current_position and has_position_on_exchange:
+                    # 状态一致，更新上下文确保 is_in_position 为 True
+                    if not self.context.is_in_position:
+                        self.context.is_in_position = True
+
+                await asyncio.sleep(30)  # 30秒检查一次，避免频繁查询API
         except asyncio.CancelledError:
             logger.info("📊 持仓监控任务被取消")
         except Exception as e:

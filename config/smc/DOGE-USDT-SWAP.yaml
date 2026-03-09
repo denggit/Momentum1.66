@@ -18,6 +18,16 @@ engine:
   fee_rate: 0.0005
   time_stop: 120
 
+  # 交易执行参数
+  leverage: 50
+  default_sl_pct: 0.0015  # 备用默认止损百分比
+  td_mode: "cross"        # 保证金模式: cross(全仓) / isolated(逐仓)
+  min_contracts: 1        # 最小合约张数
+
+  # 风控参数
+  max_position_size_usdt: 10000  # 单笔最大仓位(USD)
+  daily_loss_limit_pct: 0.1      # 每日最大亏损百分比
+
 # 二号引擎引入AI
 ai_filter:
   enabled: false
