@@ -193,7 +193,7 @@ class OKXTrader:
     async def market_buy(self, size: float, reduce_only: bool = False) -> Dict:
         payload = {
             "instId": self.symbol, "tdMode": self.td_mode, "side": "buy",
-            "ordType": "market", "sz": str(size)
+            "ordType": "market", "sz": str(int(size))
         }
         if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
@@ -201,7 +201,7 @@ class OKXTrader:
     async def market_sell(self, size: float, reduce_only: bool = False) -> Dict:
         payload = {
             "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
-            "ordType": "market", "sz": str(size)
+            "ordType": "market", "sz": str(int(size))
         }
         if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
@@ -240,14 +240,18 @@ class OKXTrader:
         while True:
             try:
                 # 执行余额查询
-                await self.fetch_balance()
+                success = await self.fetch_balance()
 
-                # 查询成功，更新心跳时间戳和重置失败计数
+                # 🌟 核心修复：如果没成功，主动拉响警报！直接丢给下面的 except 块去处理（加倍睡眠+发邮件）！
+                if not success:
+                    raise ConnectionError("API 请求返回空数据或报错，可能遭遇限流或网络断开")
+
+                # 如果成功了，更新心跳并重置失败计数
                 self._last_balance_update = time.time()
                 if self._balance_update_failures > 0:
-                    logger.info(f"💰 [财务官] 查询成功，重置失败计数（之前连续失败 {self._balance_update_failures} 次）")
+                    logger.info(
+                        f"💰 [财务官] 查询恢复成功，重置失败计数（之前连续失败 {self._balance_update_failures} 次）")
                     self._balance_update_failures = 0
-                    # 重置警报标志，以便下次失败时可以再次发送警报
                     self._alert_sent = False
 
                 # 检查持仓状态（优先使用context）
@@ -311,43 +315,42 @@ class OKXTrader:
                 logger.warning(f"💰 [财务官] 等待 {sleep_time:.1f} 秒后重试...")
                 await asyncio.sleep(sleep_time)
 
-    async def fetch_balance(self):
-        """请求 OKX 获取 USDT 可用余额"""
+    async def fetch_balance(self) -> bool:
+        """请求 OKX 获取 USDT 可用余额。返回获取是否成功。"""
         # 查询当前品种持仓
         pos_res = await self._request("GET", f"/api/v5/account/positions?instId={self.symbol}")
-        if pos_res and pos_res.get('code') == '0':
-            positions = pos_res.get('data', [])
-            has_pos = any(abs(float(p.get('pos', 0))) > 0.05 for p in positions)
-
-            if has_pos:
-                self.is_in_position = True
-                if self.context:
-                    self.context.is_in_position = True
-            else:
-                # 只有当我们本身没有强制持仓时，才设为 False
-                self.is_in_position = False
-                if self.context:
-                    # 🆕 检测到仓位消失，清除持仓信息并触发事件
-                    if self.context.is_in_position:
-                        logger.warning(f"💰 [财务官] 检测到仓位已消失（可能被手动平仓），清除持仓状态")
-                        self.context.clear_position()  # 这会触发position_updated事件
-                    else:
-                        self.context.is_in_position = False
-
         # 查询当前余额
         balance_res = await self._request("GET", "/api/v5/account/balance")
-        if balance_res and balance_res.get('code') == '0':
-            details = balance_res['data'][0]['details']
-            for asset in details:
-                if asset['ccy'] == 'USDT':
-                    self.available_usdt = float(asset['availEq'])
-                    logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
-                    break
 
-        # 更新财务官心跳时间戳（只要网络请求成功，无论API返回码）
-        import time
-        if pos_res is not None or balance_res is not None:
-            self._last_balance_update = time.time()
+        # 🌟 核心：如果两个接口任何一个没返回数据，或者报错，都说明网络或API出问题了
+        if pos_res is None or balance_res is None or pos_res.get('code') != '0' or balance_res.get('code') != '0':
+            return False
+
+        # --- 以下是正常的更新逻辑 (保持不变) ---
+        positions = pos_res.get('data', [])
+        has_pos = any(abs(float(p.get('pos', 0))) > 0.05 for p in positions)
+
+        if has_pos:
+            self.is_in_position = True
+            if self.context:
+                self.context.is_in_position = True
+        else:
+            self.is_in_position = False
+            if self.context:
+                if self.context.is_in_position:
+                    logger.warning(f"💰 [财务官] 检测到仓位已消失（可能被手动平仓），清除持仓状态")
+                    self.context.clear_position()
+                else:
+                    self.context.is_in_position = False
+
+        details = balance_res['data'][0]['details']
+        for asset in details:
+            if asset['ccy'] == 'USDT':
+                self.available_usdt = float(asset['availEq'])
+                logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
+                break
+
+        return True  # 全部成功才返回 True
 
     async def set_leverage_on_startup(self):
         """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
