@@ -181,7 +181,7 @@ class OKXTrader:
             logger.error(f"[Trader] 获取K线数据异常: {e}")
             return []
 
-    async def market_buy(self, size: float, reduce_only: bool = False) -> Dict:
+    async def market_buy(self, size: int, reduce_only: bool = False) -> Dict:
         payload = {
             "instId": self.symbol, "tdMode": self.td_mode, "side": "buy",
             "ordType": "market", "sz": str(int(size))
@@ -189,7 +189,7 @@ class OKXTrader:
         if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
 
-    async def market_sell(self, size: float, reduce_only: bool = False) -> Dict:
+    async def market_sell(self, size: int, reduce_only: bool = False) -> Dict:
         payload = {
             "instId": self.symbol, "tdMode": self.td_mode, "side": "sell",
             "ordType": "market", "sz": str(int(size))
@@ -197,14 +197,14 @@ class OKXTrader:
         if reduce_only: payload["reduceOnly"] = True
         return await self._request("POST", "/api/v5/trade/order", payload)
 
-    async def post_only_sell(self, size: float, price: float) -> Dict:
+    async def post_only_sell(self, size: int, price: float) -> Dict:
         """Maker卖出"""
         payload = {
             "instId": self.symbol,
             "tdMode": self.td_mode,
             "side": "sell",
             "ordType": "post_only",
-            "sz": str(size),
+            "sz": str(int(size)),
             "px": str(price),
             "reduceOnly": True
         }

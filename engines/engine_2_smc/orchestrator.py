@@ -342,7 +342,7 @@ class SMCOrchestrator:
         except Exception as e:
             logger.error(f"❌ 执行交易异常: {e}")
 
-    async def _calculate_position_size(self, entry_price: float, stop_loss: float) -> float:
+    async def _calculate_position_size(self, entry_price: float, stop_loss: float) -> int:
         """计算仓位大小（基于风险百分比）"""
         try:
             # 获取可用余额
@@ -378,7 +378,7 @@ class SMCOrchestrator:
             logger.debug(
                 f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 仓位={position_size:.2f}张")
 
-            return float(position_size)
+            return position_size
         except Exception as e:
             logger.error(f"❌ 计算仓位大小异常: {e}")
             return 0
@@ -460,14 +460,36 @@ class SMCOrchestrator:
                     # 🌟 必须算出移动止损的方向
                     sl_side = "sell" if side == "buy" else "buy"
 
-                    # 🌟 必须把 sl_side 传给 trader
-                    new_algo_id = await self.trader.create_stop_loss_order(position_size, new_stop_loss, sl_side)
+                    # ==========================================
+                    # 🛡️ 遗漏的重点：移动止损的重试机制与裸奔报警！
+                    # ==========================================
+                    new_algo_id = None
+                    for attempt in range(3):
+                        new_algo_id = await self.trader.create_stop_loss_order(position_size, new_stop_loss,
+                                                                               sl_side)
+                        if new_algo_id:
+                            break
+                        if attempt < 2:
+                            logger.warning(f"⚠️ 更新止损单挂单失败，1秒后重试 (第 {attempt + 2} 次)...")
+                            await asyncio.sleep(1)
 
                     if new_algo_id:
                         self._current_position['sl_algo_id'] = new_algo_id
                         logger.info(f"✅ 止损单更新成功，新算法单ID: {new_algo_id}")
                     else:
-                        logger.error("❌ 创建新止损单失败")
+                        logger.error("❌ 严重警告：连续 3 次创建新止损单失败！仓位已处于无止损裸奔状态！")
+                        # 🌟 遗漏的重点：发送紧急夺命连环 Call 邮件
+                        alert_details = (
+                            f"⚠️ 紧急警报！实盘系统在更新追踪止损时，连续 3 次无法在 OKX 挂出新的条件单！\n"
+                            f"目前的旧止损单已经被撤销，您的仓位正处于【完全无止损保护】的裸奔状态！\n"
+                            f"请立即登录 OKX APP 手动接管仓位，或检查服务器网络状态！"
+                        )
+                        await send_trading_signal_email(
+                            symbol=self.symbol,
+                            signal_type="🚨 追踪止损更新失败 (裸奔警告)",
+                            price=latest_close,
+                            details=alert_details
+                        )
 
         except Exception as e:
             logger.error(f"❌ 更新止损异常: {e}")
