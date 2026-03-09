@@ -21,8 +21,8 @@ class TripleAConfig:
 
     # ==================== 交易参数 ====================
     leverage: int = 20
-    risk_pct: float = 0.3
-    max_daily_trades: int = 10
+    risk_pct: float = 0.05
+    max_daily_trades: int = 1000
 
     # ==================== Triple-A检测参数 ====================
     # Absorption（吸收）检测参数
@@ -49,8 +49,8 @@ class TripleAConfig:
 
     # ==================== 执行参数 ====================
     entry_slippage: float = 0.0005                # 入场滑点容忍0.05%
-    initial_sl_pct: float = 0.001                 # 初始止损0.1%
-    min_reward_ratio: float = 2.0                 # 最小风险回报比
+    initial_sl_pct: float = 0.01                  # 最大允许总风险1%（价格风险+手续费），用于结构止损筛选
+    min_reward_ratio: float = 2.5                 # 最小风险回报比（覆盖手续费后仍保持2:1净回报）
 
     # ==================== 风险管理参数 ====================
     max_position_limit: int = 100                 # 最大持仓数量（张）
@@ -62,9 +62,9 @@ class TripleAConfig:
     # ==================== 科考船研究参数 ====================
     research_mode: str = "simulation"             # collection, simulation, parameter_experiment
     research_output_dir: str = "data/triple_a_research"
-    research_initial_balance: float = 10000.0
-    research_risk_per_trade: float = 0.003
-    research_commission_rate: float = 0.0002      # 0.02%手续费
+    research_initial_balance: float = 20.0
+    research_risk_per_trade: float = 0.05
+    research_commission_rate: float = 0.001      # 总手续费0.1%（买入0.05% + 卖出0.05%）
 
     # ==================== 参数实验配置 ====================
     parameter_experiments: List[Dict[str, Any]] = field(default_factory=list)
@@ -146,11 +146,24 @@ class TripleAConfig:
         # 科考船研究配置
         config.research_mode = research_config.get("mode", config.research_mode)
         config.research_output_dir = research_config.get("output_dir", config.research_output_dir)
-        config.research_initial_balance = research_config.get(
-            "initial_balance", config.research_initial_balance)
-        config.research_risk_per_trade = research_config.get("risk_per_trade", config.research_risk_per_trade)
-        config.research_commission_rate = research_config.get(
-            "commission_rate", config.research_commission_rate)
+
+        # 处理模拟配置（支持两种结构：扁平结构和嵌套结构）
+        # 先检查是否有simulation子节点
+        simulation_config = research_config.get("simulation", {})
+        if simulation_config:
+            # 嵌套结构：research.simulation.initial_balance
+            config.research_initial_balance = simulation_config.get(
+                "initial_balance", config.research_initial_balance)
+            config.research_risk_per_trade = simulation_config.get("risk_per_trade", config.research_risk_per_trade)
+            config.research_commission_rate = simulation_config.get(
+                "commission_rate", config.research_commission_rate)
+        else:
+            # 扁平结构：research.initial_balance
+            config.research_initial_balance = research_config.get(
+                "initial_balance", config.research_initial_balance)
+            config.research_risk_per_trade = research_config.get("risk_per_trade", config.research_risk_per_trade)
+            config.research_commission_rate = research_config.get(
+                "commission_rate", config.research_commission_rate)
 
         # 参数实验配置
         config.parameter_experiments = research_config.get("parameter_experiments", [])
@@ -201,10 +214,12 @@ class TripleAConfig:
             "research": {
                 "mode": self.research_mode,
                 "output_dir": self.research_output_dir,
-                "initial_balance": self.research_initial_balance,
-                "risk_per_trade": self.research_risk_per_trade,
-                "commission_rate": self.research_commission_rate,
-                "parameter_experiments": self.parameter_experiments
+                "parameter_experiments": self.parameter_experiments,
+                "simulation": {
+                    "initial_balance": self.research_initial_balance,
+                    "risk_per_trade": self.research_risk_per_trade,
+                    "commission_rate": self.research_commission_rate
+                }
             }
         }
 
