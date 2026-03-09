@@ -22,6 +22,11 @@ class CompositeVolumeProfile:
             # 1. 基础分箱计算
             min_p = df['low'].min()
             max_p = df['high'].max()
+
+            # 增加防御：如果价格没有波动，无法计算分布
+            if min_p == max_p:
+                return None
+
             bins = np.arange(min_p, max_p + self.bin_size, self.bin_size)
 
             price_centers = (bins[:-1] + bins[1:]) / 2
@@ -41,8 +46,17 @@ class CompositeVolumeProfile:
             # 2. 🌟 高斯平滑 (消灭散户噪音，保留主力沉淀)
             smoothed_volumes = gaussian_filter1d(volumes, sigma=3)
 
+            # 在计算均值前检查数组
+            if len(smoothed_volumes) == 0:
+                return None
+
             # 3. 🌟 智能寻峰 (HVN)
             mean_vol = np.mean(smoothed_volumes)
+
+            # 处理 mean_vol 为 0 或 nan 的情况
+            if np.isnan(mean_vol) or mean_vol == 0:
+                return None
+
             # 突出度门槛：山峰必须比周围的山谷高出 0.5 倍的平均成交量
             peak_indices, _ = find_peaks(smoothed_volumes, prominence=mean_vol * 0.5)
             hvns = price_centers[peak_indices]
