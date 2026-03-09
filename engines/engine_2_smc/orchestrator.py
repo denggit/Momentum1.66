@@ -110,6 +110,8 @@ class SMCOrchestrator:
         self._is_running = False
         self._hourly_task = None
         self._monitor_task = None
+        self._balance_task = None  # 财务官任务（仅live模式）
+        self._last_balance_restart = 0.0  # 上次重启时间戳
         self._current_position = None  # 当前持仓信息
         self._current_atr = 0.0  # 当前 ATR 值
 
@@ -122,7 +124,10 @@ class SMCOrchestrator:
 
         # 启动交易器余额更新循环（仅实盘模式）
         if self.mode == "live":
-            asyncio.create_task(self.trader.update_balance_loop())
+            self._balance_task = asyncio.create_task(self.trader.update_balance_loop())
+            import time
+            self._last_balance_restart = time.time()
+            logger.info("💰 财务官任务已启动")
 
         # 启动每小时定时任务
         self._hourly_task = asyncio.create_task(self._hourly_loop())
@@ -142,6 +147,8 @@ class SMCOrchestrator:
             self._hourly_task.cancel()
         if self._monitor_task:
             self._monitor_task.cancel()
+        if self._balance_task:
+            self._balance_task.cancel()
 
         # 清理资源
         if self.context.is_in_position:
@@ -286,43 +293,35 @@ class SMCOrchestrator:
                     await asyncio.sleep(1)  # 等待 1 秒让网络或交易所限流恢复
 
             # ==========================================
-            # 💣 终极防御：重试耗尽后的核武器
+            # 💣 终极防御：重试耗尽后的核武器（原子操作版）
             # ==========================================
             if not sl_algo_id:
                 logger.error(f"❌ 连续 {max_retries} 次创建止损单失败！坚决拒绝裸奔，启动紧急平仓！")
 
-                # 首先检查开仓订单状态
-                order_status = "unknown"
-                if order_id:
-                    try:
-                        order_status = await self.trader.get_order_status(order_id)
-                        logger.info(f"📊 开仓订单状态: {order_status}")
-                    except Exception as e:
-                        logger.error(f"❌ 查询开仓订单状态失败: {e}")
-
-                # 根据订单状态决定处理方式
-                if order_status in ['filled', 'partially_filled']:
-                    # 订单已成交，使用 reduce_only 平仓避免反向开仓
-                    logger.warning(f"🔫 开仓订单已成交，使用 reduce_only 进行紧急平仓")
-                    if side == "buy":
-                        await self.trader.market_sell(position_size, reduce_only=True)
-                    else:
-                        await self.trader.market_buy(position_size, reduce_only=True)
+                # 💉 顶级架构师解法：利用交易所的"原子操作 (reduceOnly)"！
+                # 直接向 OKX 盲发一笔 reduce_only 的市价平仓单。
+                # 如果刚才开仓失败了（账户里没持仓），OKX 撮合引擎会瞬间拦截这笔单子（无事发生）；
+                # 如果刚才开仓成功了，它就会精准把仓平掉。
+                # 这在交易所底层是内存级的原子操作，绝对不依赖你极其脆弱的查询网络！
+                logger.warning(f"🔫 使用 reduce_only 进行紧急平仓（原子操作，不查询状态）")
+                if side == "buy":
+                    # 多头平仓：市价卖出（reduce_only=True）
+                    close_result = await self.trader.market_sell(position_size, reduce_only=True)
                 else:
-                    # 订单未成交或状态未知，尝试取消开仓订单
-                    logger.warning(f"🔫 开仓订单未完全成交，尝试取消订单")
-                    if order_id:
-                        cancel_success = await self.trader.cancel_order(order_id)
-                        if cancel_success:
-                            logger.info(f"✅ 成功取消开仓订单: {order_id}")
-                        else:
-                            logger.error(f"❌ 取消开仓订单失败: {order_id}")
+                    # 空头平仓：市价买入（reduce_only=True）
+                    close_result = await self.trader.market_buy(position_size, reduce_only=True)
+
+                # 记录平仓结果
+                if close_result and close_result.get('code') == '0':
+                    logger.info(f"✅ 紧急平仓成功！订单ID: {close_result.get('data', [{}])[0].get('ordId')}")
+                else:
+                    logger.warning(f"⚠️ 紧急平仓可能失败或开仓未成功: {close_result}")
 
                 # 🌟 新增：发送紧急预警邮件！
                 alert_details = (
                     f"⚠️ 警告！实盘开仓后，连续 {max_retries} 次无法在 OKX 挂出条件止损单！\n"
-                    f"开仓订单状态: {order_status}\n"
-                    f"系统已触发紧急处理程序：{'平仓' if order_status in ['filled', 'partially_filled'] else '取消开仓订单'}\n"
+                    f"系统已触发紧急处理程序：使用 reduce_only 原子平仓操作\n"
+                    f"如果开仓成功则平仓，如果开仓失败则无事发生\n"
                     f"请立即检查服务器网络或 OKX API 是否被限流！"
                 )
                 await send_trading_signal_email(
@@ -398,16 +397,18 @@ class SMCOrchestrator:
 
             # 根据合约面值调整
             ct_val = self.trader.ct_val_map.get(self.symbol, 0.1)
-            # 计算理论张数，向上取整确保至少1张合约（OKX最小交易单位）
+            # 计算理论张数，向下取整遵守风控铁律
+            # 💉 量化风控铁律：永远向下取整 int()。宁可少赚，绝不超额承担风险。
+            # 如果不满足 1 张的门槛，说明止损太宽或账户太小，这单宁可放弃不开。
             raw_contracts = position_size / ct_val
-            position_size = math.ceil(raw_contracts)
+            position_size = int(raw_contracts)  # 向下取整，严格遵守风险限制
 
             if position_size < 1:
-                logger.error(f"❌ 资金不足以开哪怕 1 张合约！计算值: {position_size}")
+                logger.error(f"❌ 资金不足以开至少 1 张合约！计算值: {raw_contracts:.2f}张")
                 return 0
 
             logger.debug(
-                f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 原始张数={raw_contracts:.2f}, 最终仓位={position_size}张")
+                f"📊 仓位计算: 可用={available_usdt:.2f}, 风险%={risk_pct}, 风险/合约={risk_per_contract:.4f}, 原始张数={raw_contracts:.2f}, 向下取整后仓位={position_size}张")
 
             return position_size
         except Exception as e:
@@ -579,25 +580,27 @@ class SMCOrchestrator:
             self.context.clear_position()
 
     async def _check_exchange_position(self) -> bool:
-        """检查交易所实际持仓状态"""
+        """检查交易所实际持仓状态
+        注意：不直接调用API，依赖update_balance_loop更新的context状态
+        """
         try:
-            # 通过trader的fetch_balance方法更新持仓状态
-            await self.trader.fetch_balance()
-            # trader.is_in_position 会在fetch_balance中更新
-            return self.trader.is_in_position
+            # update_balance_loop已经通过fetch_balance更新了context.is_in_position
+            # 我们直接返回context的状态，避免重复API调用
+            return self.context.is_in_position
         except Exception as e:
-            logger.error(f"❌ 查询交易所持仓状态异常: {e}")
+            logger.error(f"❌ 检查持仓状态异常: {e}")
             return False
 
     async def _sync_position_from_exchange(self):
-        """从交易所同步持仓信息到本地"""
+        """从交易所同步持仓信息到本地
+        注意：不直接调用API，依赖update_balance_loop更新的context状态
+        """
         try:
-            # 通过fetch_balance同步持仓状态
-            await self.trader.fetch_balance()
-            if self.trader.is_in_position and not self.context.is_in_position:
-                logger.warning("🔄 检测到交易所持仓但本地无记录，设置上下文状态")
-                # 设置上下文状态，但无法恢复完整的_current_position
-                self.context.is_in_position = True
+            # update_balance_loop已经更新了context.is_in_position
+            # 如果context.is_in_position为True但_current_position为None，说明是外部持仓
+            if self.context.is_in_position and self._current_position is None:
+                logger.warning("🔄 检测到外部持仓（本地无记录），设置上下文状态")
+                # 上下文状态已经是True，无需重复设置
                 # 发送警报，因为SMC策略无法管理外部开仓的止损
                 alert_details = (
                     f"⚠️ 警告！检测到交易所持仓但本地无记录。\n"
@@ -637,6 +640,58 @@ class SMCOrchestrator:
                     # 状态一致，更新上下文确保 is_in_position 为 True
                     if not self.context.is_in_position:
                         self.context.is_in_position = True
+
+                # 财务官心跳检查与自动重启（仅live模式）
+                if self.mode == "live" and self._balance_task is not None:
+                    import time
+                    current_time = time.time()
+                    last_update = getattr(self.trader, '_last_balance_update', 0)
+
+                    # 计算合理超时：持仓时15秒，空仓时180秒（考虑指数退避）
+                    timeout = 30 if self.context.is_in_position else 240  # 持仓时30秒，空仓时4分钟
+
+                    # 检查任务是否完成
+                    if self._balance_task.done():
+                        try:
+                            # 获取任务异常（如果有）
+                            exception = self._balance_task.exception()
+                            if exception:
+                                logger.error(f"💰 [财务官] 任务异常终止: {exception}")
+                            else:
+                                logger.warning("💰 [财务官] 任务意外完成（无异常）")
+                        except asyncio.InvalidStateError:
+                            # 任务尚未完成，不应该发生
+                            pass
+
+                        # 检查重启冷却时间（最小120秒）
+                        min_restart_interval = 120
+                        if current_time - self._last_balance_restart < min_restart_interval:
+                            logger.warning(f"💰 [财务官] 任务完成但仍在冷却期内，跳过重启 "
+                                         f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
+                        else:
+                            # 重启任务
+                            logger.warning("💰 [财务官] 正在重启任务...")
+                            self._balance_task = asyncio.create_task(self.trader.update_balance_loop())
+                            self._last_balance_restart = current_time
+                            logger.info("💰 [财务官] 任务已重启")
+
+                    # 检查心跳超时（任务仍在运行但很久没更新）
+                    elif last_update > 0 and (current_time - last_update) > timeout:
+                        logger.warning(f"💰 [财务官] 心跳超时！最后更新: {current_time - last_update:.1f} 秒前 > {timeout} 秒")
+
+                        # 检查重启冷却时间（最小120秒）
+                        min_restart_interval = 120
+                        if current_time - self._last_balance_restart < min_restart_interval:
+                            logger.warning(f"💰 [财务官] 心跳超时但仍在冷却期内，跳过重启 "
+                                         f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
+                        else:
+                            logger.warning("💰 [财务官] 任务可能卡住，尝试重启...")
+                            self._balance_task.cancel()  # 取消旧任务
+                            # 等待一小段时间让任务结束
+                            await asyncio.sleep(1)
+                            self._balance_task = asyncio.create_task(self.trader.update_balance_loop())
+                            self._last_balance_restart = current_time
+                            logger.info("💰 [财务官] 任务已重启")
 
                 await asyncio.sleep(30)  # 30秒检查一次，避免频繁查询API
         except asyncio.CancelledError:

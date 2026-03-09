@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import sys
+import time
 
 import requests
 
@@ -22,6 +23,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.utils.log import get_logger
+from src.utils.email_sender import send_trading_signal_email
 from config.env_loader import OKX_CONFIG
 from config.loader import GLOBAL_SETTINGS
 from dataclasses import dataclass
@@ -72,6 +74,12 @@ class OKXTrader:
 
         if not self.api_key or not self.secret_key:
             logger.error("⚠️ OKX API 密钥未配置，请检查 .env 文件！实盘将无法执行下单。")
+
+        # 财务官心跳监控
+        self._last_balance_update = 0.0  # 最后一次成功查询余额的时间戳
+        self._balance_update_failures = 0  # 连续失败次数
+        self._max_failures_before_alert = 5  # 连续失败多少次触发警报
+        self._alert_sent = False  # 是否已发送警报邮件
 
     def _get_signature(self, timestamp, method, request_path, body):
         message = str(timestamp) + str(method) + str(request_path) + str(body)
@@ -147,6 +155,7 @@ class OKXTrader:
             return False
 
         # 🌟 参数里加上 sl_side: str
+
     async def create_stop_loss_order(self, size: float, trigger_price: float, sl_side: str) -> Optional[str]:
         """创建止损订单"""
         try:
@@ -213,23 +222,94 @@ class OKXTrader:
     # ==================== 核心交易执行 ====================
 
     async def update_balance_loop(self):
-        """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地"""
+        """🌟 后台闲时查账协程：每隔 60 秒查询一次余额，缓存在本地
+
+        增强的错误恢复和心跳监控：
+        1. 异常捕获：防止单个异常导致循环停止
+        2. 指数退避：连续失败时增加等待时间，避免API限流
+        3. 心跳时间戳：记录最后成功时间，供外部监控
+        4. 失败警报：连续多次失败时发送警报
+        """
         logger.info("💰 [财务官] 已上线！将在后台默默监控账户余额...")
 
         # 🌟 新增：启动时第一件事，先把枪管的威力（杠杆）调好！
         await self.set_leverage_on_startup()
 
+        import time
+
         while True:
-            await self.fetch_balance()
-            # 检查持仓状态（优先使用context）
-            in_position = self.context.is_in_position if self.context else self.is_in_position
-            if in_position:
-                # 战时模式：手里有单子，随时可能止盈、止损或打保本
-                # 财务官每 5 秒死死盯住账户，一旦发现单子没了，立刻光速解锁！
-                await asyncio.sleep(5)
-            else:
-                # 闲时模式：空仓状态，不需要浪费 API 额度，60 秒查一次余额即可
-                await asyncio.sleep(60)
+            try:
+                # 执行余额查询
+                await self.fetch_balance()
+
+                # 查询成功，更新心跳时间戳和重置失败计数
+                self._last_balance_update = time.time()
+                if self._balance_update_failures > 0:
+                    logger.info(f"💰 [财务官] 查询成功，重置失败计数（之前连续失败 {self._balance_update_failures} 次）")
+                    self._balance_update_failures = 0
+                    # 重置警报标志，以便下次失败时可以再次发送警报
+                    self._alert_sent = False
+
+                # 检查持仓状态（优先使用context）
+                in_position = self.context.is_in_position if self.context else self.is_in_position
+                if in_position:
+                    # 战时模式：手里有单子，随时可能止盈、止损或打保本
+                    # 财务官每 5 秒死死盯住账户，一旦发现单子没了，立刻光速解锁！
+                    base_sleep = 5
+                else:
+                    # 闲时模式：空仓状态，不需要浪费 API 额度，60 秒查一次余额即可
+                    base_sleep = 60
+
+                # 应用指数退避（如果有连续失败）
+                if self._balance_update_failures > 0:
+                    # 指数退避：2^failures * base_sleep，最大不超过300秒（5分钟）
+                    backoff_factor = min(2 ** self._balance_update_failures, 60)  # 限制最大60倍
+                    sleep_time = min(base_sleep * backoff_factor, 300)
+                    logger.warning(f"💰 [财务官] 连续失败 {self._balance_update_failures} 次，"
+                                   f"休眠时间延长至 {sleep_time:.1f} 秒")
+                    await asyncio.sleep(sleep_time)
+                else:
+                    await asyncio.sleep(base_sleep)
+
+            except asyncio.CancelledError:
+                logger.info("💰 [财务官] 任务被取消")
+                raise
+            except Exception as e:
+                # 捕获所有其他异常，防止循环停止
+                self._balance_update_failures += 1
+                logger.error(f"💰 [财务官] 第 {self._balance_update_failures} 次查询失败: {e}")
+
+                # 连续失败过多时发送警报
+                if self._balance_update_failures >= self._max_failures_before_alert and not self._alert_sent:
+                    logger.critical(f"💰 [财务官] 连续失败 {self._balance_update_failures} 次！"
+                                    f"可能网络或API出现问题，请立即检查！")
+
+                    # 发送警报邮件
+                    try:
+                        alert_details = (
+                            f"⚠️ 财务官连续 {self._balance_update_failures} 次查询余额失败！\n"
+                            f"可能原因：网络连接问题、OKX API限流、或账户权限异常。\n"
+                            f"最后成功查询时间: {time.ctime(self._last_balance_update) if self._last_balance_update > 0 else '从未成功'}\n"
+                            f"当前状态: {'持仓中' if (self.context.is_in_position if self.context else self.is_in_position) else '空仓'}\n"
+                            f"请立即检查服务器网络和OKX API状态！"
+                        )
+                        await send_trading_signal_email(
+                            symbol=self.symbol,
+                            signal_type="🚨 财务官心跳异常",
+                            price=0.0,
+                            details=alert_details
+                        )
+                        self._alert_sent = True
+                        logger.info("📧 财务官异常警报邮件已发送")
+                    except Exception as email_error:
+                        logger.error(f"❌ 发送警报邮件失败: {email_error}")
+
+                # 失败时使用指数退避等待
+                base_sleep = 5 if (self.context.is_in_position if self.context else self.is_in_position) else 60
+                backoff_factor = min(2 ** self._balance_update_failures, 60)
+                sleep_time = min(base_sleep * backoff_factor, 300)
+                logger.warning(f"💰 [财务官] 等待 {sleep_time:.1f} 秒后重试...")
+                await asyncio.sleep(sleep_time)
 
     async def fetch_balance(self):
         """请求 OKX 获取 USDT 可用余额"""
@@ -263,6 +343,11 @@ class OKXTrader:
                     self.available_usdt = float(asset['availEq'])
                     logger.debug(f"💵 [闲时查账] 当前账户可用 USDT: {self.available_usdt:.2f}")
                     break
+
+        # 更新财务官心跳时间戳（只要网络请求成功，无论API返回码）
+        import time
+        if pos_res is not None or balance_res is not None:
+            self._last_balance_update = time.time()
 
     async def set_leverage_on_startup(self):
         """🌟 系统冷启动：1. 切换持仓模式(全/逐)  2. 设置杠杆倍数"""
