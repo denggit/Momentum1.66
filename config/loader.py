@@ -195,3 +195,135 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         # 延迟导入以避免循环依赖
         from src.strategy.orderflow.orderflow_config import OrderFlowConfig
         return OrderFlowConfig.from_dict(merged_config)
+
+
+# Triple-A策略默认配置
+TRIPLE_A_DEFAULT_CONFIG = {
+    "symbol": "",
+    "contract": {
+        "contract_size": 0.1
+    },
+    "trading": {
+        "leverage": 20,
+        "risk_pct": 0.3,
+        "max_daily_trades": 10
+    },
+    "triple_a": {
+        # Absorption（吸收）检测参数
+        "absorption_price_threshold": 0.001,
+        "absorption_volume_ratio": 2.0,
+        "absorption_window_seconds": 30,
+        "absorption_score_threshold": 0.7,
+        # Accumulation（累积）检测参数
+        "accumulation_width_pct": 0.003,
+        "accumulation_min_ticks": 50,
+        "accumulation_window_seconds": 120,
+        "accumulation_score_threshold": 0.6,
+        # Aggression（侵略）检测参数
+        "aggression_volume_spike": 3.0,
+        "aggression_breakout_pct": 0.002,
+        "aggression_score_threshold": 0.75,
+        # Failed Auction（失败拍卖）检测参数
+        "failed_auction": {
+            "window_seconds": 300,
+            "detection_threshold": 0.65,
+            "volume_confirmation_multiplier": 1.5
+        }
+    },
+    "execution": {
+        "entry_slippage": 0.0005,
+        "initial_sl_pct": 0.001,
+        "min_reward_ratio": 2.0
+    },
+    "risk_management": {
+        "max_position_limit": 100,
+        "min_trade_unit": 1,
+        "high_volatility_threshold": 2.0,
+        "max_leverage": 20,
+        "margin_safety_factor": 0.8
+    },
+    "research": {
+        "mode": "simulation",
+        "output_dir": "data/triple_a_research",
+        "initial_balance": 10000.0,
+        "risk_per_trade": 0.003,
+        "commission_rate": 0.0002,
+        "parameter_experiments": []
+    }
+}
+
+
+def load_triple_a_config(symbol: str, return_dict: bool = False):
+    """
+    加载Triple-A策略配置，并进行基本验证。
+
+    参数:
+        symbol: 交易对符号，如"ETH-USDT-SWAP"
+        return_dict: 是否返回字典格式（向后兼容），默认返回TripleAConfig对象
+
+    返回:
+        配置字典或TripleAConfig对象
+    """
+    try:
+        config = load_strategy_config("triple_a", symbol)
+    except FileNotFoundError:
+        logging.error(f"找不到Triple-A配置文件: config/triple_a/{symbol}.yaml")
+        raise
+
+    # 创建默认配置的深拷贝
+    default_config = copy.deepcopy(TRIPLE_A_DEFAULT_CONFIG)
+
+    # 递归合并配置到默认值（用户配置覆盖默认值）
+    merged_config = _deep_update(default_config, config)
+
+    # 确保symbol字段正确
+    merged_config["symbol"] = symbol
+
+    # 验证必需字段
+    required_fields = ["contract", "trading", "triple_a", "execution", "risk_management", "research"]
+    for field in required_fields:
+        if field not in merged_config or not isinstance(merged_config[field], dict):
+            logging.warning(f"⚠️  配置缺少字段或类型错误: {field}, 使用默认值")
+            merged_config[field] = TRIPLE_A_DEFAULT_CONFIG.get(field, {})
+
+    # 从全局配置获取合约面值映射
+    global_contract_values = GLOBAL_SETTINGS.get("contract_values", {})
+    if not global_contract_values:
+        # 如果全局配置中没有，使用默认值
+        global_contract_values = {
+            "ETH-USDT-SWAP": 0.1,
+            "BTC-USDT-SWAP": 0.01,
+            "SOL-USDT-SWAP": 1.0,
+            "DOGE-USDT-SWAP": 100.0
+        }
+        logging.warning("⚠️  全局配置中未找到合约面值映射，使用默认值")
+
+    # 验证合约面值
+    if symbol in global_contract_values:
+        contract_size = global_contract_values[symbol]
+        # 确保contract.contract_size与全局映射一致
+        if "contract" in merged_config and "contract_size" in merged_config["contract"]:
+            if merged_config["contract"]["contract_size"] != contract_size:
+                logging.warning(
+                    f"⚠️  合约面值不一致: 配置中为{merged_config['contract']['contract_size']}, 全局映射中为{contract_size}, 使用全局值")
+                merged_config["contract"]["contract_size"] = contract_size
+        else:
+            merged_config.setdefault("contract", {})["contract_size"] = contract_size
+    else:
+        logging.error(f"❌ 全局合约面值映射中找不到交易对: {symbol}")
+        # 使用配置中的值或默认值
+        if "contract" in merged_config and "contract_size" in merged_config["contract"]:
+            logging.warning(f"  使用配置中的合约面值: {merged_config['contract']['contract_size']}")
+        else:
+            merged_config.setdefault("contract", {})["contract_size"] = 0.1
+            logging.warning(f"  使用默认合约面值: 0.1")
+
+    logging.info(f"✅ 成功加载Triple-A配置: {symbol}")
+
+    # 根据参数决定返回类型
+    if return_dict:
+        return merged_config
+    else:
+        # 延迟导入以避免循环依赖
+        from src.strategy.triple_a.config import TripleAConfig
+        return TripleAConfig.from_dict(merged_config)
