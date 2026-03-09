@@ -3,6 +3,7 @@
 import copy
 import logging
 import os
+import re
 # 为了类型提示
 from typing import Dict, Any, Union
 
@@ -15,14 +16,46 @@ def load_strategy_config(strategy_name: str, symbol: str) -> dict:
     示例: strategy_name="smc", symbol="ETH-USDT-SWAP"
     将读取: config/smc/ETH-USDT-SWAP.yaml
     """
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(current_dir, strategy_name, f"{symbol}.yaml")
+    # ==================== 安全验证 ====================
+    # 1. 验证strategy_name只包含字母、数字和下划线
+    if not re.match(r'^[a-zA-Z0-9_]+$', strategy_name):
+        raise ValueError(f"无效的策略名称: {strategy_name}，只允许字母、数字和下划线")
 
-    if not os.path.exists(config_path):
-        logging.error(f"⚠️ 找不到配置文件: {config_path}")
+    # 2. 验证symbol格式 (交易对格式: XXX-XXX-XXX 或 XXX-XXX-XXX-XXX)
+    # 允许的格式如: ETH-USDT-SWAP, BTC-USDT-SWAP, SOL-USDT-SWAP, DOGE-USDT-SWAP, ETH-USDT-SWAP-SCALPER
+    symbol_pattern = r'^[A-Z0-9]+(?:-[A-Z0-9]+){2,3}$'  # 2-3个连字符，即3或4个部分
+
+    # 3. 处理文件扩展名并验证基本名称
+    if symbol.endswith('.yaml'):
+        # 如果已经包含.yaml扩展名，提取基本名称
+        symbol_base = symbol[:-5]  # 移除".yaml"
+        # 验证基本名称格式
+        if not re.match(symbol_pattern, symbol_base):
+            raise ValueError(f"无效的交易对符号: {symbol_base}，预期格式: XXX-XXX-XXX 或 XXX-XXX-XXX-XXX (大写字母和数字)")
+        symbol_with_ext = symbol  # 保持原样
+    else:
+        # 验证原始symbol格式
+        if not re.match(symbol_pattern, symbol):
+            raise ValueError(f"无效的交易对符号: {symbol}，预期格式: XXX-XXX-XXX 或 XXX-XXX-XXX-XXX (大写字母和数字)")
+        symbol_base = symbol
+        symbol_with_ext = f"{symbol}.yaml"
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_dir, strategy_name, symbol_with_ext)
+
+    # 4. 路径规范化安全检查
+    normalized_path = os.path.normpath(config_path)
+    # 确保规范化后的路径仍在config目录下
+    if not normalized_path.startswith(current_dir):
+        logging.error(f"❌ 路径遍历攻击检测: {symbol_with_ext}")
+        raise ValueError(f"安全违规: 尝试访问config目录外的文件")
+
+    # 5. 检查文件是否存在
+    if not os.path.exists(normalized_path):
+        logging.error(f"⚠️ 找不到配置文件: {normalized_path}")
         raise FileNotFoundError(f"Missing config for {symbol} under {strategy_name}")
 
-    with open(config_path, 'r', encoding='utf-8') as file:
+    with open(normalized_path, 'r', encoding='utf-8') as file:
         config = yaml.safe_load(file)
 
     return config
