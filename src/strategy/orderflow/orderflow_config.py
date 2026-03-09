@@ -124,7 +124,7 @@ class OrderFlowConfig:
         # 提取各层级配置
         contract_config = config_dict.get("contract", {})
         trading_config = config_dict.get("trading", {})
-        orderflow_config = config_dict.get("orderflow", {})
+        orderflow_config = config_dict.get("", {})
         execution_config = config_dict.get("execution", {})
         smc_config = config_dict.get("smc_validation", {})
 

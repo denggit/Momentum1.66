@@ -23,7 +23,7 @@ if project_root not in sys.path:
 # 导入新的 SMC 编排器
 from engines.engine_2_smc.orchestrator import SMCOrchestrator
 # 保持向后兼容，MicroSMCRadar 类仍然可用
-from src.strategy.smc_validator import MicroSMCRadar
+from src.strategy.orderflow.smc_validator import MicroSMCRadar
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

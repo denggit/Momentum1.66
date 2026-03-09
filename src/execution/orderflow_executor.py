@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.execution.trader import OKXTrader, ExecutionResult
-from src.strategy.orderflow_config import OrderFlowConfig
+from src.strategy.orderflow.orderflow_config import OrderFlowConfig
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

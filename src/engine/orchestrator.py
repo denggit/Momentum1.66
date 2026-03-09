@@ -37,7 +37,7 @@ if project_root not in sys.path:
 
 from src.data_feed.okx_stream import OKXTickStreamer
 from src.strategy.orderflow import OrderFlowMath
-from src.strategy.smc_validator import SMCValidator
+from src.strategy.orderflow.smc_validator import SMCValidator
 from src.execution.orderflow_executor import OrderFlowExecutor
 from src.execution.lifecycle_manager import LifecycleManager
 from src.execution.trader import OKXTrader
@@ -70,7 +70,7 @@ class OrderFlowOrchestrator:
             logger.info(f"✅ 成功加载 {symbol} 订单流配置")
         except Exception as e:
             logger.error(f"❌ 加载配置失败: {e}, 使用默认配置")
-            from src.strategy.orderflow_config import OrderFlowConfig
+            from src.strategy.orderflow.orderflow_config import OrderFlowConfig
             self.config = OrderFlowConfig()
 
         # 创建线程安全的市场上下文 (核心状态存储)

@@ -193,5 +193,5 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         return merged_config
     else:
         # 延迟导入以避免循环依赖
-        from src.strategy.orderflow_config import OrderFlowConfig
+        from src.strategy.orderflow.orderflow_config import OrderFlowConfig
         return OrderFlowConfig.from_dict(merged_config)
