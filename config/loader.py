@@ -178,7 +178,8 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
     merged_config = _deep_update(default_config, config)
 
     # 确保symbol字段正确
-    merged_config["symbol"] = symbol
+    if not symbol.endswith("-RESEARCH"):
+        merged_config["symbol"] = symbol
 
     # 验证必需字段
     required_fields = ["contract", "trading", "orderflow", "execution"]
@@ -200,8 +201,11 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         logging.warning("⚠️  全局配置中未找到合约面值映射，使用默认值")
 
     # 验证合约面值
-    if symbol in global_contract_values:
-        contract_size = global_contract_values[symbol]
+    # 对于研究配置文件，去掉-RESEARCH后缀进行合约面值查找
+    lookup_symbol = symbol[:-len("-RESEARCH")] if symbol.endswith("-RESEARCH") else symbol
+
+    if lookup_symbol in global_contract_values:
+        contract_size = global_contract_values[lookup_symbol]
         # 确保contract.contract_size与全局映射一致
         if "contract" in merged_config and "contract_size" in merged_config["contract"]:
             if merged_config["contract"]["contract_size"] != contract_size:
@@ -211,7 +215,7 @@ def load_orderflow_config(symbol: str, return_dict: bool = False) -> Union[Dict[
         else:
             merged_config.setdefault("contract", {})["contract_size"] = contract_size
     else:
-        logging.error(f"❌ 全局合约面值映射中找不到交易对: {symbol}")
+        logging.error(f"❌ 全局合约面值映射中找不到交易对: {lookup_symbol}")
         # 使用配置中的值或默认值
         if "contract" in merged_config and "contract_size" in merged_config["contract"]:
             logging.warning(f"  使用配置中的合约面值: {merged_config['contract']['contract_size']}")
@@ -331,7 +335,8 @@ def load_triple_a_config(symbol: str, return_dict: bool = False):
     merged_config = _deep_update(default_config, config)
 
     # 确保symbol字段正确
-    merged_config["symbol"] = symbol
+    if not symbol.endswith("-RESEARCH"):
+        merged_config["symbol"] = symbol
 
     # 验证必需字段
     required_fields = ["contract", "trading", "triple_a", "execution", "risk_management", "research"]
@@ -353,8 +358,11 @@ def load_triple_a_config(symbol: str, return_dict: bool = False):
         logging.warning("⚠️  全局配置中未找到合约面值映射，使用默认值")
 
     # 验证合约面值
-    if symbol in global_contract_values:
-        contract_size = global_contract_values[symbol]
+    # 对于研究配置文件，去掉-RESEARCH后缀进行合约面值查找
+    lookup_symbol = symbol[:-len("-RESEARCH")] if symbol.endswith("-RESEARCH") else symbol
+
+    if lookup_symbol in global_contract_values:
+        contract_size = global_contract_values[lookup_symbol]
         # 确保contract.contract_size与全局映射一致
         if "contract" in merged_config and "contract_size" in merged_config["contract"]:
             if merged_config["contract"]["contract_size"] != contract_size:
@@ -364,7 +372,7 @@ def load_triple_a_config(symbol: str, return_dict: bool = False):
         else:
             merged_config.setdefault("contract", {})["contract_size"] = contract_size
     else:
-        logging.error(f"❌ 全局合约面值映射中找不到交易对: {symbol}")
+        logging.error(f"❌ 全局合约面值映射中找不到交易对: {lookup_symbol}")
         # 使用配置中的值或默认值
         if "contract" in merged_config and "contract_size" in merged_config["contract"]:
             logging.warning(f"  使用配置中的合约面值: {merged_config['contract']['contract_size']}")
