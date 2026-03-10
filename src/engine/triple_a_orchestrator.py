@@ -46,25 +46,40 @@ logger = get_logger(__name__)
 class TripleAOrchestrator:
     """Triple-A引擎编排器"""
 
-    def __init__(self, symbol: str = "ETH-USDT-SWAP", mode: str = "collect"):
+    def __init__(self, symbol: str = "ETH-USDT-SWAP", mode: str = "collect", research_mode: bool = False, config=None):
         """
         初始化编排器
 
         Args:
             symbol: 交易对符号
             mode: 运行模式 ('collect' 或 'live')
+            research_mode: 科考船研究模式，更宽松的验证和风险控制
+            config: 可选的配置对象或字典，如果提供则使用此配置
         """
         self.symbol = symbol
         self.mode = mode
+        self.research_mode = research_mode
 
         # 加载配置
-        try:
-            self.config = load_triple_a_config(symbol)
-            logger.info(f"✅ 成功加载 {symbol} Triple-A配置")
-        except Exception as e:
-            logger.error(f"❌ 加载配置失败: {e}, 使用默认配置")
-            from src.strategy.triple_a.config import TripleAConfig
-            self.config = TripleAConfig()
+        if config is not None:
+            # 如果提供了配置，使用它
+            if isinstance(config, dict):
+                # 如果是字典，转换为TripleAConfig对象
+                from src.strategy.triple_a.config import TripleAConfig
+                self.config = TripleAConfig.from_dict(config)
+            else:
+                # 假设已经是TripleAConfig对象
+                self.config = config
+            logger.info(f"✅ 使用提供的Triple-A配置")
+        else:
+            # 否则从文件加载
+            try:
+                self.config = load_triple_a_config(symbol)
+                logger.info(f"✅ 成功加载 {symbol} Triple-A配置")
+            except Exception as e:
+                logger.error(f"❌ 加载配置失败: {e}, 使用默认配置")
+                from src.strategy.triple_a.config import TripleAConfig
+                self.config = TripleAConfig()
 
         # 创建线程安全的市场上下文 (核心状态存储)
         self.context = MarketContext()
@@ -92,7 +107,9 @@ class TripleAOrchestrator:
         self.executor = TripleAExecutor(
             config=self.config,
             context=self.context,
-            trader=self.trader
+            trader=self.trader,
+            tracker=self.tracker,
+            research_mode=research_mode
         )
 
         # 5. 数据流连接器 (Tick数据源)

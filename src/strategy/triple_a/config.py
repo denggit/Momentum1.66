@@ -42,6 +42,27 @@ class TripleAConfig:
     aggression_breakout_pct: float = 0.002         # 突破阈值0.2%
     aggression_score_threshold: float = 0.75       # 侵略置信度阈值
 
+    # ==================== Fabio验证参数 ====================
+    # 价值区间验证参数
+    value_area_balance_range_pct: float = 0.02     # 平衡区间范围 ±2%
+    value_area_ratio: float = 0.7                  # 价值区间成交量占比 70%
+    min_value_area_strength: float = 60.0          # 最小价值区间强度分数
+    value_area_validation_enabled: bool = True     # 是否启用价值区间验证
+
+    # 订单流验证参数
+    orderflow_cvd_threshold: float = 0.7           # CVD方向验证阈值
+    orderflow_large_order_ratio: float = 2.0       # 大单比率阈值
+    orderflow_validation_enabled: bool = True      # 是否启用订单流验证
+
+    # 多时间框架验证参数
+    multi_tf_alignment_enabled: bool = True        # 是否启用多时间框架对齐验证
+    multi_tf_timeframes: List[str] = field(default_factory=lambda: ["5m", "15m", "1H"])  # 多时间框架列表
+
+    # 市场环境参数
+    market_volatility_threshold_high: float = 2.0  # 高波动率阈值 (ATR倍数)
+    market_volatility_threshold_low: float = 0.5   # 低波动率阈值 (ATR倍数)
+    adaptive_validation_enabled: bool = True       # 是否启用适应性验证
+
     # Failed Auction（失败拍卖）检测参数
     failed_auction_window_seconds: int = 300       # 检测窗口（5分钟）
     failed_auction_detection_threshold: float = 0.65  # 检测阈值
@@ -121,6 +142,36 @@ class TripleAConfig:
         config.aggression_score_threshold = triple_a_config.get(
             "aggression_score_threshold", config.aggression_score_threshold)
 
+        # Fabio验证配置
+        validation_config = triple_a_config.get("validation", {})
+        config.value_area_balance_range_pct = validation_config.get(
+            "value_area_balance_range_pct", config.value_area_balance_range_pct)
+        config.value_area_ratio = validation_config.get(
+            "value_area_ratio", config.value_area_ratio)
+        config.min_value_area_strength = validation_config.get(
+            "min_value_area_strength", config.min_value_area_strength)
+        config.value_area_validation_enabled = validation_config.get(
+            "value_area_validation_enabled", config.value_area_validation_enabled)
+
+        config.orderflow_cvd_threshold = validation_config.get(
+            "orderflow_cvd_threshold", config.orderflow_cvd_threshold)
+        config.orderflow_large_order_ratio = validation_config.get(
+            "orderflow_large_order_ratio", config.orderflow_large_order_ratio)
+        config.orderflow_validation_enabled = validation_config.get(
+            "orderflow_validation_enabled", config.orderflow_validation_enabled)
+
+        config.multi_tf_alignment_enabled = validation_config.get(
+            "multi_tf_alignment_enabled", config.multi_tf_alignment_enabled)
+        config.multi_tf_timeframes = validation_config.get(
+            "multi_tf_timeframes", config.multi_tf_timeframes)
+
+        config.market_volatility_threshold_high = validation_config.get(
+            "market_volatility_threshold_high", config.market_volatility_threshold_high)
+        config.market_volatility_threshold_low = validation_config.get(
+            "market_volatility_threshold_low", config.market_volatility_threshold_low)
+        config.adaptive_validation_enabled = validation_config.get(
+            "adaptive_validation_enabled", config.adaptive_validation_enabled)
+
         # Failed Auction配置
         failed_auction_config = triple_a_config.get("failed_auction", {})
         config.failed_auction_window_seconds = failed_auction_config.get(
@@ -193,6 +244,20 @@ class TripleAConfig:
                 "aggression_volume_spike": self.aggression_volume_spike,
                 "aggression_breakout_pct": self.aggression_breakout_pct,
                 "aggression_score_threshold": self.aggression_score_threshold,
+                "validation": {
+                    "value_area_balance_range_pct": self.value_area_balance_range_pct,
+                    "value_area_ratio": self.value_area_ratio,
+                    "min_value_area_strength": self.min_value_area_strength,
+                    "value_area_validation_enabled": self.value_area_validation_enabled,
+                    "orderflow_cvd_threshold": self.orderflow_cvd_threshold,
+                    "orderflow_large_order_ratio": self.orderflow_large_order_ratio,
+                    "orderflow_validation_enabled": self.orderflow_validation_enabled,
+                    "multi_tf_alignment_enabled": self.multi_tf_alignment_enabled,
+                    "multi_tf_timeframes": self.multi_tf_timeframes,
+                    "market_volatility_threshold_high": self.market_volatility_threshold_high,
+                    "market_volatility_threshold_low": self.market_volatility_threshold_low,
+                    "adaptive_validation_enabled": self.adaptive_validation_enabled
+                },
                 "failed_auction": {
                     "window_seconds": self.failed_auction_window_seconds,
                     "detection_threshold": self.failed_auction_detection_threshold,

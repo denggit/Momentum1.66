@@ -261,6 +261,25 @@ TRIPLE_A_DEFAULT_CONFIG = {
             "window_seconds": 300,
             "detection_threshold": 0.65,
             "volume_confirmation_multiplier": 1.5
+        },
+        # Fabio验证参数
+        "validation": {
+            # 价值区间验证参数
+            "value_area_balance_range_pct": 0.02,
+            "value_area_ratio": 0.7,
+            "min_value_area_strength": 60.0,
+            "value_area_validation_enabled": True,
+            # 订单流验证参数
+            "orderflow_cvd_threshold": 0.7,
+            "orderflow_large_order_ratio": 2.0,
+            "orderflow_validation_enabled": True,
+            # 多时间框架验证参数
+            "multi_tf_alignment_enabled": True,
+            "multi_tf_timeframes": ["5m", "15m", "1H"],
+            # 市场环境参数
+            "market_volatility_threshold_high": 2.0,
+            "market_volatility_threshold_low": 0.5,
+            "adaptive_validation_enabled": True
         }
     },
     "execution": {

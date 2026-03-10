@@ -11,6 +11,10 @@ from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 
 from src.strategy.triple_a.config import TripleAConfig
+from src.strategy.triple_a.value_area_analyzer import ValueAreaAnalyzer
+from src.strategy.triple_a.orderflow_validator import OrderFlowValidator
+from src.strategy.triple_a.market_environment import MarketEnvironmentAnalyzer
+from src.strategy.orderflow.smc_validator import SMCValidator
 from src.context.market_context import MarketContext
 from src.utils.log import get_logger
 
@@ -58,14 +62,62 @@ class TripleADetector:
             "accumulation_signals": 0,
             "aggression_signals": 0,
             "failed_auctions": 0,
-            "total_ticks": 0
+            "total_ticks": 0,
+            "value_area_validations": 0,
+            "orderflow_validations": 0,
+            "multi_tf_validations": 0,
+            "validation_passed": 0,
+            "validation_failed": 0
         }
 
         # 时间窗口缓存
         self.tick_window = []
         self.max_window_size = 1000  # 最多存储1000个tick
 
-        logger.info(f"🚀 Triple-A检测器初始化完成")
+        # Fabio验证器初始化
+        self.value_area_analyzer = None
+        self.smc_validator = None
+        self._initialize_validators()
+
+        logger.info(f"🚀 Triple-A检测器初始化完成 (Fabio验证: {self.config.value_area_validation_enabled})")
+
+    def _initialize_validators(self):
+        """初始化Fabio验证器"""
+        try:
+            # 价值区间分析器
+            if self.config.value_area_validation_enabled:
+                self.value_area_analyzer = ValueAreaAnalyzer(
+                    bin_size=0.5,
+                    balance_range_pct=self.config.value_area_balance_range_pct
+                )
+                logger.info(f"✅ 价值区间验证器初始化完成")
+
+            # 订单流验证器
+            if self.config.orderflow_validation_enabled:
+                self.orderflow_validator = OrderFlowValidator(
+                    cvd_threshold=self.config.orderflow_cvd_threshold,
+                    large_order_ratio=self.config.orderflow_large_order_ratio
+                )
+                logger.info(f"✅ 订单流验证器初始化完成")
+
+            # SMC多时间框架验证器
+            if self.config.multi_tf_alignment_enabled:
+                self.smc_validator = SMCValidator(
+                    symbol=self.config.symbol,
+                    timeframes=self.config.multi_tf_timeframes
+                )
+                logger.info(f"✅ SMC多时间框架验证器初始化完成")
+
+            # 市场环境分析器
+            if self.config.adaptive_validation_enabled:
+                self.market_environment_analyzer = MarketEnvironmentAnalyzer(
+                    volatility_threshold_low=self.config.market_volatility_threshold_low,
+                    volatility_threshold_high=self.config.market_volatility_threshold_high
+                )
+                logger.info(f"✅ 市场环境分析器初始化完成")
+
+        except Exception as e:
+            logger.error(f"❌ 验证器初始化失败: {e}")
 
     async def process_tick(self, tick: dict) -> Optional[dict]:
         """
@@ -287,7 +339,8 @@ class TripleADetector:
             logger.warning(f"🚨 Aggression触发！得分: {aggression_score:.2f}, "
                           f"方向: {direction}, 价格: {current_price:.2f}")
 
-            return {
+            # 构建基础信号
+            signal = {
                 "type": "AGGRESSION_TRIGGERED",
                 "phase": "aggression",
                 "score": aggression_score,
@@ -299,6 +352,52 @@ class TripleADetector:
                 "accumulation_low": self.state.accumulation_low,
                 "accumulation_high": self.state.accumulation_high
             }
+
+            # Fabio验证阶段1：价值区间验证
+            validation_results = {}
+
+            if self.config.value_area_validation_enabled:
+                is_valid_va, validation_msg_va = self._validate_with_value_area(signal, tick)
+                validation_results['value_area'] = {
+                    'valid': is_valid_va,
+                    'message': validation_msg_va
+                }
+                if not is_valid_va:
+                    logger.warning(f"⛔ Aggression信号被价值区间验证拒绝: {validation_msg_va}")
+                    # 验证失败，不返回信号
+                    return None
+
+            # Fabio验证阶段2：订单流验证
+            if self.config.orderflow_validation_enabled:
+                is_valid_of, validation_msg_of = self._validate_with_orderflow(signal, tick)
+                validation_results['orderflow'] = {
+                    'valid': is_valid_of,
+                    'message': validation_msg_of
+                }
+                if not is_valid_of:
+                    logger.warning(f"⛔ Aggression信号被订单流验证拒绝: {validation_msg_of}")
+                    # 验证失败，不返回信号
+                    return None
+
+            # Fabio验证阶段3：多时间框架验证
+            if self.config.multi_tf_alignment_enabled:
+                is_valid_mtf, validation_msg_mtf = self._validate_with_multi_timeframe(signal, tick)
+                validation_results['multi_timeframe'] = {
+                    'valid': is_valid_mtf,
+                    'message': validation_msg_mtf
+                }
+                if not is_valid_mtf:
+                    logger.warning(f"⛔ Aggression信号被多时间框架验证拒绝: {validation_msg_mtf}")
+                    # 验证失败，不返回信号
+                    return None
+
+            # 添加验证信息到信号
+            if validation_results:
+                signal['validation'] = validation_results
+
+            logger.info(f"✅ Aggression信号通过验证: {validation_msg if 'validation_msg' in locals() else '基础验证'}")
+
+            return signal
 
         # 如果Aggression检测超时，返回IDLE状态
         time_since_accumulation = time.time() - self.state.accumulation_start_time
@@ -542,16 +641,266 @@ class TripleADetector:
 
     def _check_orderflow_alignment(self, breakout_up: bool, breakout_down: bool,
                                   tick: dict) -> bool:
-        """检查订单流方向是否与突破方向一致（简化版）"""
-        # 实际应用中需要从tick数据中提取CVD等信息
-        # 这里返回True作为占位符
-        return True
+        """
+        检查订单流方向是否与突破方向一致
+
+        第二阶段：集成OrderFlowValidator
+        """
+        if not self.config.orderflow_validation_enabled:
+            return True
+
+        try:
+            # 如果有订单流验证器，使用它进行验证
+            if hasattr(self, 'orderflow_validator') and self.orderflow_validator:
+                # 构建测试信号
+                direction = 'UP' if breakout_up else 'DOWN' if breakout_down else 'UNKNOWN'
+                if direction == 'UNKNOWN':
+                    return True
+
+                test_signal = {
+                    'direction': direction,
+                    'price': tick.get('price', 0.0),
+                    'breakout_price': tick.get('price', 0.0)
+                }
+
+                # 获取相关tick数据
+                relevant_ticks = self.tick_window[-50:] if self.tick_window else [tick]
+
+                # 使用订单流验证器
+                is_valid, message = self.orderflow_validator.validate_aggression_with_orderflow(
+                    test_signal, relevant_ticks
+                )
+
+                if not is_valid:
+                    logger.debug(f"⚠️ 订单流方向不匹配: {message}")
+                    return False
+
+                return True
+            else:
+                # 没有验证器，使用简化验证
+                current_price = tick.get('price', 0.0)
+                side = tick.get('side', '')
+                cvd = tick.get('cvd', None)
+
+                if cvd is not None:
+                    if breakout_up and cvd > 0:
+                        return True
+                    elif breakout_down and cvd < 0:
+                        return True
+                    else:
+                        logger.debug(f"⚠️ 订单流方向不匹配: 突破方向{breakout_up}/{breakout_down}, CVD={cvd}")
+                        return False
+
+                if side:
+                    if breakout_up and side == 'buy':
+                        return True
+                    elif breakout_down and side == 'sell':
+                        return True
+
+                logger.debug(f"ℹ️ 订单流信息不足，使用默认验证")
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ 订单流验证失败: {e}")
+            return False
 
     def _check_orderflow_reversal(self, tick: dict) -> bool:
         """检查订单流是否反转（简化版）"""
         # 实际应用中需要从tick数据中提取CVD方向变化
         # 这里返回True作为占位符
         return True
+
+    def _validate_with_value_area(self, signal: dict, tick: dict) -> Tuple[bool, str]:
+        """
+        使用价值区间验证信号
+
+        参数:
+            signal: Triple-A信号
+            tick: 当前tick数据
+
+        返回:
+            tuple: (验证结果, 验证消息)
+        """
+        if not self.config.value_area_validation_enabled or not self.value_area_analyzer:
+            return True, "价值区间验证未启用"
+
+        try:
+            current_price = tick.get('price', 0.0)
+            direction = signal.get('direction', '')
+            breakout_price = signal.get('breakout_price', current_price)
+
+            # 获取K线数据（需要从context或数据源获取）
+            # 第一阶段：先使用简化验证
+            # 第二阶段：从MarketContext获取真实K线数据
+
+            # 检查是否有可用的K线数据
+            if hasattr(self.context, 'get_historical_data'):
+                df = self.context.get_historical_data(timeframe='5m', limit=200)
+                if df is not None and not df.empty:
+                    # 使用价值区间分析器计算Fabio平衡区间价值区间
+                    value_area_result = self.value_area_analyzer.calculate_fabio_value_area(
+                        df, current_price
+                    )
+
+                    if value_area_result:
+                        self.stats["value_area_validations"] += 1
+
+                        # 验证信号与价值区间的一致性
+                        is_valid, message = self.value_area_analyzer.validate_aggression_with_value_area(
+                            signal, value_area_result
+                        )
+
+                        # 分析价值区间强度
+                        strength_result = self.value_area_analyzer.analyze_value_area_strength(value_area_result)
+                        strength_score = strength_result.get('score', 0.0)
+
+                        # 获取适应性验证参数
+                        validation_params = self._get_adaptive_validation_params(tick)
+                        min_strength_required = validation_params.get('min_value_area_strength', self.config.min_value_area_strength)
+
+                        if strength_score < min_strength_required:
+                            logger.warning(f"⚠️ 价值区间强度不足: {strength_score:.1f} < {min_strength_required}")
+                            return False, f"价值区间强度不足 ({strength_score:.1f} < {min_strength_required})"
+
+                        if is_valid:
+                            self.stats["validation_passed"] += 1
+                        else:
+                            self.stats["validation_failed"] += 1
+
+                        return is_valid, message
+
+            # 如果没有K线数据或验证器未初始化，返回验证通过但记录警告
+            logger.debug("ℹ️ 价值区间验证：无K线数据，跳过验证")
+            return True, "无K线数据，跳过价值区间验证"
+
+        except Exception as e:
+            logger.error(f"❌ 价值区间验证失败: {e}")
+            return False, f"验证异常: {str(e)}"
+
+    def _validate_with_multi_timeframe(self, signal: dict, tick: dict) -> Tuple[bool, str]:
+        """
+        使用多时间框架结构验证信号
+
+        参数:
+            signal: Triple-A信号
+            tick: 当前tick数据
+
+        返回:
+            tuple: (验证结果, 验证消息)
+        """
+        if not self.config.multi_tf_alignment_enabled or not self.smc_validator:
+            return True, "多时间框架验证未启用"
+
+        try:
+            current_price = tick.get('price', 0.0)
+            direction = signal.get('direction', '')
+
+            # 更新SMC验证器结构
+            self.smc_validator.update_structure()
+
+            # 使用SMC验证器进行多时间框架验证
+            is_valid, message = self.smc_validator.final_check(current_price)
+
+            if is_valid:
+                self.stats["multi_tf_validations"] += 1
+                self.stats["validation_passed"] += 1
+            else:
+                self.stats["validation_failed"] += 1
+
+            return is_valid, message
+
+        except Exception as e:
+            logger.error(f"❌ 多时间框架验证失败: {e}")
+            return False, f"多时间框架验证异常: {str(e)}"
+
+    def _validate_with_orderflow(self, signal: dict, tick: dict) -> Tuple[bool, str]:
+        """
+        使用订单流验证信号
+
+        参数:
+            signal: Triple-A信号
+            tick: 当前tick数据
+
+        返回:
+            tuple: (验证结果, 验证消息)
+        """
+        if not self.config.orderflow_validation_enabled or not self.orderflow_validator:
+            return True, "订单流验证未启用"
+
+        try:
+            # 处理当前tick
+            self.orderflow_validator.process_tick(tick)
+
+            # 获取相关tick数据（使用时间窗口）
+            relevant_ticks = self.tick_window[-100:]  # 最近100个tick
+
+            # 获取适应性验证参数
+            adaptive_params = self._get_adaptive_validation_params(tick)
+            cvd_threshold = adaptive_params.get('cvd_threshold', self.config.orderflow_cvd_threshold)
+
+            # 使用订单流验证器验证信号
+            is_valid, message = self.orderflow_validator.validate_aggression_with_orderflow(
+                signal, relevant_ticks, cvd_threshold=cvd_threshold
+            )
+
+            if is_valid:
+                self.stats["orderflow_validations"] += 1
+                self.stats["validation_passed"] += 1
+            else:
+                self.stats["validation_failed"] += 1
+
+            return is_valid, message
+
+        except Exception as e:
+            logger.error(f"❌ 订单流验证失败: {e}")
+            return False, f"订单流验证异常: {str(e)}"
+
+    def _get_adaptive_validation_params(self, tick: dict) -> Dict[str, Any]:
+        """
+        获取适应性验证参数
+
+        参数:
+            tick: 当前tick数据
+
+        返回:
+            dict: 验证参数
+        """
+        if not self.config.adaptive_validation_enabled or not hasattr(self, 'market_environment_analyzer'):
+            # 返回默认参数
+            return {
+                'cvd_threshold': self.config.orderflow_cvd_threshold,
+                'min_value_area_strength': self.config.min_value_area_strength,
+                'validation_mode': 'NORMAL'
+            }
+
+        try:
+            # 获取K线数据（简化版本）
+            # 在实际应用中，应该从context获取K线数据
+            if hasattr(self.context, 'get_historical_data'):
+                df = self.context.get_historical_data(timeframe='5m', limit=100)
+            else:
+                df = None
+
+            # 分析市场环境
+            environment = self.market_environment_analyzer.analyze_environment(df, [tick])
+
+            # 获取适应性验证参数
+            validation_params = self.market_environment_analyzer.get_validation_parameters(environment)
+
+            # 记录环境信息
+            logger.debug(f"🔧 适应性验证参数: 模式={validation_params.get('validation_mode', 'NORMAL')}, "
+                        f"CVD阈值={validation_params.get('cvd_threshold', 0.7):.2f}, "
+                        f"环境分数={environment.get('environment_score', 50.0):.1f}")
+
+            return validation_params
+
+        except Exception as e:
+            logger.error(f"❌ 适应性验证参数获取失败: {e}")
+            return {
+                'cvd_threshold': self.config.orderflow_cvd_threshold,
+                'min_value_area_strength': self.config.min_value_area_strength,
+                'validation_mode': 'NORMAL'
+            }
 
     async def _record_signal(self, signal: dict, tick: dict):
         """记录信号到上下文"""
@@ -570,13 +919,21 @@ class TripleADetector:
 
     def get_stats(self) -> Dict[str, Any]:
         """获取检测器统计信息"""
+        # 计算验证成功率
+        total_validations = self.stats.get("validation_passed", 0) + self.stats.get("validation_failed", 0)
+        validation_success_rate = (self.stats.get("validation_passed", 0) / total_validations * 100) if total_validations > 0 else 0.0
+
         return {
             **self.stats,
             "current_state": self.state.current_state,
             "absorption_score": self.state.absorption_score,
             "accumulation_score": self.state.accumulation_score,
             "aggression_score": self.state.aggression_score,
-            "window_size": len(self.tick_window)
+            "window_size": len(self.tick_window),
+            "validation_success_rate": f"{validation_success_rate:.1f}%",
+            "value_area_analyzer_initialized": self.value_area_analyzer is not None,
+            "orderflow_validator_initialized": hasattr(self, 'orderflow_validator') and self.orderflow_validator is not None,
+            "smc_validator_initialized": self.smc_validator is not None
         }
 
     def reset(self):

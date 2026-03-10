@@ -19,6 +19,8 @@ if project_root not in sys.path:
 
 from src.engine.triple_a_orchestrator import TripleAOrchestrator
 from src.utils.log import get_logger
+from config.loader import load_triple_a_config
+import os
 
 logger = get_logger(__name__)
 
@@ -31,8 +33,22 @@ if __name__ == "__main__":
                         help="运行模式: 'collect' (只收集数据和发邮件) 或 'live' (实盘自动交易)")
     args = parser.parse_args()
 
+    # 根据模式加载配置：收集模式使用研究配置，实盘模式使用默认配置
+    if args.mode == "collect":
+        research_symbol = f"{args.symbol}-RESEARCH"
+        research_config_path = os.path.join("config", "triple_a", f"{research_symbol}.yaml")
+        if os.path.exists(research_config_path):
+            logger.info(f"📊 收集模式：使用研究配置文件 {research_symbol}.yaml")
+            config = load_triple_a_config(research_symbol, return_dict=False)
+        else:
+            logger.info(f"📊 收集模式：未找到研究配置，使用默认配置")
+            config = load_triple_a_config(args.symbol, return_dict=False)
+    else:
+        logger.info(f"🚀 实盘模式：使用默认配置")
+        config = load_triple_a_config(args.symbol, return_dict=False)
+
     # 创建编排器实例
-    orchestrator = TripleAOrchestrator(symbol=args.symbol, mode=args.mode)
+    orchestrator = TripleAOrchestrator(symbol=args.symbol, mode=args.mode, config=config)
     logger.info(f"⚙️ 当前引擎运行模式: 【{args.mode.upper()}】")
 
     # 🌟 优雅重启，监听 kill -15
