@@ -169,7 +169,7 @@ class TripleADetector:
             return None
 
         # 计算平均成交量
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
+        valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
         avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
         if avg_volume <= 0:
             return None
@@ -180,15 +180,23 @@ class TripleADetector:
             return None
 
         price_range = (max(recent_prices) - min(recent_prices)) / min(recent_prices)
-        price_stable = price_range < self.config.absorption_price_threshold * 2
+        price_stable = price_range < self.config.absorption_price_threshold
 
         # 检测异常大单
-        current_volume = tick.get('volume', 0)
+        current_volume = tick.get('size', 0)
         large_order = current_volume > avg_volume * self.config.absorption_volume_ratio
 
-        # 计算买量/卖量比率（简化版）
-        # 实际应用中需要从tick数据中提取买卖方向
-        buy_sell_ratio = 1.0  # 默认值，实际需要计算
+        # 计算买量/卖量比率
+        # 从tick数据中提取买卖方向
+        recent_sides = [t.get('side', '') for t in self.tick_window[-30:]]
+        buy_count = sum(1 for s in recent_sides if s == 'buy')
+        sell_count = sum(1 for s in recent_sides if s == 'sell')
+        total_count = buy_count + sell_count
+
+        if total_count > 0:
+            buy_sell_ratio = buy_count / sell_count if sell_count > 0 else float('inf')
+        else:
+            buy_sell_ratio = 1.0
 
         # 计算吸收得分
         absorption_score = self._calculate_absorption_score(
@@ -299,10 +307,10 @@ class TripleADetector:
         4. 突破方向与订单流方向一致
         """
         current_price = tick.get('price', 0.0)
-        current_volume = tick.get('volume', 0)
+        current_volume = tick.get('size', 0)
 
         # 计算平均成交量
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
+        valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
         avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
         if avg_volume <= 0:
             return None
@@ -401,7 +409,7 @@ class TripleADetector:
 
         # 如果Aggression检测超时，返回IDLE状态
         time_since_accumulation = time.time() - self.state.accumulation_start_time
-        if time_since_accumulation > self.config.failed_auction_window_seconds:
+        if time_since_accumulation > self.config.accumulation_window_seconds:
             logger.info("⏰ Aggression检测超时，返回IDLE状态")
             self.state.reset()
 
@@ -438,9 +446,9 @@ class TripleADetector:
             return None
 
         # 检查成交量确认
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
+        valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
         avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
-        current_volume = tick.get('volume', 0)
+        current_volume = tick.get('size', 0)
         volume_confirmation = current_volume > avg_volume * self.config.failed_auction_volume_confirmation_multiplier
 
         # 检查订单流反转（简化版）
@@ -485,7 +493,7 @@ class TripleADetector:
 
         # 价格稳定性权重
         if price_stable:
-            score += 0.4
+            score += 0.25
 
         # 大单吸收权重
         if large_order:
@@ -493,11 +501,11 @@ class TripleADetector:
 
         # 买量/卖量比率权重（简化）
         if 1.5 < buy_sell_ratio < 3.0:
-            score += 0.2
+            score += 0.3
 
         # 时间持续性权重
         if tick_count > 50:
-            score += 0.1
+            score += 0.15
 
         return min(score, 1.0)
 
@@ -586,7 +594,7 @@ class TripleADetector:
         if len(self.tick_window) < 20:
             return False
 
-        volumes = [t.get('volume', 0) for t in self.tick_window[-20:]]
+        volumes = [t.get('size', 0) for t in self.tick_window[-20:]]
 
         # 简单检查：最近5个tick的成交量是否小于前5个
         if len(volumes) >= 10:
