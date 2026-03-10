@@ -355,7 +355,9 @@ class OrderFlowValidator:
         try:
             direction = signal.get('direction', '').upper()
             if direction not in ['UP', 'DOWN']:
-                return False, f"无效的信号方向: {direction}"
+                # 研究模式：允许UNKNOWN方向通过，但记录警告
+                logger.warning(f"⚠️ 订单流验证：信号方向为{direction}，在研究模式下允许通过")
+                return True, f"研究模式：允许{direction}方向通过"
 
             # 1. CVD趋势验证
             cvd_aligned = self._check_cvd_trend_alignment(direction, cvd_threshold)

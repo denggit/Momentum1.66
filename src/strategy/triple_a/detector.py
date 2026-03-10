@@ -246,11 +246,22 @@ class TripleADetector:
 
         # 更新累积区间
         if self.state.accumulation_low == 0:
-            self.state.accumulation_low = current_price
-            self.state.accumulation_high = current_price
+            # 初始化累积区间，设置一个最小宽度（当前价格的0.1%）
+            min_width = current_price * 0.001  # 0.1%
+            self.state.accumulation_low = current_price - min_width / 2
+            self.state.accumulation_high = current_price + min_width / 2
         else:
             self.state.accumulation_low = min(self.state.accumulation_low, current_price)
             self.state.accumulation_high = max(self.state.accumulation_high, current_price)
+
+            # 确保累积区间有最小宽度（避免宽度为0）
+            min_width_pct = 0.0005  # 0.05%最小宽度
+            min_width = current_price * min_width_pct
+            current_width = self.state.accumulation_high - self.state.accumulation_low
+            if current_width < min_width:
+                # 扩展区间到最小宽度，以当前价格为中心
+                self.state.accumulation_low = current_price - min_width / 2
+                self.state.accumulation_high = current_price + min_width / 2
 
         # 计算价格范围
         price_range = (self.state.accumulation_high - self.state.accumulation_low) / self.state.accumulation_low
@@ -342,7 +353,21 @@ class TripleADetector:
             self.state.current_state = "AGGRESSION_TRIGGERED"
             self.state.aggression_start_time = time.time()
 
-            direction = "UP" if breakout_up else "DOWN" if breakout_down else "UNKNOWN"
+            # 首先基于明确的突破方向判断
+            if breakout_up:
+                direction = "UP"
+            elif breakout_down:
+                direction = "DOWN"
+            else:
+                # 如果没有明确的突破方向，尝试基于订单流趋势判断
+                orderflow_direction = self._get_orderflow_direction(tick)
+                if orderflow_direction in ["UP", "DOWN"]:
+                    direction = orderflow_direction
+                    logger.debug(f"📊 基于订单流趋势确定方向: {direction}")
+                else:
+                    # 方向不明确，不触发Aggression信号
+                    logger.debug(f"⚠️ Aggression得分达到阈值{aggression_score:.2f}但方向不明确，不触发信号")
+                    return None
 
             logger.warning(f"🚨 Aggression触发！得分: {aggression_score:.2f}, "
                           f"方向: {direction}, 价格: {current_price:.2f}")
@@ -711,6 +736,41 @@ class TripleADetector:
         except Exception as e:
             logger.error(f"❌ 订单流验证失败: {e}")
             return False
+
+    def _get_orderflow_direction(self, tick: dict) -> str:
+        """获取订单流趋势方向
+
+        返回:
+            'UP': 订单流显示上涨趋势
+            'DOWN': 订单流显示下跌趋势
+            'UNKNOWN': 无法确定方向
+        """
+        try:
+            # 检查最近的tick数据判断趋势
+            if len(self.tick_window) < 10:
+                return "UNKNOWN"
+
+            # 分析最近20个tick的买卖方向
+            recent_sides = [t.get('side', '') for t in self.tick_window[-20:]]
+            buy_count = sum(1 for s in recent_sides if s == 'buy')
+            sell_count = sum(1 for s in recent_sides if s == 'sell')
+
+            if buy_count + sell_count < 5:  # 数据不足
+                return "UNKNOWN"
+
+            # 计算买卖比例
+            buy_ratio = buy_count / (buy_count + sell_count)
+
+            if buy_ratio > 0.6:  # 买方占优
+                return "UP"
+            elif buy_ratio < 0.4:  # 卖方占优
+                return "DOWN"
+            else:  # 买卖平衡
+                return "UNKNOWN"
+
+        except Exception as e:
+            logger.error(f"❌ 订单流方向判断失败: {e}")
+            return "UNKNOWN"
 
     def _check_orderflow_reversal(self, tick: dict) -> bool:
         """检查订单流是否反转（简化版）"""
