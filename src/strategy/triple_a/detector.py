@@ -8,6 +8,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List, Tuple
+from collections import deque
 import numpy as np
 
 from src.strategy.triple_a.config import TripleAConfig
@@ -39,6 +40,9 @@ class TripleAState:
     accumulation_score: float = 0.0
     aggression_score: float = 0.0
 
+    # 方向信息
+    absorption_direction: str = ""  # BULLISH, BEARISH, 或空字符串
+
     # 数据缓存
     recent_ticks: List[Dict[str, Any]] = field(default_factory=list)
     recent_volumes: List[float] = field(default_factory=list)
@@ -46,6 +50,106 @@ class TripleAState:
     def reset(self):
         """重置状态"""
         self.__init__()
+
+
+class PriceRangeCVDCalculator:
+    """价格区间CVD计算器 - 检测在特定价格区间内的CVD极端值"""
+
+    def __init__(self, range_pct: float = 0.003):
+        """
+        初始化价格区间CVD计算器
+
+        参数:
+            range_pct: 价格区间宽度百分比，默认0.3%
+        """
+        self.range_pct = range_pct
+        self.current_range = []  # 当前价格区间内的tick数据
+        self.range_start_price = 0.0
+        self.range_start_time = 0.0
+
+    def add_tick(self, tick: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        添加tick数据，如果价格超出当前区间则分析区间统计
+
+        返回:
+            如果区间结束，返回区间统计字典；否则返回None
+        """
+        price = tick.get('price', 0.0)
+        if price <= 0:
+            return None
+
+        # 如果是第一个tick，初始化区间
+        if not self.current_range:
+            self.current_range = [tick]
+            self.range_start_price = price
+            self.range_start_time = tick.get('ts', time.time())
+            return None
+
+        # 检查价格是否超出当前区间
+        price_diff = abs(price - self.range_start_price) / self.range_start_price
+        if price_diff > self.range_pct:
+            # 区间结束，计算统计
+            stats = self._calculate_range_stats()
+            # 开始新区间
+            self.current_range = [tick]
+            self.range_start_price = price
+            self.range_start_time = tick.get('ts', time.time())
+            return stats
+
+        # 在区间内，添加tick
+        self.current_range.append(tick)
+        return None
+
+    def _calculate_range_stats(self) -> Dict[str, Any]:
+        """计算价格区间内的CVD和成交量统计"""
+        if not self.current_range or len(self.current_range) < 5:
+            return {}
+
+        buy_volume = 0.0
+        sell_volume = 0.0
+        prices = []
+
+        for tick in self.current_range:
+            size = tick.get('size', 0.0)
+            side = tick.get('side', '')
+            price = tick.get('price', 0.0)
+
+            if side == 'buy':
+                buy_volume += size
+            elif side == 'sell':
+                sell_volume += size
+
+            if price > 0:
+                prices.append(price)
+
+        total_volume = buy_volume + sell_volume
+        cvd = buy_volume - sell_volume  # 正值表示主动买单多，负值表示主动卖单多
+
+        if not prices:
+            return {}
+
+        min_price = min(prices)
+        max_price = max(prices)
+        price_range_pct = (max_price - min_price) / min_price if min_price > 0 else 0
+
+        return {
+            'cvd': cvd,
+            'buy_volume': buy_volume,
+            'sell_volume': sell_volume,
+            'total_volume': total_volume,
+            'price_range_pct': price_range_pct,
+            'min_price': min_price,
+            'max_price': max_price,
+            'avg_price': np.mean(prices),
+            'tick_count': len(self.current_range),
+            'duration_seconds': time.time() - self.range_start_time,
+            'buy_ratio': buy_volume / total_volume if total_volume > 0 else 0,
+            'sell_ratio': sell_volume / total_volume if total_volume > 0 else 0
+        }
+
+    def get_current_range_stats(self) -> Dict[str, Any]:
+        """获取当前区间统计（即使区间未结束）"""
+        return self._calculate_range_stats()
 
 
 class TripleADetector:
@@ -73,6 +177,11 @@ class TripleADetector:
         # 时间窗口缓存
         self.tick_window = []
         self.max_window_size = 1000  # 最多存储1000个tick
+
+        # 价格区间CVD计算器
+        self.price_range_calculator = PriceRangeCVDCalculator(
+            range_pct=self.config.absorption_price_threshold * 1.5  # 价格区间宽度比吸收阈值稍宽
+        )
 
         # Fabio验证器初始化
         self.value_area_analyzer = None
@@ -131,6 +240,13 @@ class TripleADetector:
         # 1. 更新数据窗口
         self._update_tick_window(tick)
 
+        # 1.1 更新价格区间CVD计算器
+        range_stats = self.price_range_calculator.add_tick(tick)
+        if range_stats:
+            logger.debug(f"📊 价格区间结束: CVD={range_stats.get('cvd', 0):.2f}, "
+                       f"价格范围={range_stats.get('price_range_pct', 0)*100:.3f}%, "
+                       f"成交量={range_stats.get('total_volume', 0):.2f}")
+
         # 2. 根据当前状态执行检测
         signal = None
 
@@ -152,58 +268,59 @@ class TripleADetector:
 
     async def _detect_absorption(self, tick: dict) -> Optional[dict]:
         """
-        检测Absorption（吸收）阶段
+        检测Absorption（吸收）阶段 - 基于Fabio Valentini的价格区间CVD极端值检测
 
         检测条件：
-        1. 价格在关键水平 ± absorption_price_threshold 范围内波动
-        2. 出现异常大单（>平均成交量 * absorption_volume_ratio）但价格未突破
-        3. 买量/卖量比率异常但价格稳定
-        4. 持续至少absorption_window_seconds秒
+        1. 价格在窄幅区间内波动（价格范围 < absorption_price_threshold）
+        2. 价格区间内CVD绝对值极端（负值大表示主动卖单多，正值大表示主动买单多）
+        3. 成交量足够大，表明有机构参与
+        4. 价格未突破区间，表明吸收有效
+
+        根据Fabio逻辑：
+        - 负CVD极端值 + 价格稳定 = 看涨吸收（买家吸收卖压）
+        - 正CVD极端值 + 价格稳定 = 看跌吸收（卖家吸收买压）
         """
-        if len(self.tick_window) < 10:
+        # 获取当前价格区间的统计信息
+        range_stats = self.price_range_calculator.get_current_range_stats()
+        if not range_stats or range_stats.get('tick_count', 0) < 20:
+            # 需要足够的数据点
             return None
 
-        # 计算关键水平（使用当前价格作为参考）
+        cvd = range_stats.get('cvd', 0)
+        total_volume = range_stats.get('total_volume', 0)
+        price_range_pct = range_stats.get('price_range_pct', 0)
+        buy_volume = range_stats.get('buy_volume', 0)
+        sell_volume = range_stats.get('sell_volume', 0)
+        tick_count = range_stats.get('tick_count', 0)
+        duration = range_stats.get('duration_seconds', 0)
+
         current_price = tick.get('price', 0.0)
         if current_price <= 0:
             return None
 
-        # 计算平均成交量
-        valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
-        avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
-        if avg_volume <= 0:
-            return None
+        # 条件1: 价格稳定性 - 价格范围小于阈值
+        price_stable = price_range_pct < self.config.absorption_price_threshold
 
-        # 计算价格稳定性
-        recent_prices = [t.get('price', 0.0) for t in self.tick_window[-30:] if t.get('price', 0.0) > 0]
-        if len(recent_prices) < 10:
-            return None
-
-        price_range = (max(recent_prices) - min(recent_prices)) / min(recent_prices)
-        price_stable = price_range < self.config.absorption_price_threshold
-
-        # 检测异常大单（相对阈值+绝对阈值）
-        current_volume = tick.get('size', 0)
-        # 相对阈值：大于平均成交量的absorption_volume_ratio倍
-        # 绝对阈值：大于10张合约（1 ETH），避免小成交量误触发
-        large_order = (current_volume > avg_volume * self.config.absorption_volume_ratio and
-                      current_volume > 10)  # 10 contracts = 1 ETH
-
-        # 计算买量/卖量比率
-        # 从tick数据中提取买卖方向
-        recent_sides = [t.get('side', '') for t in self.tick_window[-30:]]
-        buy_count = sum(1 for s in recent_sides if s == 'buy')
-        sell_count = sum(1 for s in recent_sides if s == 'sell')
-        total_count = buy_count + sell_count
-
-        if total_count > 0:
-            buy_sell_ratio = buy_count / sell_count if sell_count > 0 else float('inf')
+        # 条件2: CVD极端值 - 计算CVD相对于总成交量的比例
+        if total_volume > 0:
+            cvd_ratio = abs(cvd) / total_volume  # CVD绝对值占总成交量的比例
         else:
-            buy_sell_ratio = 1.0
+            cvd_ratio = 0
+
+        # 设置CVD阈值：CVD比例 > 0.3（即主动买卖单差异占总成交量的30%以上）
+        cvd_extreme = cvd_ratio > 0.3
+
+        # 条件3: 成交量足够大 - 至少有20个tick，且总成交量大于最小阈值
+        # 计算平均每个tick的成交量
+        avg_tick_volume = total_volume / tick_count if tick_count > 0 else 0
+        volume_sufficient = total_volume > 100  # 至少100张合约（10 ETH）
+
+        # 条件4: 持续时间 - 至少持续5秒
+        duration_ok = duration >= 5.0
 
         # 计算吸收得分
-        absorption_score = self._calculate_absorption_score(
-            price_stable, large_order, buy_sell_ratio, len(self.tick_window)
+        absorption_score = self._calculate_absorption_score_fabio(
+            price_stable, cvd_extreme, volume_sufficient, duration_ok, cvd
         )
 
         self.state.absorption_score = absorption_score
@@ -215,7 +332,12 @@ class TripleADetector:
             self.state.absorption_start_time = time.time()
             self.state.absorption_price = current_price
 
-            logger.debug(f"🎯 Absorption检测到！得分: {absorption_score:.2f}, 价格: {current_price:.2f}")
+            # 记录吸收方向
+            absorption_direction = "BULLISH" if cvd < 0 else "BEARISH"
+            self.state.absorption_direction = absorption_direction
+            logger.debug(f"🎯 Absorption检测到！得分: {absorption_score:.2f}, "
+                       f"价格: {current_price:.2f}, CVD: {cvd:.2f}, "
+                       f"方向: {absorption_direction}, 价格范围: {price_range_pct*100:.3f}%")
 
             return {
                 "type": "ABSORPTION_DETECTED",
@@ -223,7 +345,13 @@ class TripleADetector:
                 "score": absorption_score,
                 "price": current_price,
                 "timestamp": tick.get('ts', time.time()),
-                "absorption_price": current_price
+                "absorption_price": current_price,
+                "cvd": cvd,
+                "total_volume": total_volume,
+                "price_range_pct": price_range_pct,
+                "absorption_direction": absorption_direction,
+                "buy_volume": buy_volume,
+                "sell_volume": sell_volume
             }
 
         return None
@@ -541,6 +669,43 @@ class TripleADetector:
         # 时间持续性权重
         if tick_count > 50:
             score += 0.15
+
+        return min(score, 1.0)
+
+    def _calculate_absorption_score_fabio(self, price_stable: bool, cvd_extreme: bool,
+                                         volume_sufficient: bool, duration_ok: bool,
+                                         cvd: float) -> float:
+        """
+        基于Fabio逻辑的Absorption得分计算
+        权重分配：
+        1. 价格稳定性：30% - 价格在窄幅区间内波动
+        2. CVD极端值：40% - CVD绝对值大，表明主动买卖压力大
+        3. 成交量充足：20% - 有足够的成交量表明机构参与
+        4. 持续时间：10% - 持续足够时间表明不是瞬时波动
+        """
+        score = 0.0
+
+        # 价格稳定性权重 (30%)
+        if price_stable:
+            score += 0.3
+
+        # CVD极端值权重 (40%)
+        if cvd_extreme:
+            score += 0.4
+
+        # 成交量充足权重 (20%)
+        if volume_sufficient:
+            score += 0.2
+
+        # 持续时间权重 (10%)
+        if duration_ok:
+            score += 0.1
+
+        # 额外加分：CVD方向一致性（如果CVD绝对值很大且方向明确）
+        # 负CVD表示主动卖单多（看涨吸收），正CVD表示主动买单多（看跌吸收）
+        # 无论方向如何，只要绝对值大就加分
+        if abs(cvd) > 1000:  # CVD绝对值大于1000张合约
+            score += 0.1
 
         return min(score, 1.0)
 
