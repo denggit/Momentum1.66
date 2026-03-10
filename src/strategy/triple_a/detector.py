@@ -182,9 +182,12 @@ class TripleADetector:
         price_range = (max(recent_prices) - min(recent_prices)) / min(recent_prices)
         price_stable = price_range < self.config.absorption_price_threshold
 
-        # 检测异常大单
+        # 检测异常大单（相对阈值+绝对阈值）
         current_volume = tick.get('size', 0)
-        large_order = current_volume > avg_volume * self.config.absorption_volume_ratio
+        # 相对阈值：大于平均成交量的absorption_volume_ratio倍
+        # 绝对阈值：大于10张合约（1 ETH），避免小成交量误触发
+        large_order = (current_volume > avg_volume * self.config.absorption_volume_ratio and
+                      current_volume > 10)  # 10 contracts = 1 ETH
 
         # 计算买量/卖量比率
         # 从tick数据中提取买卖方向
@@ -212,7 +215,7 @@ class TripleADetector:
             self.state.absorption_start_time = time.time()
             self.state.absorption_price = current_price
 
-            logger.info(f"🎯 Absorption检测到！得分: {absorption_score:.2f}, 价格: {current_price:.2f}")
+            logger.debug(f"🎯 Absorption检测到！得分: {absorption_score:.2f}, 价格: {current_price:.2f}")
 
             return {
                 "type": "ABSORPTION_DETECTED",
@@ -286,7 +289,7 @@ class TripleADetector:
             self.state.current_state = "ACCUMULATION_CONFIRMED"
             self.state.accumulation_start_time = current_time
 
-            logger.info(f"📊 Accumulation确认！得分: {accumulation_score:.2f}, "
+            logger.debug(f"📊 Accumulation确认！得分: {accumulation_score:.2f}, "
                        f"区间: [{self.state.accumulation_low:.2f}, {self.state.accumulation_high:.2f}]")
 
             return {
@@ -326,8 +329,11 @@ class TripleADetector:
         if avg_volume <= 0:
             return None
 
-        # 检查成交量爆发
-        volume_spike = current_volume > avg_volume * self.config.aggression_volume_spike
+        # 检查成交量爆发（相对阈值+绝对阈值）
+        # 相对阈值：大于平均成交量的aggression_volume_spike倍
+        # 绝对阈值：大于20张合约（2 ETH），避免小成交量误触发
+        volume_spike = (current_volume > avg_volume * self.config.aggression_volume_spike and
+                       current_volume > 20)  # 20 contracts = 2 ETH
 
         # 检查价格突破
         breakout_up = current_price > self.state.accumulation_high * (1 + self.config.aggression_breakout_pct)
@@ -369,7 +375,7 @@ class TripleADetector:
                     logger.debug(f"⚠️ Aggression得分达到阈值{aggression_score:.2f}但方向不明确，不触发信号")
                     return None
 
-            logger.warning(f"🚨 Aggression触发！得分: {aggression_score:.2f}, "
+            logger.info(f"🚨 Aggression触发！得分: {aggression_score:.2f}, "
                           f"方向: {direction}, 价格: {current_price:.2f}")
 
             # 构建基础信号
@@ -396,7 +402,7 @@ class TripleADetector:
                     'message': validation_msg_va
                 }
                 if not is_valid_va:
-                    logger.warning(f"⛔ Aggression信号被价值区间验证拒绝: {validation_msg_va}")
+                    logger.debug(f"⛔ Aggression信号被价值区间验证拒绝: {validation_msg_va}")
                     # 验证失败，不返回信号
                     return None
 
@@ -408,7 +414,7 @@ class TripleADetector:
                     'message': validation_msg_of
                 }
                 if not is_valid_of:
-                    logger.warning(f"⛔ Aggression信号被订单流验证拒绝: {validation_msg_of}")
+                    logger.debug(f"⛔ Aggression信号被订单流验证拒绝: {validation_msg_of}")
                     # 验证失败，不返回信号
                     return None
 
@@ -420,7 +426,7 @@ class TripleADetector:
                     'message': validation_msg_mtf
                 }
                 if not is_valid_mtf:
-                    logger.warning(f"⛔ Aggression信号被多时间框架验证拒绝: {validation_msg_mtf}")
+                    logger.debug(f"⛔ Aggression信号被多时间框架验证拒绝: {validation_msg_mtf}")
                     # 验证失败，不返回信号
                     return None
 
@@ -474,7 +480,11 @@ class TripleADetector:
         valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
         avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
         current_volume = tick.get('size', 0)
-        volume_confirmation = current_volume > avg_volume * self.config.failed_auction_volume_confirmation_multiplier
+        # 成交量确认（相对阈值+绝对阈值）
+        # 相对阈值：大于平均成交量的volume_confirmation_multiplier倍
+        # 绝对阈值：大于15张合约（1.5 ETH），避免小成交量误触发
+        volume_confirmation = (current_volume > avg_volume * self.config.failed_auction_volume_confirmation_multiplier and
+                              current_volume > 15)  # 15 contracts = 1.5 ETH
 
         # 检查订单流反转（简化版）
         orderflow_reversal = self._check_orderflow_reversal(tick)
@@ -488,7 +498,7 @@ class TripleADetector:
         if failed_auction_score >= self.config.failed_auction_detection_threshold:
             self.stats["failed_auctions"] += 1
 
-            logger.error(f"💥 Failed Auction检测到！得分: {failed_auction_score:.2f}, "
+            logger.warning(f"💥 Failed Auction检测到！得分: {failed_auction_score:.2f}, "
                         f"价格回归累积区间: {current_price:.2f}")
 
             # 生成Failed Auction信号

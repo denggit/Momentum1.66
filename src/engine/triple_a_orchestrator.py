@@ -174,8 +174,12 @@ class TripleAOrchestrator:
         elif 'FAILED_AUCTION' in signal_type:
             self.signal_stats["failed_auction"] += 1
 
-        # 记录信号
-        self.tracker.add_tracking(signal_data)
+        # 记录信号（科考船模式：只记录侵略和失败拍卖信号，减少数据量）
+        if signal_type in ["AGGRESSION_TRIGGERED", "FAILED_AUCTION_DETECTED"]:
+            self.tracker.add_tracking(signal_data)
+        else:
+            # 吸收和累积信号只记录到日志，不记录到CSV
+            logger.debug(f"📝 跳过CSV记录: {signal_type} @ {signal_data.get('price', 0):.2f}")
 
         # 根据信号类型处理
         # 注意：现在信号处理改由执行器负责
@@ -223,33 +227,16 @@ class TripleAOrchestrator:
 
 
     async def _send_email_alert(self, signal_data: Dict[str, Any], tick: Dict[str, Any]):
-        """发送邮件警报（收集模式）"""
-        current_ts = time.time()
-        if current_ts - self._last_email_sent_time < self._email_cooldown:
-            return
-
+        """发送邮件警报（收集模式）- 科考船模式禁用邮件"""
+        # 科考船模式不发送邮件，只记录日志
         signal_type = signal_data.get('type', 'UNKNOWN')
         price = signal_data.get('price', 0)
+        score = signal_data.get('score', 0)
 
-        details = f"""
-🚨 Triple-A信号警报！
-📊 信号类型: {signal_type}
-💰 价格: {price:.2f}
-📈 阶段: {signal_data.get('phase', 'unknown')}
-🎯 得分: {signal_data.get('score', 0):.2f}
-🕒 时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
-"""
+        logger.info(f"📊 信号记录（邮件禁用）: {signal_type} @ {price:.2f}, 得分: {score:.2f}")
 
-        success = await send_trading_signal_email(
-            self.symbol,
-            f"Triple-A信号 ({signal_type})",
-            price,
-            details
-        )
-
-        if success:
-            self._last_email_sent_time = current_ts
-            logger.info(f"📧 邮件警报发送成功: {signal_type}")
+        # 不发送邮件，直接返回
+        return False
 
     async def run(self):
         """启动编排器主循环"""

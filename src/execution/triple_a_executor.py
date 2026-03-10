@@ -225,7 +225,7 @@ class TripleAExecutor:
 
     async def _execute_failed_auction_stop(self, signal: Dict[str, Any]) -> Dict[str, Any]:
         """执行Failed Auction止损"""
-        logger.error(f"🛑 执行Failed Auction止损！价格: {signal.get('price', 0):.2f}")
+        logger.warning(f"🛑 执行Failed Auction止损！价格: {signal.get('price', 0):.2f}")
 
         # 检查当前是否有持仓
         current_position = self.context.get_position()
@@ -245,7 +245,7 @@ class TripleAExecutor:
 
         if stop_result:
             self.stats["failed_auction_stops"] += 1
-            logger.error(f"✅ Failed Auction止损执行成功！亏损: ${stop_result.get('pnl', 0):.2f}")
+            logger.warning(f"✅ Failed Auction止损执行成功！亏损: ${stop_result.get('pnl', 0):.2f}")
 
         return stop_result
 
