@@ -22,6 +22,7 @@ import os
 import signal
 import sys
 import time
+import traceback
 from typing import Dict, Any
 
 # 确保能导入项目根目录的模块
@@ -213,9 +214,10 @@ class TripleAOrchestrator:
 
                 logger.error(f"❌ 执行器处理Failed Auction信号失败: {e}")
 
-        # 发送邮件警报（收集模式）- 只发送重大错误信号
-        if self.mode == "collect" and "FAILED_AUCTION" in signal_type:
-            await self._send_email_alert(signal_data, tick)
+        # 科考船模式：不发送信号邮件，只记录到CSV/日志
+        # 邮件只用于系统级错误（代码崩溃、账号问题等）
+        # if self.mode == "collect" and "FAILED_AUCTION" in signal_type:
+        #     await self._send_email_alert(signal_data, tick)
 
 
 
@@ -306,6 +308,36 @@ def main():
     except KeyboardInterrupt:
         logger.warning("🔔 收到停止指令！准备安全迫降...")
         orchestrator.tracker.force_close_all()
+    except Exception as e:
+        logger.error(f"❌ Triple-A引擎发生严重错误，程序即将终止: {e}", exc_info=True)
+
+        # 发送系统错误邮件
+        try:
+            error_details = f"""
+🚨 Triple-A引擎系统崩溃！
+
+📊 错误类型: {type(e).__name__}
+❌ 错误信息: {str(e)}
+📁 交易对: {args.symbol}
+🔄 运行模式: {args.mode}
+🕒 发生时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}
+
+📋 堆栈跟踪:
+{traceback.format_exc()}
+"""
+            # 尝试发送邮件，但邮件发送失败不影响错误处理
+            asyncio.run(send_trading_signal_email(
+                args.symbol,
+                f"🚨 Triple-A引擎系统崩溃 ({type(e).__name__})",
+                0.0,
+                error_details
+            ))
+            logger.info("📧 系统错误邮件已发送")
+        except Exception as mail_error:
+            logger.error(f"❌ 发送系统错误邮件失败: {mail_error}")
+
+        # 重新抛出异常，让程序终止
+        raise
 
 
 if __name__ == "__main__":
