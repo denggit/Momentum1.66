@@ -14,32 +14,29 @@ trading:
 
 # Triple-A检测参数 - 科考船宽松版
 triple_a:
-  # Absorption（吸收）检测参数 - 科考船严格阈值
-  absorption_price_threshold: 0.005      # 价格阈值0.5%（原0.3%）
-  absorption_volume_ratio: 2.0           # 成交量比率2.0x（原1.2x）
-  absorption_window_seconds: 30          # 吸收检测窗口30秒
-  absorption_score_threshold: 0.7        # 吸收置信度阈值0.7（科考船：有意义信号）
+  # Absorption（吸收）检测参数 - 大幅降低要求
+  absorption_price_threshold: 0.003      # 价格阈值0.3%（计划优化）
+  absorption_volume_ratio: 1.2           # 成交量比率1.2x（计划优化）
+  absorption_window_seconds: 20          # 吸收检测窗口20秒（原30秒）
+  absorption_score_threshold: 0.5        # 吸收置信度阈值0.5（科考船：比实盘0.7宽松，但有意义）
 
-  # 数据聚合参数
-  aggregation_window_seconds: 5          # tick数据聚合窗口5秒（减少噪声）
+  # Accumulation（累积）检测参数 - 大幅降低要求
+  accumulation_width_pct: 0.008          # 累积区间宽度0.8%（计划优化）
+  accumulation_min_ticks: 30             # 最小tick数30（原50）
+  accumulation_window_seconds: 80        # 累积检测窗口80秒（原120秒）
+  accumulation_score_threshold: 0.45     # 累积置信度阈值0.45（科考船：比实盘0.6宽松，但有意义）
 
-  # Accumulation（累积）检测参数 - 科考船严格阈值
-  accumulation_width_pct: 0.012          # 累积区间宽度1.2%（原0.8%）
-  accumulation_min_ticks: 30             # 最小tick数30
-  accumulation_window_seconds: 120       # 累积检测窗口120秒
-  accumulation_score_threshold: 0.65     # 累积置信度阈值0.65（科考船：有意义信号）
+  # Aggression（侵略）检测参数 - 大幅降低要求
+  aggression_volume_spike: 1.5           # 成交量爆发倍数1.5x（计划优化）
+  aggression_breakout_pct: 0.0005        # 突破阈值0.05%（计划优化）
+  aggression_score_threshold: 0.6        # 侵略置信度阈值0.6（科考船：比实盘0.75宽松，但有意义）
 
-  # Aggression（侵略）检测参数 - 科考船严格阈值
-  aggression_volume_spike: 2.5           # 成交量爆发倍数2.5x（原1.5x）
-  aggression_breakout_pct: 0.0010        # 突破阈值0.1%（原0.05%）
-  aggression_score_threshold: 0.75       # 侵略置信度阈值0.75（科考船：有意义信号）
-
-  # Failed Auction（失败拍卖）检测参数 - 科考船严格阈值
+  # Failed Auction（失败拍卖）检测参数
   failed_auction:
     enabled: true
     window_seconds: 300
-    detection_threshold: 0.8              # 失败拍卖检测阈值0.8（原0.55）
-    volume_confirmation_multiplier: 2.0   # 成交量确认倍数2.0（原1.3）
+    detection_threshold: 0.55
+    volume_confirmation_multiplier: 1.3
 
   # Fabio验证参数 - 科考船宽松版
   validation:
