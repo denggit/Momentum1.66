@@ -117,8 +117,7 @@ class TripleADetector:
             return None
 
         # 计算平均成交量
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
-        avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
+        avg_volume = np.mean([t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0])
         if avg_volume <= 0:
             return None
 
@@ -250,8 +249,7 @@ class TripleADetector:
         current_volume = tick.get('volume', 0)
 
         # 计算平均成交量
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
-        avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
+        avg_volume = np.mean([t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0])
         if avg_volume <= 0:
             return None
 
@@ -339,8 +337,7 @@ class TripleADetector:
             return None
 
         # 检查成交量确认
-        valid_volumes = [t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0]
-        avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
+        avg_volume = np.mean([t.get('volume', 0) for t in self.tick_window[-100:] if t.get('volume', 0) > 0])
         current_volume = tick.get('volume', 0)
         volume_confirmation = current_volume > avg_volume * self.config.failed_auction_volume_confirmation_multiplier
 
