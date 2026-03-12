@@ -6,8 +6,7 @@ Triple-A专用执行器
 """
 import asyncio
 import time
-import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 from src.strategy.triple_a.config import TripleAConfig
 from src.context.market_context import MarketContext
@@ -19,12 +18,10 @@ logger = get_logger(__name__)
 class TripleAExecutor:
     """Triple-A专用执行器"""
 
-    def __init__(self, config: TripleAConfig, context: MarketContext, trader=None, tracker=None, research_mode=False):
+    def __init__(self, config: TripleAConfig, context: MarketContext, trader=None):
         self.config = config
         self.context = context
         self.trader = trader  # OKXTrader实例，可选
-        self.tracker = tracker  # TripleACSVTracker实例，可选
-        self.research_mode = research_mode  # 科考船研究模式，更宽松
 
         # 手续费配置（买入0.05% + 卖出0.05% = 总0.1%）
         self.total_commission_pct = 0.001
@@ -35,17 +32,7 @@ class TripleAExecutor:
             "winning_trades": 0,
             "losing_trades": 0,
             "total_pnl": 0,
-            "failed_auction_stops": 0,
-            # 风险管理统计
-            "daily_pnl": 0.0,
-            "consecutive_losses": 0,
-            "daily_trade_count": 0,
-            "last_trade_time": 0,
-            "max_daily_loss": -50.0,  # 每日最大亏损50U
-            "max_consecutive_losses": 3,  # 最大连续亏损次数
-            "max_daily_trades": 20,  # 每日最大交易次数
-            "min_time_between_trades": 30,  # 交易最小间隔秒数
-            "last_reset_time": time.time()  # 上次重置时间
+            "failed_auction_stops": 0
         }
 
         logger.info("🚀 Triple-A执行器初始化完成")
@@ -72,80 +59,6 @@ class TripleAExecutor:
             logger.debug(f"⚠️  忽略非交易信号: {signal_type}")
             return None
 
-    def _check_validation_result(self, signal: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        检查信号的验证结果
-
-        Args:
-            signal: Triple-A信号
-
-        Returns:
-            dict: 验证结果，包含valid、message、confidence_score等字段
-        """
-        # 这里应该调用完整的Fabio验证链
-        # 目前返回占位实现，实际应该从signal中获取验证结果
-        # 或者调用CompleteTripleAValidator
-
-        # 检查信号中是否包含验证结果
-        if 'validation_result' in signal:
-            validation_result = signal.get('validation_result', {})
-            return {
-                'valid': validation_result.get('valid', True),
-                'message': validation_result.get('message', '验证通过'),
-                'confidence_score': validation_result.get('confidence_score', 0.9)
-            }
-
-        # 如果没有验证结果，假设验证通过（向后兼容）
-        logger.warning("⚠️  信号中没有验证结果，使用默认验证通过")
-        return {
-            'valid': True,
-            'message': '信号中无验证结果，使用默认验证',
-            'confidence_score': 0.7
-        }
-
-    def _check_risk_management(self, signal: Dict[str, Any]) -> Tuple[bool, str]:
-        """
-        检查风险管理规则
-
-        Args:
-            signal: Triple-A信号
-
-        Returns:
-            tuple: (是否允许交易, 拒绝原因)
-        """
-        current_time = time.time()
-
-        # 每日重置检查
-        last_reset_time = self.stats["last_reset_time"]
-        last_reset_date = datetime.datetime.fromtimestamp(last_reset_time).date()
-        current_date = datetime.datetime.fromtimestamp(current_time).date()
-
-        if current_date > last_reset_date:
-            # 新的一天，重置每日计数器
-            self.stats["daily_pnl"] = 0.0
-            self.stats["daily_trade_count"] = 0
-            self.stats["last_reset_time"] = current_time
-            logger.info(f"🔄 每日重置: 新的一天开始，重置每日盈亏和交易次数")
-
-        # 检查每日亏损限额
-        if self.stats["daily_pnl"] < self.stats["max_daily_loss"]:
-            return False, f"达到每日亏损限额: {self.stats['daily_pnl']:.2f}U < {self.stats['max_daily_loss']:.2f}U"
-
-        # 检查连续亏损
-        if self.stats["consecutive_losses"] >= self.stats["max_consecutive_losses"]:
-            return False, f"连续亏损次数过多: {self.stats['consecutive_losses']} >= {self.stats['max_consecutive_losses']}"
-
-        # 检查每日交易次数
-        if self.stats["daily_trade_count"] >= self.stats["max_daily_trades"]:
-            return False, f"达到每日交易次数限制: {self.stats['daily_trade_count']} >= {self.stats['max_daily_trades']}"
-
-        # 检查交易间隔
-        time_since_last_trade = current_time - self.stats["last_trade_time"]
-        if self.stats["last_trade_time"] > 0 and time_since_last_trade < self.stats["min_time_between_trades"]:
-            return False, f"交易间隔过短: {time_since_last_trade:.1f}s < {self.stats['min_time_between_trades']}s"
-
-        return True, "风险管理检查通过"
-
     async def _execute_aggression_trade(self, signal: Dict[str, Any]) -> Dict[str, Any]:
         """执行Aggression交易"""
         direction = signal.get('direction', 'UNKNOWN')
@@ -156,27 +69,6 @@ class TripleAExecutor:
         if direction not in ['UP', 'DOWN']:
             logger.error(f"❌ 无效的交易方向: {direction}")
             return None
-
-        # Fabio验证：检查信号验证结果
-        validation_result = self._check_validation_result(signal)
-        if not validation_result['valid']:
-            logger.warning(f"⚠️ Aggression信号验证失败: {validation_result['message']}")
-
-            # 根据验证置信度决定是否完全拒绝
-            # 科考船研究模式下使用更宽松的阈值
-            confidence_threshold = 0.3 if self.research_mode else 0.5
-            if validation_result.get('confidence_score', 0) < confidence_threshold:
-                logger.error(f"⛔ 验证置信度过低，拒绝交易: {validation_result['confidence_score']:.2f} (阈值: {confidence_threshold})")
-                return None
-            else:
-                logger.info(f"ℹ️ 验证部分失败但置信度足够，继续执行: {validation_result['confidence_score']:.2f} (阈值: {confidence_threshold})")
-
-        # 风险管理检查
-        risk_allowed, risk_message = self._check_risk_management(signal)
-        if not risk_allowed:
-            logger.error(f"⛔ 风险管理拒绝交易: {risk_message}")
-            return None
-        logger.info(f"✅ 风险管理检查通过: {risk_message}")
 
         # 先计算止损和止盈（仓位计算需要准确的止损价）
         stop_loss_price, take_profit_price = self._calculate_stop_take(
@@ -213,8 +105,6 @@ class TripleAExecutor:
 
         if trade_result:
             self.stats["total_trades"] += 1
-            self.stats["daily_trade_count"] += 1
-            self.stats["last_trade_time"] = time.time()
             logger.warning(f"✅ 执行Aggression交易成功！方向: {direction}, "
                           f"入场价: {entry_price:.2f}, 仓位: {position_size:.2f}")
 
@@ -279,7 +169,7 @@ class TripleAExecutor:
         position_size = min(position_size, self.config.max_position_limit)
         position_size = max(position_size, self.config.min_trade_unit)
 
-        return int(position_size)  # 🌟 加上 int()
+        return position_size
 
     def _get_account_balance(self) -> float:
         """获取账户余额（USDT）"""
@@ -484,35 +374,10 @@ class TripleAExecutor:
             # 更新统计
             if pnl > 0:
                 self.stats["winning_trades"] += 1
-                self.stats["consecutive_losses"] = 0  # 重置连续亏损计数
             else:
                 self.stats["losing_trades"] += 1
-                self.stats["consecutive_losses"] += 1  # 增加连续亏损计数
 
             self.stats["total_pnl"] += pnl
-            self.stats["daily_pnl"] += pnl  # 更新每日盈亏
-
-            # 记录交易到科考船（如果可用）
-            if self.tracker:
-                try:
-                    # 构建完整交易记录
-                    trade_record = {
-                        'entry_time': position.get('entry_time', time.time()),
-                        'exit_time': close_result['exit_time'],
-                        'entry_price': entry_price,
-                        'exit_price': stop_price,
-                        'direction': 'UP' if direction == 'long' else 'DOWN',
-                        'pnl': pnl,
-                        'pnl_pct': close_result['pnl_pct'],
-                        'stop_loss_hit': reason == 'STOP_LOSS',
-                        'take_profit_hit': reason == 'TAKE_PROFIT',
-                        'failed_auction': reason == 'FAILED_AUCTION',
-                        'is_simulated': True
-                    }
-                    self.tracker.record_trade(trade_record, is_simulated=True)
-                    logger.debug(f"📊 交易记录已保存到科考船: {reason}, PnL: ${pnl:.2f}")
-                except Exception as e:
-                    logger.error(f"❌ 记录交易到科考船失败: {e}")
 
             return close_result
 
