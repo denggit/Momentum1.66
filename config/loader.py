@@ -205,8 +205,8 @@ TRIPLE_A_DEFAULT_CONFIG = {
     },
     "trading": {
         "leverage": 20,
-        "risk_pct": 0.05,
-        "max_daily_trades": 1000
+        "risk_pct": 0.3,
+        "max_daily_trades": 10
     },
     "triple_a": {
         # Absorption（吸收）检测参数
@@ -232,8 +232,8 @@ TRIPLE_A_DEFAULT_CONFIG = {
     },
     "execution": {
         "entry_slippage": 0.0005,
-        "initial_sl_pct": 0.01,      # 最大允许总风险1%（价格风险+手续费）
-        "min_reward_ratio": 2.5
+        "initial_sl_pct": 0.001,
+        "min_reward_ratio": 2.0
     },
     "risk_management": {
         "max_position_limit": 100,
@@ -245,12 +245,10 @@ TRIPLE_A_DEFAULT_CONFIG = {
     "research": {
         "mode": "simulation",
         "output_dir": "data/triple_a_research",
-        "parameter_experiments": [],
-        "simulation": {
-            "initial_balance": 20.0,
-            "risk_per_trade": 0.05,
-            "commission_rate": 0.001
-        }
+        "initial_balance": 10000.0,
+        "risk_per_trade": 0.003,
+        "commission_rate": 0.0002,
+        "parameter_experiments": []
     }
 }
 

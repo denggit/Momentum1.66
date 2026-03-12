@@ -23,9 +23,6 @@ class TripleAExecutor:
         self.context = context
         self.trader = trader  # OKXTrader实例，可选
 
-        # 手续费配置（买入0.05% + 卖出0.05% = 总0.1%）
-        self.total_commission_pct = 0.001
-
         # 交易统计
         self.stats = {
             "total_trades": 0,
@@ -70,19 +67,12 @@ class TripleAExecutor:
             logger.error(f"❌ 无效的交易方向: {direction}")
             return None
 
-        # 先计算止损和止盈（仓位计算需要准确的止损价）
+        # 计算仓位大小
+        position_size = self._calculate_position_size(entry_price, direction, signal)
+
+        # 计算止损和止盈
         stop_loss_price, take_profit_price = self._calculate_stop_take(
             entry_price, direction, accumulation_low, accumulation_high
-        )
-
-        # 检查止损计算是否有效（可能因为风险过大返回None）
-        if stop_loss_price is None or take_profit_price is None:
-            logger.warning(f"⚠️  止损计算无效，跳过交易（方向: {direction}）")
-            return None
-
-        # 计算仓位大小（使用实际的止损价）
-        position_size = self._calculate_position_size(
-            entry_price, direction, stop_loss_price
         )
 
         # 检查风险回报比
@@ -140,13 +130,18 @@ class TripleAExecutor:
         return stop_result
 
     def _calculate_position_size(self, entry_price: float, direction: str,
-                                 stop_loss_price: float) -> float:
+                                 signal: Dict[str, Any]) -> float:
         """计算仓位大小（基于风险管理）"""
-        # 获取账户余额
-        account_balance = self._get_account_balance()
+        # 简化版本：使用固定风险比例
+        account_balance = 10000  # 假设账户余额，实际应从trader获取
         risk_amount = account_balance * self.config.risk_pct
 
         # 计算价格风险（基于止损距离）
+        if direction == "UP":
+            stop_loss_price = signal.get('accumulation_low', entry_price * 0.999)
+        else:  # DOWN
+            stop_loss_price = signal.get('accumulation_high', entry_price * 1.001)
+
         price_risk = abs(entry_price - stop_loss_price)
 
         # 每张合约风险金额
@@ -171,130 +166,34 @@ class TripleAExecutor:
 
         return position_size
 
-    def _get_account_balance(self) -> float:
-        """获取账户余额（USDT）"""
-        # 如果有trader实例，尝试从trader获取
-        if self.trader and hasattr(self.trader, 'get_balance'):
-            try:
-                return self.trader.get_balance()
-            except:
-                pass
-
-        # 否则使用研究配置中的初始余额
-        if hasattr(self.config, 'research_initial_balance'):
-            return self.config.research_initial_balance
-
-        # 默认值（20U小账户）
-        return 20.0
-
     def _calculate_stop_take(self, entry_price: float, direction: str,
                              accumulation_low: float, accumulation_high: float) -> tuple:
-        """
-        计算止损和止盈价格（结构型止损）
-
-        采用Fabio Valentini的结构型止损方法：
-        1. 止损设置在累积区间边界外一个小的缓冲距离（0.05%）
-        2. 计算实际总风险（价格风险+手续费）
-        3. 如果总风险超过initial_sl_pct（最大允许风险），则返回None跳过交易
-        4. 止盈基于实际价格风险和最小风险回报比
-
-        Returns:
-            tuple: (stop_loss_price, take_profit_price) 或 (None, None) 如果风险过大
-        """
-        # 总手续费率：买入0.05% + 卖出0.05% = 0.1%
-        total_commission_pct = self.total_commission_pct
-
-        # 结构止损缓冲（防止市场噪音触发止损）
-        buffer_pct = 0.0005  # 0.05%
-
+        """计算止损和止盈价格"""
         if direction == "UP":
-            # 结构型止损：在累积区间低点下方设置止损
-            stop_loss_price = accumulation_low * (1 - buffer_pct)
-
-            # 确保止损价不高于入场价（安全保护）
-            if stop_loss_price >= entry_price:
-                stop_loss_price = entry_price * (1 - buffer_pct)
-                logger.warning(f"⚠️  累积区间低点{accumulation_low:.2f}高于/等于入场价{entry_price:.2f}，使用基于入场价的止损")
-
-            # 计算实际价格风险
-            price_risk = entry_price - stop_loss_price
-            if price_risk <= 0:
-                logger.error(f"❌ 价格风险计算错误: entry={entry_price:.2f}, sl={stop_loss_price:.2f}")
-                return None, None
-
-            # 计算实际总风险比例（价格风险比例 + 手续费比例）
-            price_risk_pct = price_risk / entry_price
-            actual_total_risk_pct = price_risk_pct + total_commission_pct
-
-            # 检查总风险是否超过最大允许风险（initial_sl_pct）
-            if actual_total_risk_pct > self.config.initial_sl_pct:
-                logger.warning(f"⚠️  结构止损风险过大: {actual_total_risk_pct*100:.3f}% > {self.config.initial_sl_pct*100:.3f}%，跳过交易")
-                return None, None
-
-            # 计算止盈价（基于实际价格风险和最小风险回报比）
-            take_profit_price = entry_price + price_risk * self.config.min_reward_ratio
-
-            logger.debug(f"结构止损计算（多头）: 入场={entry_price:.2f}, 止损={stop_loss_price:.2f}, "
-                        f"价格风险={price_risk_pct*100:.3f}%, 总风险={actual_total_risk_pct*100:.3f}%")
-
+            # 多头：止损在累积区间低点下方，止盈基于风险回报比
+            stop_loss_price = accumulation_low * (1 - self.config.initial_sl_pct)
+            take_profit_price = entry_price + (entry_price - stop_loss_price) * self.config.min_reward_ratio
         else:  # DOWN
-            # 结构型止损：在累积区间高点上方设置止损
-            stop_loss_price = accumulation_high * (1 + buffer_pct)
-
-            # 确保止损价不低于入场价（安全保护）
-            if stop_loss_price <= entry_price:
-                stop_loss_price = entry_price * (1 + buffer_pct)
-                logger.warning(f"⚠️  累积区间高点{accumulation_high:.2f}低于/等于入场价{entry_price:.2f}，使用基于入场价的止损")
-
-            # 计算实际价格风险
-            price_risk = stop_loss_price - entry_price
-            if price_risk <= 0:
-                logger.error(f"❌ 价格风险计算错误: entry={entry_price:.2f}, sl={stop_loss_price:.2f}")
-                return None, None
-
-            # 计算实际总风险比例
-            price_risk_pct = price_risk / entry_price
-            actual_total_risk_pct = price_risk_pct + total_commission_pct
-
-            # 检查总风险是否超过最大允许风险
-            if actual_total_risk_pct > self.config.initial_sl_pct:
-                logger.warning(f"⚠️  结构止损风险过大: {actual_total_risk_pct*100:.3f}% > {self.config.initial_sl_pct*100:.3f}%，跳过交易")
-                return None, None
-
-            # 计算止盈价
-            take_profit_price = entry_price - price_risk * self.config.min_reward_ratio
-
-            logger.debug(f"结构止损计算（空头）: 入场={entry_price:.2f}, 止损={stop_loss_price:.2f}, "
-                        f"价格风险={price_risk_pct*100:.3f}%, 总风险={actual_total_risk_pct*100:.3f}%")
+            # 空头：止损在累积区间高点上方，止盈基于风险回报比
+            stop_loss_price = accumulation_high * (1 + self.config.initial_sl_pct)
+            take_profit_price = entry_price - (stop_loss_price - entry_price) * self.config.min_reward_ratio
 
         return stop_loss_price, take_profit_price
 
     def _calculate_reward_ratio(self, entry_price: float, stop_loss_price: float,
                                 take_profit_price: float, direction: str) -> float:
-        """计算净风险回报比（包含手续费）"""
-        # 总手续费率：买入0.05% + 卖出0.05% = 0.1%
-        total_commission_pct = self.total_commission_pct
-
+        """计算风险回报比"""
         if direction == "UP":
-            # 价格风险（价格下跌到止损）
-            price_risk = entry_price - stop_loss_price
-            # 价格回报（价格上涨到止盈）
-            price_reward = take_profit_price - entry_price
-            # 净风险 = 价格风险 + 入场手续费 + 出场手续费（止损时）
-            # 入场手续费基于entry_price，出场手续费基于stop_loss_price
-            net_risk = price_risk + (entry_price * total_commission_pct) + (stop_loss_price * total_commission_pct)
-            # 净回报 = 价格回报 - 入场手续费 - 出场手续费（止盈时）
-            net_reward = price_reward - (entry_price * total_commission_pct) - (take_profit_price * total_commission_pct)
+            risk = entry_price - stop_loss_price
+            reward = take_profit_price - entry_price
         else:  # DOWN
-            price_risk = stop_loss_price - entry_price
-            price_reward = entry_price - take_profit_price
-            net_risk = price_risk + (entry_price * total_commission_pct) + (stop_loss_price * total_commission_pct)
-            net_reward = price_reward - (entry_price * total_commission_pct) - (take_profit_price * total_commission_pct)
+            risk = stop_loss_price - entry_price
+            reward = entry_price - take_profit_price
 
-        if net_risk <= 0:
+        if risk <= 0:
             return 0
 
-        return net_reward / net_risk
+        return reward / risk
 
     async def _place_order(self, direction: str, entry_price: float, position_size: float,
                            stop_loss_price: float, take_profit_price: float) -> Dict[str, Any]:
