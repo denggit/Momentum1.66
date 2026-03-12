@@ -30,25 +30,18 @@ class TripleAState:
     accumulation_start_time: float = 0.0
     aggression_start_time: float = 0.0
 
-    # A1（吸收）阶段信息
+    # 价格区间
     absorption_price: float = 0.0
-    absorption_min_price: float = 0.0  # 吸收阶段最低价格
-    absorption_max_price: float = 0.0  # 吸收阶段最高价格
-    absorption_price_range_pct: float = 0.0  # 吸收阶段价格范围百分比
-    absorption_cvd: float = 0.0  # 吸收阶段CVD值
-    absorption_direction: str = ""  # BULLISH, BEARISH
-    absorption_volume: float = 0.0  # 吸收阶段总成交量
-
-    # A2（累积）阶段信息 - 窄幅区间基于A1的价格范围
     accumulation_low: float = 0.0
     accumulation_high: float = 0.0
-    accumulation_volume: float = 0.0  # 累积阶段成交量
-    accumulation_start_volume: float = 0.0  # 累积开始时成交量
 
     # 检测得分
     absorption_score: float = 0.0
     accumulation_score: float = 0.0
     aggression_score: float = 0.0
+
+    # 方向信息
+    absorption_direction: str = ""  # BULLISH, BEARISH, 或空字符串
 
     # 数据缓存
     recent_ticks: List[Dict[str, Any]] = field(default_factory=list)
@@ -184,8 +177,6 @@ class TripleADetector:
         # 时间窗口缓存
         self.tick_window = []
         self.max_window_size = 1000  # 最多存储1000个tick
-        self.price_history = []  # 价格历史用于ATR计算
-        self.atr_period = 14  # ATR计算周期
 
         # 价格区间CVD计算器
         self.price_range_calculator = PriceRangeCVDCalculator(
@@ -245,9 +236,6 @@ class TripleADetector:
             Triple-A信号字典，包含阶段和置信度
         """
         self.stats["total_ticks"] += 1
-
-        # 0. 更新价格历史用于ATR计算
-        self._update_price_history(tick)
 
         # 1. 更新数据窗口
         self._update_tick_window(tick)
@@ -341,25 +329,12 @@ class TripleADetector:
         if absorption_score >= self.config.absorption_score_threshold:
             # 确认吸收阶段
             self.state.current_state = "ABSORPTION_DETECTED"
-            self.state.absorption_start_time = tick.get('ts', time.time())
+            self.state.absorption_start_time = time.time()
             self.state.absorption_price = current_price
-
-            # 记录吸收阶段的详细价格范围信息
-            self.state.absorption_min_price = range_stats.get('min_price', current_price)
-            self.state.absorption_max_price = range_stats.get('max_price', current_price)
-            self.state.absorption_price_range_pct = price_range_pct
-            self.state.absorption_cvd = cvd
-            self.state.absorption_volume = total_volume  # 记录吸收阶段总成交量
 
             # 记录吸收方向
             absorption_direction = "BULLISH" if cvd < 0 else "BEARISH"
             self.state.absorption_direction = absorption_direction
-
-            # A1检测后重置价格区间计算器，开始新的区间统计
-            self.price_range_calculator = PriceRangeCVDCalculator(
-                range_pct=self.config.absorption_price_threshold * 1.5
-            )
-
             logger.debug(f"🎯 Absorption检测到！得分: {absorption_score:.2f}, "
                        f"价格: {current_price:.2f}, CVD: {cvd:.2f}, "
                        f"方向: {absorption_direction}, 价格范围: {price_range_pct*100:.3f}%")
@@ -381,146 +356,69 @@ class TripleADetector:
 
         return None
 
-    def _calculate_accumulation_range(self, current_price: float) -> Tuple[float, float]:
-        """
-        基于A1（吸收）阶段的价格范围计算A2（累积）的窄幅区间 - 基于Fabio Valentini的ATR动态范围
-
-        规则：
-        1. 窄幅区间以A1的中心价格为中心
-        2. 窄幅区间的宽度 = min(A1价格范围 * 0.5, 0.25 * ATR_14)（根据Fabio逻辑）
-        3. 最小宽度 = current_price * 0.0005（0.05%）防止死鱼盘
-        4. 最大宽度 = current_price * self.config.accumulation_width_pct（配置的最大宽度）
-        """
-        if self.state.absorption_min_price == 0 or self.state.absorption_max_price == 0:
-            # 如果没有A1价格范围信息，使用默认窄幅区间
-            default_width = current_price * 0.001  # 0.1%
-            return current_price - default_width / 2, current_price + default_width / 2
-
-        # 计算A1的中心价格和范围
-        a1_center = (self.state.absorption_min_price + self.state.absorption_max_price) / 2
-        a1_width = self.state.absorption_max_price - self.state.absorption_min_price
-
-        # 计算ATR（14周期）
-        atr_pct = self._calculate_atr(period=self.atr_period)
-        atr_width = current_price * atr_pct * 0.25  # 0.25 * ATR_14
-
-        # 计算A2的窄幅宽度：min(A1宽度的50%, 0.25 * ATR_14)
-        a2_width = a1_width * 0.5  # A1宽度的50%
-
-        # 应用Fabio规则：A2范围不超过0.25 * ATR
-        if atr_width > 0:
-            a2_width = min(a2_width, atr_width)
-
-        # 应用最小和最大宽度约束
-        min_width = current_price * 0.0005  # 0.05%最小宽度，防止死鱼盘
-        max_width = current_price * self.config.accumulation_width_pct  # 配置的最大宽度
-
-        a2_width = max(a2_width, min_width)  # 不低于最小宽度
-        a2_width = min(a2_width, max_width)  # 不超过最大宽度
-
-        # 以A1中心价格为基准，计算A2区间
-        a2_low = a1_center - a2_width / 2
-        a2_high = a1_center + a2_width / 2
-
-        logger.debug(f"📏 A2范围计算: A1宽度={a1_width:.2f}, ATR宽度={atr_width:.2f}, "
-                    f"A2最终宽度={a2_width:.2f}, 区间=[{a2_low:.2f}, {a2_high:.2f}]")
-
-        return a2_low, a2_high
-
     async def _detect_accumulation(self, tick: dict) -> Optional[dict]:
         """
-        检测Accumulation（累积）阶段 - 基于Fabio逻辑
+        检测Accumulation（累积）阶段
 
         检测条件：
-        1. 价格在基于A1价格范围的窄幅区间内整理
-        2. 成交量比A1阶段萎缩（至少减少30%）
-        3. 窄幅区间宽度合理（基于A1价格范围，不超过配置的最大宽度）
-        4. 持续时间足够（至少absorption_window_seconds秒）
+        1. 价格在窄幅区间整理（振幅 < accumulation_width_pct）
+        2. 成交量逐渐萎缩
+        3. 形成订单块（价格多次测试同一水平）
+        4. Absorption后持续至少accumulation_window_seconds秒
         """
-        current_time = tick.get('ts', time.time())
+        current_time = time.time()
         time_since_absorption = current_time - self.state.absorption_start_time
-
-        # 调试信息
-        logger.info(f"_detect_accumulation被调用: 时间={time_since_absorption:.3f}s, 需要>={self.config.absorption_window_seconds}s")
 
         # 确保有足够的时间
         if time_since_absorption < self.config.absorption_window_seconds:
-            logger.info(f"  时间不足: {time_since_absorption:.3f}s < {self.config.absorption_window_seconds}s")
             return None
 
         current_price = tick.get('price', 0.0)
-        current_volume = tick.get('size', 0)
-        if current_price <= 0:
-            return None
 
-        # 1. 初始化累积区间（如果尚未初始化）
+        # 更新累积区间
         if self.state.accumulation_low == 0:
-            # 基于A1价格范围计算窄幅区间
-            a2_low, a2_high = self._calculate_accumulation_range(current_price)
-            self.state.accumulation_low = a2_low
-            self.state.accumulation_high = a2_high
-            self.state.accumulation_start_volume = self.state.absorption_cvd  # 使用A1的CVD作为参考
-            self.state.accumulation_volume = 0  # 重置累积阶段成交量
-
-            logger.debug(f"📏 初始化A2累积区间: [{a2_low:.2f}, {a2_high:.2f}], "
-                       f"基于A1范围: [{self.state.absorption_min_price:.2f}, {self.state.absorption_max_price:.2f}]")
-
-        # 2. 更新累积区间内的价格和成交量
-        # 如果价格在累积区间内，累加成交量
-        if self.state.accumulation_low <= current_price <= self.state.accumulation_high:
-            self.state.accumulation_volume += current_volume
-
-        # 3. 检查价格是否在窄幅区间内（允许小幅超出）
-        # 计算当前价格相对于累积区间的偏离
-        if current_price < self.state.accumulation_low:
-            price_deviation = (self.state.accumulation_low - current_price) / current_price
-        elif current_price > self.state.accumulation_high:
-            price_deviation = (current_price - self.state.accumulation_high) / current_price
+            # 初始化累积区间，设置一个最小宽度（当前价格的0.1%）
+            min_width = current_price * 0.001  # 0.1%
+            self.state.accumulation_low = current_price - min_width / 2
+            self.state.accumulation_high = current_price + min_width / 2
         else:
-            price_deviation = 0
+            self.state.accumulation_low = min(self.state.accumulation_low, current_price)
+            self.state.accumulation_high = max(self.state.accumulation_high, current_price)
 
-        # 价格在区间内或小幅偏离（< 0.05%）
-        price_in_range = price_deviation < 0.0005
+            # 确保累积区间有最小宽度（避免宽度为0）
+            min_width_pct = 0.0005  # 0.05%最小宽度
+            min_width = current_price * min_width_pct
+            current_width = self.state.accumulation_high - self.state.accumulation_low
+            if current_width < min_width:
+                # 扩展区间到最小宽度，以当前价格为中心
+                self.state.accumulation_low = current_price - min_width / 2
+                self.state.accumulation_high = current_price + min_width / 2
 
-        # 4. 检查成交量萎缩（与A1阶段比较） - 基于Fabio逻辑
-        # A2期间的成交量应为 A1 期间的 30%-70%
-        a1_volume = self.state.absorption_volume
-        a2_volume = self.state.accumulation_volume
+        # 计算价格范围
+        price_range = (self.state.accumulation_high - self.state.accumulation_low) / self.state.accumulation_low
+        price_range_ok = price_range < self.config.accumulation_width_pct
 
-        # 计算A2成交量相对于A1的比例
-        volume_ratio = a2_volume / a1_volume if a1_volume > 0 else 0
+        # 计算成交量萎缩
+        volume_declining = self._check_volume_declining()
 
-        # 根据Fabio逻辑：A2成交量应在A1成交量的30%-70%范围内
-        volume_declining = 0.3 <= volume_ratio <= 0.7
+        # 检查订单块形成（价格测试次数）
+        touch_count = self._count_price_touches(current_price)
 
-        # 调试信息
-        logger.debug(f"📊 成交量比较: A1成交量={a1_volume:.2f}, A2成交量={a2_volume:.2f}, "
-                    f"比例={volume_ratio:.2f}, 萎缩检测={volume_declining}")
-
-        # 5. 检查持续时间
-        # A2需要持续足够时间（至少absorption_window_seconds秒）
-        time_ok = time_since_absorption >= self.config.absorption_window_seconds
-
-        # 调试信息
-        logger.info(f"A2检测: 时间={time_since_absorption:.1f}s, 需要>={self.config.absorption_window_seconds}s, "
-                   f"价格在区间内={price_in_range}, 成交量萎缩={volume_declining}, 时间OK={time_ok}")
-
-        # 6. 计算累积得分
-        accumulation_score = self._calculate_accumulation_score_fabio(
-            price_in_range, volume_declining, time_ok, time_since_absorption
+        # 计算累积得分
+        accumulation_score = self._calculate_accumulation_score(
+            price_range_ok, volume_declining, touch_count, time_since_absorption
         )
 
         self.state.accumulation_score = accumulation_score
 
-        # 7. 检查是否达到阈值
+        # 检查是否达到阈值
         if accumulation_score >= self.config.accumulation_score_threshold:
             # 确认累积阶段
             self.state.current_state = "ACCUMULATION_CONFIRMED"
             self.state.accumulation_start_time = current_time
 
             logger.debug(f"📊 Accumulation确认！得分: {accumulation_score:.2f}, "
-                       f"区间: [{self.state.accumulation_low:.2f}, {self.state.accumulation_high:.2f}], "
-                       f"持续时间: {time_since_absorption:.1f}s")
+                       f"区间: [{self.state.accumulation_low:.2f}, {self.state.accumulation_high:.2f}]")
 
             return {
                 "type": "ACCUMULATION_CONFIRMED",
@@ -530,50 +428,33 @@ class TripleADetector:
                 "timestamp": tick.get('ts', time.time()),
                 "accumulation_low": self.state.accumulation_low,
                 "accumulation_high": self.state.accumulation_high,
-                "time_since_absorption": time_since_absorption,
-                "volume_ratio": volume_ratio if a1_volume > 0 else 0,  # A2成交量相对于A1的比例
-                "a1_volume": a1_volume,
-                "a2_volume": a2_volume
+                "time_since_absorption": time_since_absorption
             }
 
-        # 8. 如果累积检测超时，返回IDLE状态
+        # 如果累积检测超时，返回IDLE状态
         if time_since_absorption > self.config.accumulation_window_seconds * 2:
-            logger.debug("⏰ Accumulation检测超时，返回IDLE状态")
+            logger.info("⏰ Accumulation检测超时，返回IDLE状态")
             self.state.reset()
 
         return None
 
     async def _detect_aggression(self, tick: dict) -> Optional[dict]:
         """
-        检测Aggression（侵略）阶段 - 基于Fabio逻辑
+        检测Aggression（侵略）阶段
 
         检测条件：
         1. 成交量爆发（>平均成交量 * aggression_volume_spike）
         2. 价格突破累积区间边界 ± aggression_breakout_pct
         3. 价格变化速度突然增加
-        4. 突破方向与A1吸收方向一致
-        5. CVD顺势激增（与突破方向一致）
+        4. 突破方向与订单流方向一致
         """
-        # 调试信息
-        logger.info(f"🔍 开始A3检测: 当前状态={self.state.current_state}, "
-                   f"A1方向={self.state.absorption_direction}, A2区间=[{self.state.accumulation_low:.2f}, "
-                   f"{self.state.accumulation_high:.2f}]")
-
         current_price = tick.get('price', 0.0)
         current_volume = tick.get('size', 0)
-
-        # 调试信息
-        logger.info(f"🔍 A3价格检查: current_price={current_price:.2f}, current_volume={current_volume:.2f}")
 
         # 计算平均成交量
         valid_volumes = [t.get('size', 0) for t in self.tick_window[-100:] if t.get('size', 0) > 0]
         avg_volume = np.mean(valid_volumes) if valid_volumes else 0.0
-
-        # 调试信息
-        logger.debug(f"🔍 A3成交量统计: valid_volumes数量={len(valid_volumes)}, avg_volume={avg_volume:.2f}")
-
         if avg_volume <= 0:
-            logger.debug("⚠️ A3检测: 平均成交量<=0，提前返回")
             return None
 
         # 检查成交量爆发（相对阈值+绝对阈值）
@@ -582,19 +463,10 @@ class TripleADetector:
         volume_spike = (current_volume > avg_volume * self.config.aggression_volume_spike and
                        current_volume > 20)  # 20 contracts = 2 ETH
 
-        # 调试信息
-        logger.debug(f"🔍 成交量检测: 当前成交量={current_volume:.2f}, 平均成交量={avg_volume:.2f}, "
-                    f"倍数={self.config.aggression_volume_spike}, volume_spike={volume_spike}")
-
         # 检查价格突破
         breakout_up = current_price > self.state.accumulation_high * (1 + self.config.aggression_breakout_pct)
         breakout_down = current_price < self.state.accumulation_low * (1 - self.config.aggression_breakout_pct)
         breakout_detected = breakout_up or breakout_down
-
-        # 调试信息
-        if breakout_up or breakout_down:
-            logger.debug(f"🔍 突破检测: 当前价格={current_price:.2f}, A2区间=[{self.state.accumulation_low:.2f}, "
-                        f"{self.state.accumulation_high:.2f}], breakout_up={breakout_up}, breakout_down={breakout_down}")
 
         # 计算价格速度
         velocity_spike = self._check_velocity_spike(current_price)
@@ -631,47 +503,8 @@ class TripleADetector:
                     logger.debug(f"⚠️ Aggression得分达到阈值{aggression_score:.2f}但方向不明确，不触发信号")
                     return None
 
-            # 检查突破方向与A1吸收方向是否一致
-            # A1看涨吸收（价格下跌，CVD为负，但价格跌不下去）→ 买家吸收卖压 → 预期向上突破
-            # A1看跌吸收（价格上涨，CVD为正，但价格涨不上去）→ 卖家吸收买压 → 预期向下突破
-            a1_direction = self.state.absorption_direction
-            direction_consistent = False
-
-            if a1_direction == "BULLISH" and direction == "UP":
-                direction_consistent = True
-                logger.debug(f"✅ 突破方向与A1吸收方向一致: 看涨吸收（CVD负）→ 向上突破")
-            elif a1_direction == "BEARISH" and direction == "DOWN":
-                direction_consistent = True
-                logger.debug(f"✅ 突破方向与A1吸收方向一致: 看跌吸收（CVD正）→ 向下突破")
-            else:
-                direction_consistent = False
-                logger.debug(f"⛔ 突破方向与A1吸收方向不一致: A1={a1_direction}（CVD={'负' if a1_direction == 'BULLISH' else '正'}）, 突破={direction}")
-
-            if not direction_consistent:
-                logger.debug(f"⚠️ Aggression得分达到阈值但方向与A1吸收方向不一致，不触发信号")
-                return None
-
-            # 检查CVD顺势激增（简化版：检查当前tick的买卖方向）
-            # 对于向上突破，期望主动买单多（buy side）
-            # 对于向下突破，期望主动卖单多（sell side）
-            current_side = tick.get('side', '')
-            cvd_aligned = False
-
-            if direction == "UP" and current_side == 'buy':
-                cvd_aligned = True
-            elif direction == "DOWN" and current_side == 'sell':
-                cvd_aligned = True
-            else:
-                cvd_aligned = False
-                logger.debug(f"⚠️ CVD方向与突破方向不一致: 突破={direction}, tick side={current_side}")
-
-            if not cvd_aligned:
-                logger.debug(f"⚠️ CVD方向未顺势激增，不触发信号")
-                return None
-
             logger.info(f"🚨 Aggression触发！得分: {aggression_score:.2f}, "
-                          f"方向: {direction}, 价格: {current_price:.2f}, "
-                          f"A1方向: {a1_direction}, CVD对齐: {cvd_aligned}")
+                          f"方向: {direction}, 价格: {current_price:.2f}")
 
             # 构建基础信号
             signal = {
@@ -898,38 +731,6 @@ class TripleADetector:
         if time_since_absorption >= min_time:
             time_score = min(time_since_absorption / (min_time * 2), 1.0)
             score += time_score * 0.1
-
-        return min(score, 1.0)
-
-    def _calculate_accumulation_score_fabio(self, price_in_range: bool, volume_declining: bool,
-                                           time_ok: bool, time_since_absorption: float) -> float:
-        """
-        基于Fabio逻辑的Accumulation得分计算
-
-        权重分配：
-        1. 价格在窄幅区间内：40% - 价格在基于A1的窄幅区间内整理
-        2. 成交量萎缩：35% - 成交量比A1阶段显著萎缩
-        3. 持续时间：25% - 持续足够时间形成累积
-        """
-        score = 0.0
-
-        # 价格在窄幅区间内权重 (40%)
-        if price_in_range:
-            score += 0.4
-
-        # 成交量萎缩权重 (35%)
-        if volume_declining:
-            score += 0.35
-
-        # 持续时间权重 (25%)
-        if time_ok:
-            # 持续时间越长，得分越高，但上限为0.25
-            min_time = self.config.absorption_window_seconds
-            if min_time > 0:
-                time_score = min(time_since_absorption / (min_time * 1.5), 1.0)
-                score += time_score * 0.25
-            else:
-                score += 0.25
 
         return min(score, 1.0)
 
@@ -1296,55 +1097,6 @@ class TripleADetector:
         except Exception as e:
             logger.error(f"❌ 订单流验证失败: {e}")
             return False, f"订单流验证异常: {str(e)}"
-
-    def _calculate_atr(self, period: int = 14) -> float:
-        """
-        计算ATR（Average True Range）
-
-        参数:
-            period: ATR计算周期，默认14
-
-        返回:
-            float: ATR值
-        """
-        if len(self.price_history) < period + 1:
-            return 0.0
-
-        try:
-            # 将价格历史转换为numpy数组
-            prices = np.array(self.price_history)
-
-            # 计算True Range
-            high_low = np.abs(prices[1:] - prices[:-1])  # 当前高价与低价的差异
-            # 对于tick数据，我们使用连续价格之间的绝对差作为True Range的近似
-            true_ranges = np.abs(prices[1:] - prices[:-1])
-
-            # 计算ATR（简单移动平均）
-            atr = np.mean(true_ranges[-period:]) if len(true_ranges) >= period else 0.0
-
-            # 转换为百分比（相对于当前价格）
-            current_price = prices[-1] if len(prices) > 0 else 0.0
-            if current_price > 0:
-                atr_pct = atr / current_price
-            else:
-                atr_pct = 0.0
-
-            return atr_pct
-
-        except Exception as e:
-            logger.error(f"❌ ATR计算失败: {e}")
-            return 0.0
-
-    def _update_price_history(self, tick: dict):
-        """
-        更新价格历史用于ATR计算
-        """
-        price = tick.get('price', 0.0)
-        if price > 0:
-            self.price_history.append(price)
-            # 保持合理的历史长度
-            if len(self.price_history) > 1000:
-                self.price_history = self.price_history[-1000:]
 
     def _get_adaptive_validation_params(self, tick: dict) -> Dict[str, Any]:
         """
