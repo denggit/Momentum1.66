@@ -15,21 +15,21 @@ trading:
 # Triple-A检测参数 - 科考船宽松版
 triple_a:
   # Absorption（吸收）检测参数 - 大幅降低要求
-  absorption_price_threshold: 0.003      # 价格阈值0.3%（计划优化）
-  absorption_volume_ratio: 1.2           # 成交量比率1.2x（计划优化）
+  absorption_price_threshold: 0.002      # 价格阈值0.2%（原0.1%）
+  absorption_volume_ratio: 1.5           # 成交量比率1.5x（原2.0x）
   absorption_window_seconds: 20          # 吸收检测窗口20秒（原30秒）
-  absorption_score_threshold: 0.35       # 吸收置信度阈值0.35（计划优化）
+  absorption_score_threshold: 0.5        # 吸收置信度阈值0.5（原0.7）
 
   # Accumulation（累积）检测参数 - 大幅降低要求
-  accumulation_width_pct: 0.008          # 累积区间宽度0.8%（计划优化）
+  accumulation_width_pct: 0.005          # 累积区间宽度0.5%（原0.3%）
   accumulation_min_ticks: 30             # 最小tick数30（原50）
   accumulation_window_seconds: 80        # 累积检测窗口80秒（原120秒）
-  accumulation_score_threshold: 0.3      # 累积置信度阈值0.3（计划优化）
+  accumulation_score_threshold: 0.4      # 累积置信度阈值0.4（原0.6）
 
   # Aggression（侵略）检测参数 - 大幅降低要求
-  aggression_volume_spike: 1.5           # 成交量爆发倍数1.5x（计划优化）
-  aggression_breakout_pct: 0.0005        # 突破阈值0.05%（计划优化）
-  aggression_score_threshold: 0.5        # 侵略置信度阈值0.5（计划优化）
+  aggression_volume_spike: 2.0           # 成交量爆发倍数2.0x（原3.0x）
+  aggression_breakout_pct: 0.001         # 突破阈值0.1%（原0.2%）
+  aggression_score_threshold: 0.6        # 侵略置信度阈值0.6（原0.75）
 
   # Failed Auction（失败拍卖）检测参数
   failed_auction:
