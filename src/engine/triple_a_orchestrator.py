@@ -213,8 +213,8 @@ class TripleAOrchestrator:
 
                 logger.error(f"❌ 执行器处理Failed Auction信号失败: {e}")
 
-        # 发送邮件警报（收集模式）- 只发送重大错误信号
-        if self.mode == "collect" and "FAILED_AUCTION" in signal_type:
+        # 发送邮件警报（收集模式）
+        if self.mode == "collect":
             await self._send_email_alert(signal_data, tick)
 
 
