@@ -1,4 +1,3 @@
-import logging
 import os
 import sqlite3
 import time
@@ -6,13 +5,15 @@ import time
 import pandas as pd
 import requests
 
+from src.utils.log import get_logger
+
 # 确保引入你的时区配置
 try:
     from config.loader import TIMEZONE
 except ImportError:
     TIMEZONE = "+8"  # 兜底默认值
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = get_logger(__name__)
 
 
 class OKXDataLoader:
@@ -78,7 +79,7 @@ class OKXDataLoader:
             conn.close()
             return df
         except Exception as e:
-            logging.error(f"读取本地数据库失败: {e}")
+            logger.error(f"读取本地数据库失败: {e}")
             return pd.DataFrame()
 
     def save_local_data(self, df: pd.DataFrame):
@@ -87,7 +88,7 @@ class OKXDataLoader:
         conn = self._get_db_connection()
         df.to_sql(self.table_name, conn, if_exists='replace', index=True)
         conn.close()
-        logging.debug(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
+        logger.debug(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
 
     def fetch_from_okx(self, limit=100, after_ts=None, max_retries=10) -> pd.DataFrame:
         """原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)"""
@@ -98,7 +99,7 @@ class OKXDataLoader:
         current_after = after_ts
         batch_size_threshold = 1000
 
-        # logging.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
+        # logger.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
 
         while len(all_candles) < limit:
             fetch_size = min(100, limit - len(all_candles))
@@ -132,12 +133,12 @@ class OKXDataLoader:
                     success = True
 
                     if len(all_candles) % 10000 == 0 or len(all_candles) == limit:
-                        logging.debug(f"拉取进度: {len(all_candles)} / {limit} ...")
+                        logger.debug(f"拉取进度: {len(all_candles)} / {limit} ...")
 
                     break
 
                 except Exception as e:
-                    logging.warning(
+                    logger.warning(
                         f"网络颠簸 (进度 {len(all_candles)}/{limit}) | 第 {attempt + 1}/{max_retries} 次重试... 报错: {e}")
                     self.session.close()
                     self.session = requests.Session()
@@ -145,11 +146,11 @@ class OKXDataLoader:
                     time.sleep(sleep_time)
 
             if not success or not candles:
-                logging.error(f"严重网络故障或无更多数据。停止拉取！将返回已成功获取的 {len(all_candles)} 根数据。")
+                logger.error(f"严重网络故障或无更多数据。停止拉取！将返回已成功获取的 {len(all_candles)} 根数据。")
                 break
 
             if len(all_candles) > 0 and len(all_candles) % batch_size_threshold == 0:
-                # logging.debug(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，防封锁...")
+                # logger.debug(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，防封锁...")
                 time.sleep(3)
             else:
                 time.sleep(0.15)
@@ -185,11 +186,11 @@ class OKXDataLoader:
         内部方法：使用现有逻辑拉取指定数量的K线
         这是原 fetch_historical_data 的核心逻辑，但不包含日期范围过滤
         """
-        logging.debug(f"🔍 准备加载 {self.symbol} ({self.timeframe}) 数据...")
+        logger.debug(f"🔍 准备加载 {self.symbol} ({self.timeframe}) 数据...")
         local_df = self.load_local_data()
 
         if local_df.empty:
-            logging.info(f"⚠️ 本地无数据，将从 OKX 全量拉取 {limit} 根...")
+            logger.info(f"⚠️ 本地无数据，将从 OKX 全量拉取 {limit} 根...")
             final_df = self.fetch_from_okx(limit=limit)
             self.save_local_data(final_df)
             return final_df.tail(limit)
@@ -197,7 +198,7 @@ class OKXDataLoader:
         local_count = len(local_df)
         last_local_time = local_df.index[-1]
         oldest_local_time = local_df.index[0]
-        logging.debug(f"📦 本地数据库已命中！现有 {local_count} 根 K 线 | 区间: {oldest_local_time} -> {last_local_time}")
+        logger.debug(f"📦 本地数据库已命中！现有 {local_count} 根 K 线 | 区间: {oldest_local_time} -> {last_local_time}")
 
         current_local = self._get_current_local_time()
         bar_seconds = self._get_seconds(self.timeframe)
@@ -210,7 +211,7 @@ class OKXDataLoader:
 
         new_df = pd.DataFrame()
         if missing_new_bars > 0:
-            logging.debug(f"🔄 准备增量补齐约 {missing_new_bars} 根 最新 K 线...")
+            logger.debug(f"🔄 准备增量补齐约 {missing_new_bars} 根 最新 K 线...")
             new_df = self.fetch_from_okx(limit=missing_new_bars + 10)
 
         if not new_df.empty:
@@ -228,7 +229,7 @@ class OKXDataLoader:
 
         if current_count < limit:
             missing_old_bars = limit - current_count
-            logging.debug(f"🔄 本地数据总量不足，准备向前追溯补齐 {missing_old_bars} 根 历史 K 线...")
+            logger.debug(f"🔄 本地数据总量不足，准备向前追溯补齐 {missing_old_bars} 根 历史 K 线...")
 
             # 计算当前库中最老一根 K 线的时间，并逆向剥离时区还原为 UTC 毫秒时间戳
             oldest_local = combined_df.index[0]
@@ -312,7 +313,7 @@ class OKXDataLoader:
                 expected_bars = self._calculate_bars_needed(start_date, end_date)
                 # 容错 5% 的缺失，如果够了直接返回
                 if len(local_in_range) >= expected_bars * 0.95:
-                    logging.debug(
+                    logger.debug(
                         f"✅ 本地数据库已覆盖 {start_date.date()} 到 {end_date.date()}，共 {len(local_in_range)} 根")
                     return local_in_range
 
@@ -322,7 +323,7 @@ class OKXDataLoader:
             return pd.DataFrame()
 
         buffer_bars = int(bars_needed * 1.05) + 10  # 只需要 5% 的极小缓冲
-        logging.debug(f"🔄 准备【定向拉取】约 {buffer_bars} 根 K 线 (目标区间: {start_date.date()} -> {end_date.date()})")
+        logger.debug(f"🔄 准备【定向拉取】约 {buffer_bars} 根 K 线 (目标区间: {start_date.date()} -> {end_date.date()})")
 
         # 核心修复：把 end_date 转换为 OKX 认识的 UTC 毫秒时间戳，作为拉取起点！
         end_utc = end_date
@@ -338,7 +339,7 @@ class OKXDataLoader:
         fetched_df = self.fetch_from_okx(limit=buffer_bars, after_ts=end_ts_ms)
 
         if fetched_df.empty:
-            logging.error("❌ 定向拉取数据失败，请检查网络或 OKX 接口状态。")
+            logger.error("❌ 定向拉取数据失败，请检查网络或 OKX 接口状态。")
             return pd.DataFrame()
 
         # 3. 将新拉取的数据合并进本地数据库并持久化
@@ -356,7 +357,42 @@ class OKXDataLoader:
         result_df = combined_df[mask]
 
         if not result_df.empty:
-            logging.debug(
+            logger.debug(
                 f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
 
         return result_df
+
+    def fetch_data_by_hours(self, hours: int) -> pd.DataFrame:
+        """
+        获取指定小时数的历史 K 线数据
+
+        根据当前 timeframe 计算需要多少根 K 线，然后调用 fetch_historical_data 获取数据。
+        例如：timeframe='1m', hours=24 -> 需要 24 * 60 = 1440 根 K 线
+
+        Args:
+            hours: 需要多少小时的数据
+
+        Returns:
+            pd.DataFrame: 包含 'open', 'high', 'low', 'close', 'volume' 列的 DataFrame
+        """
+        # 计算所需 K 线数量
+        bar_seconds = self._get_seconds(self.timeframe)
+        total_seconds = hours * 3600
+        # 向上取整，确保覆盖整个时间段
+        bars_needed = int(total_seconds // bar_seconds)
+
+        logger.info(f"📡 正在获取 {self.symbol} {self.timeframe} 数据...")
+        logger.info(f"   目标: 最近 {hours} 小时 (约 {bars_needed} 根 K 线)")
+
+        # 调用现有方法获取数据
+        df = self.fetch_historical_data(limit=bars_needed)
+
+        if df.empty:
+            logger.warning(f"❌ 获取数据失败：返回空DataFrame")
+        else:
+            logger.debug(f"✅ 成功获取 {len(df)} 根 K 线数据")
+            logger.debug(f"   时间范围: {df.index[0]} 到 {df.index[-1]}")
+            logger.debug(f"   价格范围: {df['low'].min():.2f} - {df['high'].max():.2f}")
+            logger.debug(f"   总成交量: {df['volume'].sum():.2f}")
+
+        return df
