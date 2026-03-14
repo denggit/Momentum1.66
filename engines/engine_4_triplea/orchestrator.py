@@ -12,10 +12,12 @@ TripleA 四号引擎编排器 (TripleA Orchestrator)
 """
 import argparse
 import asyncio
+import csv
 import json
 import os
 import signal
 import sys
+from datetime import datetime
 
 import aiohttp
 
@@ -41,26 +43,42 @@ class TripleAOrchestrator:
         self.mode = mode
 
         # ==========================================
-        # 1. 实例化核心特种部队组件
+        # 1. 实例化核心组件
         # ==========================================
-        # 财务官 & API 交互
-        self.trader = OKXTrader(symbol=symbol, leverage=20, risk_pct=0.7)
-
-        # 参谋部 (宏观地图构建器，采用比较灵敏的参数)
+        self.trader = OKXTrader(symbol=symbol, leverage=20, risk_pct=0.5)
         self.vp_builder = VolumeProfileBuilder(value_area_pct=0.70, bin_size=0.5, zone_pct=0.002)
         self.data_loader = OKXDataLoader(symbol=symbol, timeframe="1m")
-
-        # 侦察兵 (微观引擎)
-        self.signal_generator = TripleASignalGenerator(symbol=symbol)
-
-        # 突击手 (执行管理器)
         self.execution_manager = TripleAExecutionManager(trader=self.trader)
 
-        # 运行时状态
+        # ⚔️ 主炮塔：实盘执行引擎 (参数极其严苛)
+        self.main_generator = TripleASignalGenerator(symbol=symbol)
+
+        # 👻 影子引擎：科考打捞船 (参数故意放宽，用于测试边界)
+        self.shadow_queue = asyncio.Queue(maxsize=10000)  # 影子引擎专用队列
+        self.shadow_generator = TripleASignalGenerator(symbol=symbol)
+        self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
+        self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
+
+        # 📝 影子引擎的运行状态缓存与日志
+        self.shadow_active_trade = {}
+        self.log_file = f"data/shadow_research_{symbol}.csv"
+        self._init_research_vessel()
+
         self._is_running = False
         self._tasks = []
 
         logger.info(f"🚀 TripleA 四号引擎编排器初始化完成: {symbol} [{mode.upper()}]")
+
+    def _init_research_vessel(self):
+        """初始化科考船 CSV 表头（只记录平仓结果）"""
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        if not os.path.exists(self.log_file):
+            with open(self.log_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "Entry_Time", "Close_Time", "Action", "Entry_Price",
+                    "Close_Price", "SL_Price", "TP_Price", "Score", "Close_Reason", "Gross_PnL"
+                ])
 
     async def run(self):
         """启动编排器主循环"""
@@ -79,6 +97,9 @@ class TripleAOrchestrator:
 
         # 启动毫秒级 Tick 数据流和微观引擎
         self._tasks.append(asyncio.create_task(self._ws_tick_loop()))
+
+        # 启动影子引擎异步消费者
+        self._tasks.append(asyncio.create_task(self._shadow_engine_consumer()))
 
         logger.info("✅ 司令部已全面上线，所有雷达全速运转中！")
 
@@ -112,8 +133,9 @@ class TripleAOrchestrator:
                     profile_data = self.vp_builder.build_profile(df)
 
                     if profile_data:
-                        # 将新地图喂给微观雷达
-                        self.signal_generator.update_macro_map(profile_data)
+                        # 🗺️ 将新地图同时喂给主炮塔和影子雷达
+                        self.main_generator.update_macro_map(profile_data)
+                        self.shadow_generator.update_macro_map(profile_data)
 
                         poc_price = profile_data['POC']['center']
                         logger.info(
@@ -153,6 +175,7 @@ class TripleAOrchestrator:
                                 if "data" in data and isinstance(data["data"], list):
                                     for trade in data["data"]:
                                         # 转换成引擎认识的标准 Tick 格式
+                                        # 转换成引擎认识的标准 Tick 格式
                                         tick = {
                                             'price': float(trade['px']),
                                             'size': float(trade['sz']),
@@ -160,12 +183,18 @@ class TripleAOrchestrator:
                                             'ts': int(trade['ts'])
                                         }
 
-                                        # ⚡ 核心：将 Tick 喂给侦察兵
-                                        signal_dict = self.signal_generator.process_tick(tick)
+                                        # 🚀 优先级 1：主引擎同步处理 (最高优先级，严禁延迟)
+                                        main_signal = self.main_generator.process_tick(tick)
+                                        if main_signal:
+                                            # 使用 create_task 异步处理信号执行，不阻塞 Tick 接收
+                                            asyncio.create_task(self._handle_main_signal(main_signal))
 
-                                        # 处理信号
-                                        if signal_dict:
-                                            await self._handle_engine_signal(signal_dict)
+                                        # 🚀 优先级 2：将 Tick 丢入影子队列 (非阻塞)
+                                        try:
+                                            self.shadow_queue.put_nowait(tick)
+                                        except asyncio.QueueFull:
+                                            # 如果队列满了，优先丢弃影子 Tick，确保主系统存活
+                                            pass
 
                             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                                 logger.warning("⚠️ WebSocket 连接断开，准备重连...")
@@ -175,7 +204,7 @@ class TripleAOrchestrator:
                 logger.error(f"❌ WebSocket 异常 ({e})，2 秒后重连...")
                 await asyncio.sleep(2)
 
-    async def _handle_engine_signal(self, signal: dict):
+    async def _handle_main_signal(self, signal: dict):
         """处理微观引擎抛出的任何信号"""
         reason = signal.get('reason')
         action = signal.get('action')
@@ -187,7 +216,7 @@ class TripleAOrchestrator:
                 if not success:
                     # 如果实盘开仓因为余额等问题失败，必须手动把引擎状态重置回 IDLE
                     # 否则引擎会一直处于 LONG/SHORT 的幻觉中
-                    self.signal_generator._reset_to_idle()
+                    self.main_generator._reset_to_idle()
             else:
                 # 纸面交易 / 收集模式
                 logger.info("=" * 50)
@@ -202,6 +231,75 @@ class TripleAOrchestrator:
             # 既然我们走的是交易所挂单路线，这代表着交易所那一端的真实订单大概率也成交了！
             # 我们不需要调用 API 去平仓，只打印一条日志，本地引擎已经自动重置为 IDLE。
             logger.info(f"🔄 本地引擎飞行状态终结 ({reason})，已准备好迎接下一轮交火。")
+
+    async def _handle_shadow_signal(self, signal: dict):
+        """👻 处理影子引擎的信号：只记录，不发单，直到订单完结写入 CSV"""
+        reason = signal.get('reason')
+        action = signal.get('action')
+        price = signal.get('price', signal.get('entry_price'))
+
+        if reason == "TRIPLE_A_COMPLETE":
+            # 影子引擎抓到了宽松条件下的突破，存入内存
+            self.shadow_active_trade = {
+                'Entry_Time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'Action': action,
+                'Entry_Price': price,
+                'SL_Price': signal['stop_loss'],
+                'TP_Price': signal['take_profit'],
+                'Score': signal['signal_score']
+            }
+            logger.debug(f"👻 [影子引擎] 虚拟开仓 {action} @ {price}")
+
+        elif action in ["CLOSE_LONG", "CLOSE_SHORT"] and self.shadow_active_trade:
+            # 影子引擎的订单撞击了虚拟止盈或止损！
+            entry_price = self.shadow_active_trade['Entry_Price']
+
+            # 计算纯点数毛利
+            if self.shadow_active_trade['Action'] == "BUY":
+                gross_pnl = price - entry_price
+            else:
+                gross_pnl = entry_price - price
+
+            # 写入科考船冷库
+            with open(self.log_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    self.shadow_active_trade['Entry_Time'],
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    self.shadow_active_trade['Action'],
+                    entry_price,
+                    price,
+                    self.shadow_active_trade['SL_Price'],
+                    self.shadow_active_trade['TP_Price'],
+                    self.shadow_active_trade['Score'],
+                    reason,  # 比如 "TAKE_PROFIT_HIT" 或 "STOP_LOSS_HIT"
+                    round(gross_pnl, 4)
+                ])
+
+            logger.info(f"🚢 [科考打捞] 影子订单终结 ({reason})，毛利: {gross_pnl:.4f}，已写入 CSV。")
+            self.shadow_active_trade = {}  # 清空缓存，等待下一次虚拟开仓
+
+    async def _shadow_engine_consumer(self):
+        """
+        👻 影子引擎消费者：运行在完全独立的协程中
+        即使这里有任何计算延迟或磁盘IO延迟，都不会影响 WS 接收和主引擎
+        """
+        logger.info("🚢 影子科考船已启动，开始监听镜像 Tick 流...")
+        while self._is_running:
+            try:
+                # 阻塞式等待队列中的 Tick
+                tick = await self.shadow_queue.get()
+
+                # 驱动影子引擎
+                shadow_signal = self.shadow_generator.process_tick(tick)
+                if shadow_signal:
+                    await self._handle_shadow_signal(shadow_signal)
+
+                # 标记处理完成
+                self.shadow_queue.task_done()
+            except Exception as e:
+                logger.error(f"❌ 影子引擎内部异常: {e}")
+                await asyncio.sleep(1)  # 发生异常避空，防止死循环轰炸日志
 
 
 def main():
