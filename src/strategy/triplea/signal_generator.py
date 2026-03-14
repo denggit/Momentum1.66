@@ -50,14 +50,22 @@ class FabioTickSignalGenerator:
         }
 
     def update_macro_map(self, profile_data: Dict):
-        self.tradable_zones = profile_data.get('tradable_zones', [])
+        raw_zones = profile_data.get('tradable_zones', [])
         self.profile = profile_data
 
-        for zone in self.tradable_zones:
-            if "MEGA" not in zone['type']:
-                zone_width = zone['zone_high'] - zone['zone_low']
-                zone['halo_high'] = zone['zone_high'] + (zone_width * self.radar_expansion)
-                zone['halo_low'] = zone['zone_low'] - (zone_width * self.radar_expansion)
+        # 建立一个全新的安全列表！
+        safe_tradable_zones = []
+        for zone in raw_zones:
+            safe_zone = zone.copy()
+            if "MEGA" not in safe_zone['type']:
+                zone_width = safe_zone['zone_high'] - safe_zone['zone_low']
+                safe_zone['halo_high'] = safe_zone['zone_high'] + (zone_width * self.radar_expansion)
+                safe_zone['halo_low'] = safe_zone['zone_low'] - (zone_width * self.radar_expansion)
+
+            # 把加工好的安全字典塞进新列表
+            safe_tradable_zones.append(safe_zone)
+
+        self.tradable_zones = safe_tradable_zones
 
         reference_price = profile_data.get('POC', {}).get('center', 3000.0)
         new_box_size = max(self.min_box_size, reference_price * self.box_size_pct)
@@ -77,9 +85,6 @@ class FabioTickSignalGenerator:
             logger.info("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
 
     def process_tick(self, tick: Dict) -> Optional[Dict]:
-        if self.status in ["LONG", "SHORT"]:
-            return self._manage_position_by_tick(tick)
-
         price = tick['price']
         size = tick['size']
         current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
@@ -88,7 +93,9 @@ class FabioTickSignalGenerator:
         self._update_rolling_data(price, size, tick['side'], current_time)
 
         # 2. 优雅的状态机路由 (State Machine Routing)
-        if self.status == "IDLE":
+        if self.status in ["LONG", "SHORT"]:
+            return self._manage_position_by_tick(tick)
+        elif self.status == "IDLE":
             return self._handle_idle(price)
 
         elif self.status == "A1_WAIT_ABSORPTION":
@@ -118,7 +125,8 @@ class FabioTickSignalGenerator:
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
         # 检查价格是否超出交易区域范围（无论多头还是空头）
         if price < self.target_zone['halo_low'] or price > self.target_zone['halo_high']:
-            logger.debug(f"💥 [A1-吸收失败] 价格 {price} 超出交易区域 [{self.target_zone['halo_low']}, {self.target_zone['halo_high']}]")
+            logger.debug(
+                f"💥 [A1-吸收失败] 价格 {price} 超出交易区域 [{self.target_zone['halo_low']}, {self.target_zone['halo_high']}]")
             self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
@@ -306,55 +314,47 @@ class FabioTickSignalGenerator:
                 # 🎯 动态止损与止盈计算 (全地形自适应)
                 # ---------------------------------------------------------
                 if direction == "LONG":
-                    # 1. 多头止损 (SL)：锚定在底线下方一个箱子的安全距离
                     sl = self.micro_tracker['absorption_price'] - self.current_box_size
-                    risk_distance = price - sl  # 我们承担的真实风险距离 (比如 1.5U)
+                    risk_distance = price - sl
 
-                    # 2. 多头止盈 (TP)：动态路由寻址
                     poc_price = self.profile.get('POC', {}).get('center', float('inf'))
+                    tp_target = poc_price if price < poc_price else self.target_zone.get('halo_high', price + 15.0)
 
-                    if price < poc_price:
-                        # 场景 A: 抄底模式。现价在 POC 下方，第一引力目标就是 POC
-                        tp_target = poc_price
-                    else:
-                        # 场景 B: 顺势/突破模式。现价已在 POC 上方，目标看向当前交火区的顶部天花板
-                        tp_target = self.target_zone.get('halo_high', price + 15.0)
+                    estimated_fee = price * 0.0010
+                    net_risk = risk_distance + estimated_fee
+                    min_gross_reward = (net_risk * 2.5) + estimated_fee
 
-                    # 3. 终极保底 (盈亏比强制校验)：
-                    min_reward = risk_distance * 2.5
+                    # 多头利润 = 目标价 - 现价
+                    actual_gross_reward = tp_target - price
 
-                    if (tp_target - price) < min_reward:
-                        tp = price + min_reward
-                        logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
-                    else:
-                        tp = tp_target
+                    if actual_gross_reward < min_gross_reward:
+                        logger.warning(f"🚫 [风控拦截] 结构空间不足！需盈利 {min_gross_reward:.2f}U，放弃做多！")
+                        self._reset_to_idle()
+                        return None
 
+                    tp = tp_target  # 👈 修复 Bug 2
                     action = "BUY"
 
                 else:  # SHORT
-                    # 1. 空头止损 (SL)：锚定在底线上方一个箱子的安全距离
                     sl = self.micro_tracker['absorption_price'] + self.current_box_size
-                    risk_distance = sl - price  # 我们承担的真实风险距离
+                    risk_distance = sl - price
 
-                    # 2. 空头止盈 (TP)：动态路由寻址
                     poc_price = self.profile.get('POC', {}).get('center', float('inf'))
+                    tp_target = poc_price if price > poc_price else self.target_zone.get('halo_low', price - 15.0)
 
-                    if price > poc_price:
-                        # 场景 A: 摸顶模式。现价在 POC 上方，第一引力目标就是 POC
-                        tp_target = poc_price
-                    else:
-                        # 场景 B: 顺势/突破模式。现价已在 POC 下方，目标看向当前交火区的底部地板
-                        tp_target = self.target_zone.get('halo_low', price - 15.0)
+                    estimated_fee = price * 0.0010
+                    net_risk = risk_distance + estimated_fee
+                    min_gross_reward = (net_risk * 2.5) + estimated_fee
 
-                    # 3. 终极保底 (盈亏比强制校验)：
-                    min_reward = risk_distance * 2.5
+                    # 👇 修复 Bug 3：空头利润 = 现价 - 目标价
+                    actual_gross_reward = price - tp_target
 
-                    if (price - tp_target) < min_reward:
-                        tp = price - min_reward
-                        logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
-                    else:
-                        tp = tp_target
+                    if actual_gross_reward < min_gross_reward:
+                        logger.warning(f"🚫 [风控拦截] 结构空间不足！需盈利 {min_gross_reward:.2f}U，放弃做空！")
+                        self._reset_to_idle()
+                        return None
 
+                    tp = tp_target  # 👈 修复 Bug 2
                     action = "SELL"
 
                 self.current_sl = sl
