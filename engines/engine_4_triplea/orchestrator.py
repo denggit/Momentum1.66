@@ -124,7 +124,7 @@ class TripleAOrchestrator:
         """宏观地图更新协程：每 5 分钟重绘一次战区地图"""
         while self._is_running:
             try:
-                logger.info("🗺️ 参谋部：正在拉取过去 24 小时数据，重绘宏观地图...")
+                logger.debug("🗺️ 参谋部：正在拉取过去 24 小时数据，重绘宏观地图...")
                 # 获取 24小时 的 1分钟K线 (1440 根)
                 df = await asyncio.to_thread(self.data_loader.fetch_historical_data, limit=1440)
 

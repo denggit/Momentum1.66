@@ -72,7 +72,7 @@ class TripleASignalGenerator:
 
         # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U（对应以太坊约 200刀 的宏观位移）时才拉闸重启
         if self.status == "IDLE" and abs(new_box_size - self.current_box_size) > 0.03:
-            logger.info(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
+            logger.debug(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
 
             self.current_box_size = new_box_size
 
@@ -82,7 +82,7 @@ class TripleASignalGenerator:
             self.global_volume = 0.0
             self.global_cvd = 0.0
 
-            logger.info("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
+            logger.debug("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
 
     def process_tick(self, tick: Dict) -> Optional[Dict]:
         price = tick['price']
