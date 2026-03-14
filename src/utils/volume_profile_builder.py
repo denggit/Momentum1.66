@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.signal import find_peaks
 
 
-class FabioProfileBuilder:
+class VolumeProfileBuilder:
     def __init__(self, value_area_pct=0.70, bin_size=0.5, zone_pct=0.002):
         """
         value_area_pct: 价值区间包含的成交量比例 (默认 70%)
@@ -158,6 +158,10 @@ class FabioProfileBuilder:
         # 引擎最喜欢的数据结构：从上到下按价格排序的清晰阻力/支撑带
         tradable_zones = sorted(tradable_zones, key=lambda x: x['center'], reverse=True)
 
+        # 🆕 【新增】：顺手计算这批 1 分钟 K 线的平均成交量
+        # 假设你的 DataFrame 里包含 'volume' 或 'vol' 列
+        avg_vol = df_1m['volume'].mean() if 'volume' in df_1m.columns else df_1m['vol'].mean()
+
         # ==========================================
         # 6. 终极输出返回
         # ==========================================
@@ -167,6 +171,7 @@ class FabioProfileBuilder:
             "VAL": val_zone,
             "HVNs": valid_hvns,
             "tradable_zones": tradable_zones,  # <--- 机器人执行逻辑请认准这个 Key！
+            "avg_vol_1m": avg_vol,
             "metadata": {
                 "bin_size_used": self.bin_size,
                 "zone_pct_used": self.zone_pct,
