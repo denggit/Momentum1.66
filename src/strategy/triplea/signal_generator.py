@@ -24,7 +24,9 @@ class FabioTickSignalGenerator:
         self.global_volume = 0.0
         self.global_boxes = {}
 
-        self.box_size = 0.25  # 动态价格箱尺寸
+        # 🆕 动态自适应参数
+        self.min_box_size = 0.25  # 保底最小箱子
+        self.box_size_pct = 0.00015  # 价格的万分之1.5
         self.vol_spike_threshold = 2.0  # 爆量倍数
         self.delta_ratio_threshold = 0.35  # 空头攻击强度
         self.cluster_ratio_threshold = 0.45  # 成交密集度
@@ -93,9 +95,6 @@ class FabioTickSignalGenerator:
         return None
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        """第一重 A1: 侦测机构冰山单吸收行为"""
-
-        # 撤退条件：跌出引力光晕
         if price < self.target_zone['halo_low']:
             self.absorption_start_time = 0.0
             self._reset_to_idle()
@@ -104,25 +103,29 @@ class FabioTickSignalGenerator:
         if not self.global_boxes:
             return None
 
-        # 1. Volume Spike (成交量翻倍验证)
         baseline_15s_vol = self.profile.get('avg_vol_1m', 100) / 4.0
         if self.global_volume < (baseline_15s_vol * self.vol_spike_threshold):
             self.absorption_start_time = 0.0
             return None
 
-        # 2. Delta Ratio (空头攻击强度验证)
         delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
         if self.global_cvd >= 0 or delta_ratio < self.delta_ratio_threshold:
             self.absorption_start_time = 0.0
             return None
 
-        # 3. Cluster 检测 (Top N 簇，防插针和边界碎裂)
+        # 🆕 重新计算当前环境下的箱子尺寸
+        current_box_size = max(self.min_box_size, price * self.box_size_pct)
+
         center_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
 
+        # 🆕 [修复浮点数 Bug] 严格对齐左右相邻的网格
+        left_box = round((center_box - current_box_size) / current_box_size) * current_box_size
+        right_box = round((center_box + current_box_size) / current_box_size) * current_box_size
+
         cluster_vol = (
-                self.global_boxes.get(center_box - self.box_size, {}).get('volume', 0.0) +
+                self.global_boxes.get(left_box, {}).get('volume', 0.0) +
                 self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                self.global_boxes.get(center_box + self.box_size, {}).get('volume', 0.0)
+                self.global_boxes.get(right_box, {}).get('volume', 0.0)
         )
         cluster_ratio = cluster_vol / self.global_volume
 
@@ -130,7 +133,6 @@ class FabioTickSignalGenerator:
             self.absorption_start_time = 0.0
             return None
 
-        # 4. Effort vs Result (效率公式验证)
         min_price = min(self.global_boxes.keys())
         max_price = max(self.global_boxes.keys())
         mid_price = (max_price + min_price) / 2.0
@@ -140,25 +142,23 @@ class FabioTickSignalGenerator:
             self.absorption_start_time = 0.0
             return None
 
-        # 5. Persistence (防噪音 3 秒计时器)
+        # 🆕 [修复计时器吞 Tick] 只赋值，不立刻 return None，让它继续往下走
         if self.absorption_start_time == 0.0:
-            self.absorption_start_time = current_time  # 开始计时
-            return None
+            self.absorption_start_time = current_time
 
+        # 立刻检查是否已经满足时间要求 (即便是第一次触发，如果 persistence_time 被设得很小甚至 0，也能瞬间判定)
         if current_time - self.absorption_start_time >= self.persistence_time:
-            # 🎯 吸收彻底确认！状态机交棒！
             self.status = "A2_WAIT_ACCUMULATION"
 
-            # 记录微观防线和天花板，传给第二重
             self.micro_tracker['absorption_price'] = float(center_box)
-            self.micro_tracker['micro_resistance'] = float(center_box + self.box_size)
+            self.micro_tracker['micro_resistance'] = float(center_box + current_box_size)
             self.micro_tracker['a2_start_time'] = current_time
 
-            self.absorption_start_time = 0.0  # 重置计时器
+            self.absorption_start_time = 0.0
 
             efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
             logger.info(f"🧱 [A1-吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
-            logger.info(f"📊 [指标] 簇占比: {cluster_ratio:.1%}, 效率: {efficiency:.2f}")
+            logger.info(f"📊 [指标] 簇占比: {cluster_ratio: .1%}, Delta率: {delta_ratio: .1%}, 效率: {efficiency: .2f}")
 
         return None
 
@@ -205,27 +205,30 @@ class FabioTickSignalGenerator:
         return None
 
     def _update_rolling_data(self, price: float, size: float, side: str, current_time: float):
-        """O(1) 极速更新：新数据加进来，老数据踢出去"""
         tick_delta = size if side == 'buy' else -size
         self.rolling_ticks.append((current_time, tick_delta, size, price))
 
         self.global_cvd += tick_delta
         self.global_volume += size
 
-        # 🆕 进场：把新 Tick 累加进 0.25U 的箱子 (修复了原来的边界碎裂问题)
-        box_id = round(price / self.box_size) * self.box_size
+        # 🆕 动态计算当前价格对应的合理箱子大小
+        current_box_size = max(self.min_box_size, price * self.box_size_pct)
+
+        box_id = round(price / current_box_size) * current_box_size
         if box_id not in self.global_boxes:
             self.global_boxes[box_id] = {'volume': 0.0, 'delta': 0.0}
         self.global_boxes[box_id]['volume'] += size
         self.global_boxes[box_id]['delta'] += tick_delta
 
-        # 退场清理
         while self.rolling_ticks and current_time - self.rolling_ticks[0][0] > self.rolling_window_sec:
             old_time, old_delta, old_size, old_price = self.rolling_ticks.popleft()
             self.global_cvd -= old_delta
             self.global_volume -= old_size
 
-            old_box_id = round(old_price / self.box_size) * self.box_size
+            # 同样用动态大小来剔除
+            old_box_size = max(self.min_box_size, old_price * self.box_size_pct)
+            old_box_id = round(old_price / old_box_size) * old_box_size
+
             self.global_boxes[old_box_id]['volume'] -= old_size
             self.global_boxes[old_box_id]['delta'] -= old_delta
 
