@@ -61,7 +61,7 @@ class TripleAOrchestrator:
 
         # 📝 影子引擎的运行状态缓存与日志
         self.shadow_active_trade = {}
-        self.log_file = f"data/shadow_research_{symbol}.csv"
+        self.log_file = f"data/tripleA/shadow_research_{symbol}.csv"
         self._init_research_vessel()
 
         self._is_running = False
