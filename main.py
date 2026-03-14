@@ -26,9 +26,13 @@ logger = get_logger("main_commander")
 # 🚀 舰队编制表：在这里注册你未来所有的引擎
 # ==========================================
 ENGINES = [
+    # {
+    #     "name": "Engine_3_OrderFlow",
+    #     "script": os.path.join(current_dir, "engines", "engine_3_orderflow", "strategy.py")
+    # },
     {
-        "name": "Engine_3_OrderFlow",
-        "script": os.path.join(current_dir, "engines", "engine_3_orderflow", "strategy.py")
+        "name": "Engine_4_TripleA",
+        "script": os.path.join(current_dir, "engines", "engine_4_triplea", "orchestrator.py")
     },
     # 未来你想加一号引擎，只需要去掉注释：
     # {
