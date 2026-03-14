@@ -6,7 +6,7 @@ from src.utils.log import get_logger
 logger = get_logger(__name__)
 
 
-class FabioTickSignalGenerator:
+class TripleASignalGenerator:
     def __init__(self, symbol: str = "ETH-USDT-SWAP"):
         self.symbol = symbol
         self.status = "IDLE"
