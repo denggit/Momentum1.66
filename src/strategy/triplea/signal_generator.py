@@ -27,6 +27,7 @@ class FabioTickSignalGenerator:
         # 🆕 动态自适应参数
         self.min_box_size = 0.25  # 保底最小箱子
         self.box_size_pct = 0.00015  # 价格的万分之1.5
+        self.current_box_size = 0.25
         self.vol_spike_threshold = 2.0  # 爆量倍数
         self.delta_ratio_threshold = 0.35  # 空头攻击强度
         self.cluster_ratio_threshold = 0.45  # 成交密集度
@@ -47,15 +48,25 @@ class FabioTickSignalGenerator:
         }
 
     def update_macro_map(self, profile_data: Dict):
-        """慢速接口：在这里把沉重的计算提前做完！"""
         self.tradable_zones = profile_data.get('tradable_zones', [])
         self.profile = profile_data
 
-        for zone in self.tradable_zones:
-            if "MEGA" not in zone['type']:
-                zone_width = zone['zone_high'] - zone['zone_low']
-                zone['halo_high'] = zone['zone_high'] + (zone_width * self.radar_expansion)
-                zone['halo_low'] = zone['zone_low'] - (zone_width * self.radar_expansion)
+        reference_price = profile_data.get('POC', {}).get('center', 3000.0)
+        new_box_size = max(self.min_box_size, reference_price * self.box_size_pct)
+
+        # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U（对应以太坊约 200刀 的宏观位移）时才拉闸重启
+        if self.status == "IDLE" and abs(new_box_size - self.current_box_size) > 0.03:
+            logger.info(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size:.4f} -> {new_box_size:.4f}。")
+
+            self.current_box_size = new_box_size
+
+            # 暴力清空，进入 15 秒盲区
+            self.rolling_ticks.clear()
+            self.global_boxes.clear()
+            self.global_volume = 0.0
+            self.global_cvd = 0.0
+
+            logger.info("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
 
     def process_tick(self, tick: Dict) -> Optional[Dict]:
         if self.status in ["LONG", "SHORT"]:
@@ -113,17 +124,13 @@ class FabioTickSignalGenerator:
             self.absorption_start_time = 0.0
             return None
 
-        # 🆕 重新计算当前环境下的箱子尺寸
-        current_box_size = max(self.min_box_size, price * self.box_size_pct)
-
         center_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
 
-        # 扩展为 5-Box Cluster (中心 ± 2)，总覆盖宽度约 2U~2.5U，完美捕捉“厚墙”
-        left_box_1 = round((center_box - current_box_size) / current_box_size) * current_box_size
-        left_box_2 = round((center_box - 2 * current_box_size) / current_box_size) * current_box_size
-
-        right_box_1 = round((center_box + current_box_size) / current_box_size) * current_box_size
-        right_box_2 = round((center_box + 2 * current_box_size) / current_box_size) * current_box_size
+        # 使用锚定的网格大小计算左右偏移 (完美严丝合缝)
+        left_box_1 = round((center_box - self.current_box_size) / self.current_box_size) * self.current_box_size
+        left_box_2 = round((center_box - 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
+        right_box_1 = round((center_box + self.current_box_size) / self.current_box_size) * self.current_box_size
+        right_box_2 = round((center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
 
         cluster_vol = (
                 self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
@@ -169,18 +176,28 @@ class FabioTickSignalGenerator:
         return None
 
     def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
-        """第二重 A: Accumulation"""
+        """第二重 A2: Accumulation (时间锁与天花板探测)"""
+
+        # 1. 破底防线：不管 CVD 怎么走，只要跌穿了 A1 确立的钛合金墙，立刻认怂撤退！
         if price < self.micro_tracker['absorption_price']:
-            logger.debug("💥 吸收底线被击穿，多头防线崩溃，撤退！")
+            logger.debug("💥 [A2-积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
+            self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
 
+        # 2. 动态天花板：在横盘震荡期间，用一个 max() 函数，自然而然地把区间的最高点勾勒出来
         self.micro_tracker['micro_resistance'] = max(self.micro_tracker['micro_resistance'], price)
 
-        if current_time - self.micro_tracker['a2_start_time'] > 5.0:
+        # 3. 时间锁：强行要求盘口在这里“冷静”至少 5 秒钟 (完全契合你说的正常量、小幅震荡)
+        # 只要这 5 秒内没跌破底线，A2 就算圆满完成！
+        if current_time - self.micro_tracker['a2_start_time'] >= 5.0:
             self.status = "A3_WAIT_AGGRESSION"
-            logger.info(f"🔋 [A2-积累] 筹码换手完成，阻力线: {self.micro_tracker['micro_resistance']}。")
+
+            logger.info(f"🔋 [A2-积累完成] 历时 5 秒筹码换手完毕。")
+            logger.info(
+                f"🎯 [战场标定] 底线防守: {self.micro_tracker['absorption_price']}, 突破天花板: {self.micro_tracker['micro_resistance']}")
             return None
+
         return None
 
     def _handle_aggression(self, price: float) -> Optional[Dict]:
@@ -212,29 +229,28 @@ class FabioTickSignalGenerator:
 
     def _update_rolling_data(self, price: float, size: float, side: str, current_time: float):
         tick_delta = size if side == 'buy' else -size
+
+        # 【微调1】队列里还是老老实实存原始的 price，为了以后可能的“重铸”做准备
         self.rolling_ticks.append((current_time, tick_delta, size, price))
 
         self.global_cvd += tick_delta
         self.global_volume += size
 
-        # 🆕 动态计算当前价格对应的合理箱子大小
-        current_box_size = max(self.min_box_size, price * self.box_size_pct)
-
-        box_id = round(price / current_box_size) * current_box_size
+        # 进场：用当前的绝对网格装箱
+        box_id = round(price / self.current_box_size) * self.current_box_size
         if box_id not in self.global_boxes:
             self.global_boxes[box_id] = {'volume': 0.0, 'delta': 0.0}
         self.global_boxes[box_id]['volume'] += size
         self.global_boxes[box_id]['delta'] += tick_delta
 
+        # 退场：用当前的绝对网格扣减
         while self.rolling_ticks and current_time - self.rolling_ticks[0][0] > self.rolling_window_sec:
             old_time, old_delta, old_size, old_price = self.rolling_ticks.popleft()
+
             self.global_cvd -= old_delta
             self.global_volume -= old_size
 
-            # 同样用动态大小来剔除
-            old_box_size = max(self.min_box_size, old_price * self.box_size_pct)
-            old_box_id = round(old_price / old_box_size) * old_box_size
-
+            old_box_id = round(old_price / self.current_box_size) * self.current_box_size
             self.global_boxes[old_box_id]['volume'] -= old_size
             self.global_boxes[old_box_id]['delta'] -= old_delta
 
