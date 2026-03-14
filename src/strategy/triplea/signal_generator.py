@@ -311,50 +311,91 @@ class FabioTickSignalGenerator:
                     f"⚔️ [A3-{log_prefix}攻击达成] 1.5秒内爆量 {recent_vol:.2f}, {momentum_desc}，真突破确立！")
 
                 # ---------------------------------------------------------
-                # 🎯 动态止损与止盈计算 (全地形自适应)
+                # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
                 # ---------------------------------------------------------
+                estimated_fee = price * 0.0010  # 估算双边千分之一手续费
+
                 if direction == "LONG":
                     sl = self.micro_tracker['absorption_price'] - self.current_box_size
                     risk_distance = price - sl
 
-                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
-                    tp_target = poc_price if price < poc_price else self.target_zone.get('halo_high', price + 15.0)
-
-                    estimated_fee = price * 0.0010
+                    # 提前算好 2.5 倍净盈亏比所需的最小盘面利润
                     net_risk = risk_distance + estimated_fee
                     min_gross_reward = (net_risk * 2.5) + estimated_fee
 
-                    # 多头利润 = 目标价 - 现价
-                    actual_gross_reward = tp_target - price
+                    tp_target = None
+                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
 
+                    # 🔍 1. 结构性寻址
+                    if price < poc_price:
+                        # 抄底模式：寻找上方宏观天花板 (VAH) 的下沿
+                        for zone in self.tradable_zones:
+                            if 'VAH' in zone['type']:
+                                tp_target = zone.get('halo_low')
+                                break
+                    else:
+                        # 顺势模式：向上寻找最近的 HVN 的下沿
+                        # (tradable_zones 是从高到低排序的，我们倒序遍历，找第一个比现价高的 HVN)
+                        for zone in reversed(self.tradable_zones):
+                            if zone['center'] > price and zone['type'] == 'HVN':
+                                tp_target = zone.get('halo_low')
+                                break
+
+                    # 🛡️ 2. 降级兜底 (如果地图上找不到结构，直接强行按 2.5R:R 算止盈)
+                    if tp_target is None:
+                        tp_target = price + min_gross_reward
+                        logger.debug(f"🗺️ 宏观地图未找到前方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
+
+                    # ⚖️ 3. 终极风控拦截 (如果找到了结构，但结构离得太近，不够塞牙缝，直接拒接开仓！)
+                    actual_gross_reward = tp_target - price
                     if actual_gross_reward < min_gross_reward:
-                        logger.warning(f"🚫 [风控拦截] 结构空间不足！需盈利 {min_gross_reward:.2f}U，放弃做多！")
+                        logger.warning(
+                            f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做多！")
                         self._reset_to_idle()
                         return None
 
-                    tp = tp_target  # 👈 修复 Bug 2
+                    tp = tp_target
                     action = "BUY"
 
                 else:  # SHORT
                     sl = self.micro_tracker['absorption_price'] + self.current_box_size
                     risk_distance = sl - price
 
-                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
-                    tp_target = poc_price if price > poc_price else self.target_zone.get('halo_low', price - 15.0)
-
-                    estimated_fee = price * 0.0010
                     net_risk = risk_distance + estimated_fee
                     min_gross_reward = (net_risk * 2.5) + estimated_fee
 
-                    # 👇 修复 Bug 3：空头利润 = 现价 - 目标价
-                    actual_gross_reward = price - tp_target
+                    tp_target = None
+                    poc_price = self.profile.get('POC', {}).get('center', -float('inf'))
 
+                    # 🔍 1. 结构性寻址
+                    if price > poc_price:
+                        # 摸顶模式：寻找下方宏观地板 (VAL) 的上沿
+                        for zone in self.tradable_zones:
+                            if 'VAL' in zone['type']:
+                                tp_target = zone.get('halo_high')
+                                break
+                    else:
+                        # 顺势模式：向下寻找最近的 HVN 的上沿
+                        # (tradable_zones 是从高到低排序的，正序遍历找第一个比现价低的 HVN)
+                        for zone in self.tradable_zones:
+                            if zone['center'] < price and zone['type'] == 'HVN':
+                                tp_target = zone.get('halo_high')
+                                break
+
+                    # 🛡️ 2. 降级兜底
+                    if tp_target is None:
+                        tp_target = price - min_gross_reward
+                        logger.debug(f"🗺️ 宏观地图未找到下方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
+
+                    # ⚖️ 3. 终极风控拦截
+                    actual_gross_reward = price - tp_target
                     if actual_gross_reward < min_gross_reward:
-                        logger.warning(f"🚫 [风控拦截] 结构空间不足！需盈利 {min_gross_reward:.2f}U，放弃做空！")
+                        logger.warning(
+                            f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做空！")
                         self._reset_to_idle()
                         return None
 
-                    tp = tp_target  # 👈 修复 Bug 2
+                    tp = tp_target
                     action = "SELL"
 
                 self.current_sl = sl
