@@ -56,7 +56,7 @@ class FabioTickSignalGenerator:
 
         # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U（对应以太坊约 200刀 的宏观位移）时才拉闸重启
         if self.status == "IDLE" and abs(new_box_size - self.current_box_size) > 0.03:
-            logger.info(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size:.4f} -> {new_box_size:.4f}。")
+            logger.info(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
 
             self.current_box_size = new_box_size
 
@@ -90,7 +90,7 @@ class FabioTickSignalGenerator:
             return self._handle_accumulation(price, current_time)
 
         elif self.status == "A3_WAIT_AGGRESSION":
-            return self._handle_aggression(price)
+            return self._handle_aggression(tick)
 
         return None
 
@@ -164,7 +164,7 @@ class FabioTickSignalGenerator:
             self.status = "A2_WAIT_ACCUMULATION"
 
             self.micro_tracker['absorption_price'] = float(center_box)
-            self.micro_tracker['micro_resistance'] = float(center_box + current_box_size)
+            self.micro_tracker['micro_resistance'] = float(center_box + self.current_box_size)
             self.micro_tracker['a2_start_time'] = current_time
 
             self.absorption_start_time = 0.0
@@ -176,55 +176,108 @@ class FabioTickSignalGenerator:
         return None
 
     def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
-        """第二重 A2: Accumulation (时间锁与天花板探测)"""
+        """第二重 A2: Accumulation (静默换手)"""
 
-        # 1. 破底防线：不管 CVD 怎么走，只要跌穿了 A1 确立的钛合金墙，立刻认怂撤退！
+        # 1. 破底防线：绝对不准跌破 A1 确立的吸收底线
         if price < self.micro_tracker['absorption_price']:
             logger.debug("💥 [A2-积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
             self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
 
-        # 2. 动态天花板：在横盘震荡期间，用一个 max() 函数，自然而然地把区间的最高点勾勒出来
-        self.micro_tracker['micro_resistance'] = max(self.micro_tracker['micro_resistance'], price)
+        # 🚨 【专家级修复】删除了 max(micro_resistance, price)！
+        # 绝不让洗盘期间的“毛刺假针”抬高我们的天花板！天花板由 A1 的网格结构直接锁定！
 
-        # 3. 时间锁：强行要求盘口在这里“冷静”至少 5 秒钟 (完全契合你说的正常量、小幅震荡)
-        # 只要这 5 秒内没跌破底线，A2 就算圆满完成！
+        # 2. 时间锁：强行熬过 5 秒换手期
         if current_time - self.micro_tracker['a2_start_time'] >= 5.0:
             self.status = "A3_WAIT_AGGRESSION"
-
-            logger.info(f"🔋 [A2-积累完成] 历时 5 秒筹码换手完毕。")
-            logger.info(
-                f"🎯 [战场标定] 底线防守: {self.micro_tracker['absorption_price']}, 突破天花板: {self.micro_tracker['micro_resistance']}")
+            logger.info(f"🔋 [A2-积累完成] 历时 5 秒筹码换手完毕，等待突破。")
             return None
 
         return None
 
-    def _handle_aggression(self, price: float) -> Optional[Dict]:
-        """第三重 A: Aggression (拔枪开火)"""
+    def _handle_aggression(self, tick: Dict) -> Optional[Dict]:
+        """第三重 A3: Aggression (1.5秒微观动量确认拔枪)"""
+        price = tick['price']
+        current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
+
         if price < self.micro_tracker['absorption_price']:
             self._reset_to_idle()
             return None
 
-        if price > self.micro_tracker['micro_resistance'] and self.global_cvd > (self.global_volume * 0.15):
-            logger.info(f"⚔️ [A3-攻击达成] 多头放量突破积累区！全军出击做多！")
+        # 🚨 【专家级修复】增加突破的 Buffer (缓冲区)，必须实质性越过天花板 (比如高出半个箱子)，防假突破
+        breakout_threshold = self.micro_tracker['micro_resistance'] + (self.current_box_size * 0.5)
 
-            # [修复] 加上 .get() 安全保底，万一取不到 POC，给一个默认的保底止盈（比如现价 + 10刀）
-            sl = self.micro_tracker['absorption_price'] - 1.0
-            poc_data = self.profile.get('POC', {})
-            tp = poc_data.get('center', price + 10.0)
+        if price > breakout_threshold:
+            # 🚀 价格破位！立刻启动“1.5秒微观动量”扫描！
+            recent_vol = 0.0
+            recent_cvd = 0.0
+            lookback_sec = 1.5
 
-            self.current_sl = sl
-            self.current_tp = tp
-            self.status = "LONG"  # 锁定状态，下个 Tick 直接移交给 _manage_position_by_tick！
+            # 从队列最末尾（最新 Tick）往前遍历，只取最近 1.5 秒的数据
+            for t in reversed(self.rolling_ticks):
+                if current_time - t[0] <= lookback_sec:
+                    recent_cvd += t[1]  # tick_delta
+                    recent_vol += t[2]  # size
+                else:
+                    break  # 超过 1.5 秒，直接打断，极其节省算力！
 
-            return {
-                "action": "BUY",
-                "entry_price": price,
-                "stop_loss": sl,
-                "take_profit": tp,
-                "reason": "TRIPLE_A_COMPLETE"
-            }
+            # 1. 局部 Volume Spike 判定 (这 1.5 秒的量，必须大于平时 1.5 秒均量的 2 倍)
+            baseline_1_5s_vol = (self.profile.get('avg_vol_1m', 60.0) / 60.0) * lookback_sec
+            is_volume_spike_short = recent_vol > (baseline_1_5s_vol * 2.0)
+
+            # 2. 局部 Delta Ratio 判定 (这 1.5 秒内，主动买盘必须占据绝对压倒性优势，占比 > 30%)
+            delta_ratio_short = recent_cvd / (recent_vol + 1e-8)
+            is_strong_buying = delta_ratio_short > 0.30
+
+            if is_volume_spike_short and is_strong_buying:
+                logger.info(
+                    f"⚔️ [A3-攻击达成] 1.5秒内爆量 {recent_vol:.2f}, 净买入占比 {delta_ratio_short:.1%}，真突破确立！")
+
+                # ---------------------------------------------------------
+                # 🎯 动态止损与止盈计算 (全地形自适应)
+                # ---------------------------------------------------------
+                # 1. 止损 (SL)：锚定在底线下方一个箱子的安全距离
+                sl = self.micro_tracker['absorption_price'] - self.current_box_size
+                sl_distance = price - sl  # 我们承担的真实风险距离 (比如 1.5U)
+
+                # 2. 止盈 (TP)：动态路由寻址
+                poc_price = self.profile.get('POC', {}).get('center', float('inf'))
+
+                if price < poc_price:
+                    # 场景 A: 抄底模式。现价在 POC 下方，第一引力目标就是 POC
+                    tp_target = poc_price
+                else:
+                    # 场景 B: 顺势/突破模式。现价已在 POC 上方，目标看向当前交火区的顶部天花板
+                    tp_target = self.target_zone.get('halo_high', price + 15.0)
+
+                # 3. 终极保底 (盈亏比强制校验)：
+                # 如果算出来的结构性止盈位离我们太近（或者甚至出了 Bug 比现价还低）
+                # 强制使用 1:2.5 的风险回报比 (Risk:Reward) 来兜底！
+                min_reward = sl_distance * 2.5
+
+                if (tp_target - price) < min_reward:
+                    tp = price + min_reward
+                    logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
+                else:
+                    tp = tp_target
+
+                self.current_sl = sl
+                self.current_tp = tp
+                self.status = "LONG"
+
+                # 【专家级修复】输出信号分数 (Score)，供未来的资金管理模块决定仓位大小
+                signal_score = (delta_ratio_short * 100) + (recent_vol / baseline_1_5s_vol)
+
+                return {
+                    "action": "BUY",
+                    "entry_price": price,
+                    "stop_loss": sl,
+                    "take_profit": tp,
+                    "signal_score": round(signal_score, 2),
+                    "reason": "TRIPLE_A_COMPLETE"
+                }
+
         return None
 
     def _update_rolling_data(self, price: float, size: float, side: str, current_time: float):
