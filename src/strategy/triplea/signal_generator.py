@@ -53,6 +53,12 @@ class FabioTickSignalGenerator:
         self.tradable_zones = profile_data.get('tradable_zones', [])
         self.profile = profile_data
 
+        for zone in self.tradable_zones:
+            if "MEGA" not in zone['type']:
+                zone_width = zone['zone_high'] - zone['zone_low']
+                zone['halo_high'] = zone['zone_high'] + (zone_width * self.radar_expansion)
+                zone['halo_low'] = zone['zone_low'] - (zone_width * self.radar_expansion)
+
         reference_price = profile_data.get('POC', {}).get('center', 3000.0)
         new_box_size = max(self.min_box_size, reference_price * self.box_size_pct)
 
