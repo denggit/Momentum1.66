@@ -118,15 +118,21 @@ class FabioTickSignalGenerator:
 
         center_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
 
-        # 🆕 [修复浮点数 Bug] 严格对齐左右相邻的网格
-        left_box = round((center_box - current_box_size) / current_box_size) * current_box_size
-        right_box = round((center_box + current_box_size) / current_box_size) * current_box_size
+        # 扩展为 5-Box Cluster (中心 ± 2)，总覆盖宽度约 2U~2.5U，完美捕捉“厚墙”
+        left_box_1 = round((center_box - current_box_size) / current_box_size) * current_box_size
+        left_box_2 = round((center_box - 2 * current_box_size) / current_box_size) * current_box_size
+
+        right_box_1 = round((center_box + current_box_size) / current_box_size) * current_box_size
+        right_box_2 = round((center_box + 2 * current_box_size) / current_box_size) * current_box_size
 
         cluster_vol = (
-                self.global_boxes.get(left_box, {}).get('volume', 0.0) +
+                self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
+                self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
                 self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                self.global_boxes.get(right_box, {}).get('volume', 0.0)
+                self.global_boxes.get(right_box_1, {}).get('volume', 0.0) +
+                self.global_boxes.get(right_box_2, {}).get('volume', 0.0)
         )
+
         cluster_ratio = cluster_vol / self.global_volume
 
         if cluster_ratio < self.cluster_ratio_threshold:
