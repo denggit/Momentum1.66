@@ -44,6 +44,8 @@ class FabioTickSignalGenerator:
         self.micro_tracker = {
             "absorption_price": 0.0,
             "micro_resistance": 0.0,
+            "micro_support": 0.0,  # 新增：空头支撑位
+            "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
             "a2_start_time": 0.0
         }
 
@@ -97,8 +99,10 @@ class FabioTickSignalGenerator:
     def _handle_idle(self, price: float) -> Optional[Dict]:
         """阶段 0: 寻找交火区"""
         for zone in self.tradable_zones:
-            if "MEGA" in zone['type']:
+            # 🚀 铁律：坚决不在绞肉机（纯 POC 或 MEGA 融合区）里开仓！
+            if "MEGA" in zone['type'] or zone['type'] == "POC":
                 continue
+
             if zone['halo_low'] <= price <= zone['halo_high']:
                 self.status = "A1_WAIT_ABSORPTION"
                 self.target_zone = zone
@@ -106,7 +110,9 @@ class FabioTickSignalGenerator:
         return None
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        if price < self.target_zone['halo_low']:
+        # 检查价格是否超出交易区域范围（无论多头还是空头）
+        if price < self.target_zone['halo_low'] or price > self.target_zone['halo_high']:
+            logger.debug(f"💥 [A1-吸收失败] 价格 {price} 超出交易区域 [{self.target_zone['halo_low']}, {self.target_zone['halo_high']}]")
             self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
@@ -120,7 +126,13 @@ class FabioTickSignalGenerator:
             return None
 
         delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
-        if self.global_cvd >= 0 or delta_ratio < self.delta_ratio_threshold:
+        if delta_ratio < self.delta_ratio_threshold:
+            self.absorption_start_time = 0.0
+            return None
+
+        # 确定交易方向：global_cvd < 0 为多头（卖压被吸收），global_cvd > 0 为空头（买压被吸收）
+        direction = "LONG" if self.global_cvd < 0 else "SHORT" if self.global_cvd > 0 else None
+        if direction is None:
             self.absorption_start_time = 0.0
             return None
 
@@ -164,24 +176,42 @@ class FabioTickSignalGenerator:
             self.status = "A2_WAIT_ACCUMULATION"
 
             self.micro_tracker['absorption_price'] = float(center_box)
-            self.micro_tracker['micro_resistance'] = float(center_box + self.current_box_size)
+            self.micro_tracker['direction'] = direction
             self.micro_tracker['a2_start_time'] = current_time
+
+            # 根据交易方向设置关键价位
+            self.micro_tracker['micro_resistance'] = float(center_box + self.current_box_size)
+            self.micro_tracker['micro_support'] = float(center_box - self.current_box_size)
+            direction_cn = "多头" if direction == "LONG" else "空头"
+            logger.info(f"🧱 [A1-{direction_cn}吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
 
             self.absorption_start_time = 0.0
 
             efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
-            logger.info(f"🧱 [A1-吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
             logger.info(f"📊 [指标] 簇占比: {cluster_ratio: .1%}, Delta率: {delta_ratio: .1%}, 效率: {efficiency: .2f}")
 
         return None
 
     def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
         """第二重 A2: Accumulation (静默换手)"""
+        direction = self.micro_tracker.get('direction')
 
-        # 1. 破底防线：绝对不准跌破 A1 确立的吸收底线
-        if price < self.micro_tracker['absorption_price']:
-            logger.debug("💥 [A2-积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
-            self.absorption_start_time = 0.0
+        # 1. 根据交易方向检查关键价位
+        if direction == "LONG":
+            # 多头积累：价格不能跌破吸收底线
+            if price < self.micro_tracker['absorption_price']:
+                logger.debug("💥 [A2-多头积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
+                self.absorption_start_time = 0.0
+                self._reset_to_idle()
+                return None
+        elif direction == "SHORT":
+            # 严格对称：只要涨破吸收核心价（天花板），空头防线即告崩溃！
+            if price > self.micro_tracker['absorption_price']:
+                logger.debug("💥 [A2/A3-空头失败] 吸收天花板被突破，防线崩溃，撤退！")
+                self._reset_to_idle()
+                return None
+        else:
+            # 未知吸收类型，重置
             self._reset_to_idle()
             return None
 
@@ -191,7 +221,8 @@ class FabioTickSignalGenerator:
         # 2. 时间锁：强行熬过 5 秒换手期
         if current_time - self.micro_tracker['a2_start_time'] >= 5.0:
             self.status = "A3_WAIT_AGGRESSION"
-            logger.info(f"🔋 [A2-积累完成] 历时 5 秒筹码换手完毕，等待突破。")
+            direction = self.micro_tracker.get('direction', 'UNKNOWN')
+            logger.info(f"🔋 [A2-{direction}积累完成] 历时 5 秒筹码换手完毕，等待突破。")
             return None
 
         return None
@@ -200,15 +231,36 @@ class FabioTickSignalGenerator:
         """第三重 A3: Aggression (1.5秒微观动量确认拔枪)"""
         price = tick['price']
         current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
+        direction = self.micro_tracker.get('direction')
 
-        if price < self.micro_tracker['absorption_price']:
+        if direction is None:
             self._reset_to_idle()
             return None
 
-        # 🚨 【专家级修复】增加突破的 Buffer (缓冲区)，必须实质性越过天花板 (比如高出半个箱子)，防假突破
-        breakout_threshold = self.micro_tracker['micro_resistance'] + (self.current_box_size * 0.5)
+        # 根据交易方向进行不同的价格检查
+        if direction == "LONG":
+            # 多头攻击：价格不能跌破吸收底线
+            if price < self.micro_tracker['absorption_price']:
+                logger.debug("💥 [A3-多头攻击失败] 吸收底线被击穿，多头攻击取消！")
+                self._reset_to_idle()
+                return None
 
-        if price > breakout_threshold:
+            # 🚨 【专家级修复】增加突破的 Buffer (缓冲区)，必须实质性越过天花板 (比如高出半个箱子)，防假突破
+            breakout_threshold = self.micro_tracker['micro_resistance'] + (self.current_box_size * 0.5)
+            should_check_breakout = price > breakout_threshold
+
+        else:  # SHORT
+            # 空头攻击：价格不能突破吸收阻力位
+            if price > self.micro_tracker['absorption_price']:
+                logger.debug("💥 [A3-空头攻击失败] 吸收阻力位被突破，空头攻击取消！")
+                self._reset_to_idle()
+                return None
+
+            # 空头攻击：检查价格跌破支撑位（支撑位减去半个箱子作为缓冲区）
+            breakdown_threshold = self.micro_tracker['micro_support'] - (self.current_box_size * 0.5)
+            should_check_breakout = price < breakdown_threshold
+
+        if should_check_breakout:
             # 🚀 价格破位！立刻启动“1.5秒微观动量”扫描！
             recent_vol = 0.0
             recent_cvd = 0.0
@@ -224,53 +276,90 @@ class FabioTickSignalGenerator:
 
             # 1. 局部 Volume Spike 判定 (这 1.5 秒的量，必须大于平时 1.5 秒均量的 2 倍)
             baseline_1_5s_vol = (self.profile.get('avg_vol_1m', 60.0) / 60.0) * lookback_sec
-            is_volume_spike_short = recent_vol > (baseline_1_5s_vol * 2.0)
+            is_volume_spike = recent_vol > (baseline_1_5s_vol * 2.0)
 
-            # 2. 局部 Delta Ratio 判定 (这 1.5 秒内，主动买盘必须占据绝对压倒性优势，占比 > 30%)
-            delta_ratio_short = recent_cvd / (recent_vol + 1e-8)
-            is_strong_buying = delta_ratio_short > 0.30
+            # 2. 局部 Delta Ratio 判定
+            delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
 
-            if is_volume_spike_short and is_strong_buying:
+            if direction == "LONG":
+                # 多头攻击：需要主动买盘占优（净买入）
+                is_strong_momentum = delta_ratio_recent > 0.30
+                log_prefix = "多头"
+                momentum_desc = f"净买入占比 {delta_ratio_recent:.1%}"
+            else:  # SHORT
+                # 空头攻击：需要主动卖盘占优（净卖出）
+                is_strong_momentum = delta_ratio_recent < -0.30
+                log_prefix = "空头"
+                momentum_desc = f"净卖出占比 {-delta_ratio_recent:.1%}"
+
+            if is_volume_spike and is_strong_momentum:
                 logger.info(
-                    f"⚔️ [A3-攻击达成] 1.5秒内爆量 {recent_vol:.2f}, 净买入占比 {delta_ratio_short:.1%}，真突破确立！")
+                    f"⚔️ [A3-{log_prefix}攻击达成] 1.5秒内爆量 {recent_vol:.2f}, {momentum_desc}，真突破确立！")
 
                 # ---------------------------------------------------------
                 # 🎯 动态止损与止盈计算 (全地形自适应)
                 # ---------------------------------------------------------
-                # 1. 止损 (SL)：锚定在底线下方一个箱子的安全距离
-                sl = self.micro_tracker['absorption_price'] - self.current_box_size
-                sl_distance = price - sl  # 我们承担的真实风险距离 (比如 1.5U)
+                if direction == "LONG":
+                    # 1. 多头止损 (SL)：锚定在底线下方一个箱子的安全距离
+                    sl = self.micro_tracker['absorption_price'] - self.current_box_size
+                    risk_distance = price - sl  # 我们承担的真实风险距离 (比如 1.5U)
 
-                # 2. 止盈 (TP)：动态路由寻址
-                poc_price = self.profile.get('POC', {}).get('center', float('inf'))
+                    # 2. 多头止盈 (TP)：动态路由寻址
+                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
 
-                if price < poc_price:
-                    # 场景 A: 抄底模式。现价在 POC 下方，第一引力目标就是 POC
-                    tp_target = poc_price
-                else:
-                    # 场景 B: 顺势/突破模式。现价已在 POC 上方，目标看向当前交火区的顶部天花板
-                    tp_target = self.target_zone.get('halo_high', price + 15.0)
+                    if price < poc_price:
+                        # 场景 A: 抄底模式。现价在 POC 下方，第一引力目标就是 POC
+                        tp_target = poc_price
+                    else:
+                        # 场景 B: 顺势/突破模式。现价已在 POC 上方，目标看向当前交火区的顶部天花板
+                        tp_target = self.target_zone.get('halo_high', price + 15.0)
 
-                # 3. 终极保底 (盈亏比强制校验)：
-                # 如果算出来的结构性止盈位离我们太近（或者甚至出了 Bug 比现价还低）
-                # 强制使用 1:2.5 的风险回报比 (Risk:Reward) 来兜底！
-                min_reward = sl_distance * 2.5
+                    # 3. 终极保底 (盈亏比强制校验)：
+                    min_reward = risk_distance * 2.5
 
-                if (tp_target - price) < min_reward:
-                    tp = price + min_reward
-                    logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
-                else:
-                    tp = tp_target
+                    if (tp_target - price) < min_reward:
+                        tp = price + min_reward
+                        logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
+                    else:
+                        tp = tp_target
+
+                    action = "BUY"
+
+                else:  # SHORT
+                    # 1. 空头止损 (SL)：锚定在底线上方一个箱子的安全距离
+                    sl = self.micro_tracker['absorption_price'] + self.current_box_size
+                    risk_distance = sl - price  # 我们承担的真实风险距离
+
+                    # 2. 空头止盈 (TP)：动态路由寻址
+                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
+
+                    if price > poc_price:
+                        # 场景 A: 摸顶模式。现价在 POC 上方，第一引力目标就是 POC
+                        tp_target = poc_price
+                    else:
+                        # 场景 B: 顺势/突破模式。现价已在 POC 下方，目标看向当前交火区的底部地板
+                        tp_target = self.target_zone.get('halo_low', price - 15.0)
+
+                    # 3. 终极保底 (盈亏比强制校验)：
+                    min_reward = risk_distance * 2.5
+
+                    if (price - tp_target) < min_reward:
+                        tp = price - min_reward
+                        logger.debug(f"⚖️ 结构目标太近，启用 1:2.5 盈亏比保底止盈！")
+                    else:
+                        tp = tp_target
+
+                    action = "SELL"
 
                 self.current_sl = sl
                 self.current_tp = tp
-                self.status = "LONG"
+                self.status = direction
 
                 # 【专家级修复】输出信号分数 (Score)，供未来的资金管理模块决定仓位大小
-                signal_score = (delta_ratio_short * 100) + (recent_vol / baseline_1_5s_vol)
+                signal_score = (abs(delta_ratio_recent) * 100) + (recent_vol / baseline_1_5s_vol)
 
                 return {
-                    "action": "BUY",
+                    "action": action,
                     "entry_price": price,
                     "stop_loss": sl,
                     "take_profit": tp,
@@ -317,6 +406,8 @@ class FabioTickSignalGenerator:
         self.micro_tracker = {
             "absorption_price": 0.0,
             "micro_resistance": 0.0,
+            "micro_support": 0.0,  # 新增：空头支撑位
+            "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
             "a2_start_time": 0.0
         }
 
