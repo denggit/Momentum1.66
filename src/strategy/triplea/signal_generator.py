@@ -22,6 +22,7 @@ class FabioTickSignalGenerator:
         self.rolling_window_sec = 15.0
         self.global_cvd = 0.0
         self.global_volume = 0.0
+        self.global_boxes = {}
 
         # ==========================================
         # 📸 订单生命周期内存 (快照冻结)
@@ -37,17 +38,33 @@ class FabioTickSignalGenerator:
         }
 
     def _update_rolling_data(self, price: float, size: float, side: str, current_time: float):
-        """维护一个永远反映过去 15 秒盘口真实情况的滑动窗口"""
+        """O(1) 极速更新：新数据加进来，老数据踢出去"""
         tick_delta = size if side == 'buy' else -size
         self.rolling_ticks.append((current_time, tick_delta, size, price))
+
         self.global_cvd += tick_delta
         self.global_volume += size
 
-        # 剔除过期数据，保持 15 秒窗口
+        # 🆕 进场：把新 Tick 累加进 1U 箱子
+        box_id = int(price)
+        if box_id not in self.global_boxes:
+            self.global_boxes[box_id] = {'volume': 0.0, 'delta': 0.0}
+        self.global_boxes[box_id]['volume'] += size
+        self.global_boxes[box_id]['delta'] += tick_delta
+
+        # 🆕 退场：剔除过期数据，保持 15 秒窗口，同时把箱子里的量扣掉！
         while self.rolling_ticks and current_time - self.rolling_ticks[0][0] > self.rolling_window_sec:
             old_time, old_delta, old_size, old_price = self.rolling_ticks.popleft()
             self.global_cvd -= old_delta
             self.global_volume -= old_size
+
+            old_box_id = int(old_price)
+            self.global_boxes[old_box_id]['volume'] -= old_size
+            self.global_boxes[old_box_id]['delta'] -= old_delta
+
+            # 如果箱子空了，顺手清理掉节省内存
+            if self.global_boxes[old_box_id]['volume'] <= 1e-8:
+                del self.global_boxes[old_box_id]
 
     def update_macro_map(self, profile_data: Dict):
         """慢速接口：在这里把沉重的计算提前做完！"""
@@ -84,51 +101,61 @@ class FabioTickSignalGenerator:
                     return None
 
         # --------------------------------------------------
-        # 第一重 A: Absorption
+        # 第一重 A: Absorption (1U 箱子微观订单流探测 - 究极进化版)
         # --------------------------------------------------
         elif self.status == "A1_WAIT_ABSORPTION":
             if price < self.target_zone['halo_low']:
                 self._reset_to_idle()
                 return None
 
-            if not self.rolling_ticks:
-                return None
-
-            # 1. 评判空头的“努力 (Effort)” -> 依然使用 15 秒的全局数据！
+            # 1. 宏观环境验证：必须有相对于 24h 全局均线的“绝对爆量”
             baseline_15s_vol = self.profile.get('avg_vol_1m', 100) / 4.0
             is_volume_spike = self.global_volume > (baseline_15s_vol * 2.5)
 
+            # 2. 努力度验证：空头必须在疯狂砸盘 (CVD 为负且占比高)
             cvd_intensity = abs(self.global_cvd) / (self.global_volume + 1)
             is_heavy_selling = self.global_cvd < 0 and cvd_intensity > 0.3
 
-            # 只有在 15秒级别确实发生爆量砸盘时，才去检查最近几秒是不是“刹车”了
-            if is_volume_spike and is_heavy_selling:
+            # 只有满足宏观爆量砸盘，才开启微观箱子扫描
+            if is_volume_spike and is_heavy_selling and self.global_boxes:
 
-                # 2. 评判空头的“结果 (Result)” -> 【核心进化】只切片看最近 3 秒的刹车情况！
-                micro_time_threshold = current_time - 3.0
+                # 【性能 $O(1)$】：寻找 15 秒内的成交量控制点 (Micro POC Box)
+                micro_poc_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
+                poc_volume = self.global_boxes[micro_poc_box]['volume']
+                poc_delta = self.global_boxes[micro_poc_box]['delta']
 
-                # 从 15 秒的队列里，过滤出最近 3 秒的 Tick
-                micro_ticks = [t for t in self.rolling_ticks if t[0] >= micro_time_threshold]
+                # --- 核心指标 1: 集中度 (即 Absorption Score 的变体) ---
+                # 这 15 秒内，至少 50% 的成交量死死卡在同一个 1U 箱子里
+                is_highly_concentrated = (poc_volume / self.global_volume) > 0.5
 
-                if micro_ticks:
-                    # 只算这最近 3 秒的最高价和最低价
-                    recent_low = min(t[3] for t in micro_ticks)
-                    recent_high = max(t[3] for t in micro_ticks)
+                # --- 核心指标 2: Delta 爆炸 (空头努力被全盘接收) ---
+                # 该箱子内 Delta 极度偏负，证明是限价买单接住了所有市价砸盘
+                is_seller_trapped = poc_delta < 0 and abs(poc_delta) > (poc_volume * 0.4)
 
-                    safe_low = max(recent_low, 1e-8)
-                    price_range_pct = (recent_high - safe_low) / safe_low
+                # --- 核心指标 3: 插针空气过滤 (Wick Rejection) ---
+                # 统计 POC 箱子“下方”所有的成交量。如果下方全是“空气”，则判定为扫损插针
+                volume_below_poc = sum(
+                    box['volume'] for box_id, box in self.global_boxes.items() if box_id < micro_poc_box)
+                is_wick_rejected = (volume_below_poc / self.global_volume) < 0.10
 
-                    # 如果在最近的 3 秒内，价格被死死压缩在 0.05% 以内，说明刹车成功！
-                    if price_range_pct <= 0.0005:
-                        self.status = "A2_WAIT_ACCUMULATION"
-                        # 底线依然用这 3 秒内探出的最低点
-                        self.micro_tracker['absorption_price'] = recent_low
-                        self.micro_tracker['micro_resistance'] = recent_high
-                        self.micro_tracker['a2_start_time'] = current_time
+                # --- 核心指标 4: 价格企稳验证 (Price Recovery) ---
+                # 价格必须已经站在 POC 箱子上沿附近，或者已经收回到箱子内
+                is_price_recovered = price >= micro_poc_box
 
-                        logger.info(
-                            f"🧱 [A1-吸收] 15秒天量砸盘 ({self.global_volume:.2f})！但最近3秒被死死卡在 {price_range_pct:.4%} 内！刹车成功！")
-                        return None
+                # 只有当：集中度高 + Delta 负值爆炸 + 下方全是空气 + 价格已收回 -> 判定吸收成功
+                if is_highly_concentrated and is_seller_trapped and is_wick_rejected and is_price_recovered:
+                    self.status = "A2_WAIT_ACCUMULATION"
+
+                    # 精准锁定防守底线：使用该爆量箱子的下沿
+                    self.micro_tracker['absorption_price'] = float(micro_poc_box)
+                    # 阻力位：该箱子的上沿，等待 A3 的放量突破
+                    self.micro_tracker['micro_resistance'] = float(micro_poc_box + 1.0)
+                    self.micro_tracker['a2_start_time'] = current_time
+
+                    logger.info(f"🧱 [A1-吸收确认] 检出微观 POC 箱子: {micro_poc_box}")
+                    logger.info(
+                        f"📊 [指标] 集中度:{(poc_volume / self.global_volume):.1%}, 下方量占比:{(volume_below_poc / self.global_volume):.1%}")
+                    return None
 
         # --------------------------------------------------
         # 第二重 A: Accumulation
