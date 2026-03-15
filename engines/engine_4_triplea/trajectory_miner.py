@@ -36,7 +36,7 @@ class TrajectoryMiner:
         self.cooldowns: Dict[str, float] = {}
 
         # 输出目录
-        self.output_dir = "data/triplea/miner"
+        self.output_dir = "data/tripleA/miner"
         os.makedirs(self.output_dir, exist_ok=True)
 
         # 追踪器ID计数器
