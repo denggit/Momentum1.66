@@ -12,6 +12,7 @@ class TripleASignalGenerator:
         self.is_shadow = is_shadow
         self.status = "IDLE"
         self.tradable_zones = []
+        self.macro_zones = []  # 👈 🚀 新增：专门用于存储 24 小时宏观地图用于止盈
         self.target_zone = None
         self.profile = {}
 
@@ -55,24 +56,29 @@ class TripleASignalGenerator:
             "allowed_direction": "ANY"  # 👈 新增：允许的开仓方向钢印
         }
 
-    def update_macro_map(self, profile_data: Dict):
-        raw_zones = profile_data.get('tradable_zones', [])
-        self.profile = profile_data
-
-        # 建立一个全新的安全列表！
+    def _process_zones(self, raw_zones):
+        """内部辅助：安全拷贝阵地列表"""
         safe_tradable_zones = []
         for zone in raw_zones:
             safe_zone = zone.copy()
-
-            # 把加工好的安全字典塞进新列表
             safe_tradable_zones.append(safe_zone)
+        return safe_tradable_zones
 
-        self.tradable_zones = safe_tradable_zones
+    def update_maps(self, short_profile: Dict, long_profile: Dict):
+        """🚀 双轨雷达接收：短线管进场，长线管止盈"""
+        self.profile = short_profile
 
-        reference_price = profile_data.get('POC', {}).get('center', 3000.0)
+        # 1. 战术地图 (8小时)：日常打仗、A1吸收全靠它
+        self.tradable_zones = self._process_zones(short_profile.get('tradable_zones', []))
+
+        # 2. 战略地图 (24小时)：专门用来寻找极高盈亏比的止盈点
+        self.macro_zones = self._process_zones(long_profile.get('tradable_zones', []))
+
+        # 3. 网格自适应 (必须锚定【短线地图】的 POC)
+        reference_price = short_profile.get('POC', {}).get('center', 3000.0)
         new_box_size = max(self.min_box_size, reference_price * self.box_size_pct)
 
-        # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U（对应以太坊约 200刀 的宏观位移）时才拉闸重启
+        # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U 时才拉闸重启
         if self.status == "IDLE" and abs(new_box_size - self.current_box_size) > 0.03:
             self._log_debug(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
 
@@ -354,14 +360,14 @@ class TripleASignalGenerator:
                     # 🔍 1. 结构性寻址 (多头)
                     if price < poc_price:
                         # 抄底模式：寻找上方宏观天花板 (VAH) 的下沿
-                        for zone in self.tradable_zones:
+                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
                             # 必须确保阵地下沿的距离，大于最低盈亏比底线
                             if 'VAH' in zone['type'] and zone.get('zone_low') >= price + min_gross_reward:
                                 tp_target = zone.get('zone_low')
                                 break
                     else:
                         # 顺势模式：向上寻找最近的 HVN 的下沿
-                        for zone in reversed(self.tradable_zones):
+                        for zone in reversed(self.macro_zones):  # 👈 🚀 抬头看 24 小时大地图！
                             if zone['center'] > price and zone['type'] == 'HVN' and zone.get(
                                     'zone_low') >= price + min_gross_reward:
                                 tp_target = zone.get('zone_low')
@@ -396,14 +402,14 @@ class TripleASignalGenerator:
                     # 🔍 1. 结构性寻址 (空头)
                     if price > poc_price:
                         # 摸顶模式：寻找下方宏观地板 (VAL) 的上沿
-                        for zone in self.tradable_zones:
+                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
                             # 必须确保阵地上沿的距离，大于最低盈亏比底线
                             if 'VAL' in zone['type'] and zone.get('zone_high') <= price - min_gross_reward:
                                 tp_target = zone.get('zone_high')
                                 break
                     else:
                         # 顺势模式：向下寻找最近的 HVN 的上沿
-                        for zone in self.tradable_zones:
+                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
                             if zone['center'] < price and zone['type'] == 'HVN' and zone.get(
                                     'zone_high') <= price - min_gross_reward:
                                 tp_target = zone.get('zone_high')

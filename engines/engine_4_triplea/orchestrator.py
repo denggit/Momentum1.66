@@ -148,22 +148,26 @@ class TripleAOrchestrator:
         """宏观地图更新协程：每 5 分钟重绘一次战区地图"""
         while self._is_running:
             try:
-                logger.debug("🗺️ 参谋部：正在拉取过去 24 小时数据，重绘宏观地图...")
-                # 获取 24小时 的 1分钟K线 (1440 根)
-                df = await asyncio.to_thread(self.data_loader.fetch_historical_data, limit=1440)
+                logger.debug("🗺️ 参谋部：正在拉取过去 24 小时数据，重绘双轨地图...")
+                # 1. 获取 24小时 的 1分钟K线 (1440 根)
+                df_long = await asyncio.to_thread(self.data_loader.fetch_historical_data, limit=1440)
 
-                if not df.empty:
-                    # 构建 Volume Profile
-                    profile_data = self.vp_builder.build_profile(df)
+                if not df_long.empty:
+                    # 🚀 2. 切割出最近 8 小时 (480根) 的数据作为微观战术数据
+                    df_short = df_long.tail(480)
 
-                    if profile_data:
-                        # 🗺️ 将新地图同时喂给主炮塔和影子雷达
-                        self.main_generator.update_macro_map(profile_data)
-                        self.shadow_generator.update_macro_map(profile_data)
+                    # 3. 构建双轨 Volume Profile
+                    long_profile = self.vp_builder.build_profile(df_long)
+                    short_profile = self.vp_builder.build_profile(df_short)
 
-                        poc_price = profile_data['POC']['center']
+                    if long_profile and short_profile:
+                        # 🗺️ 4. 将【长短双轨地图】同时喂给主炮塔和影子雷达
+                        self.main_generator.update_maps(short_profile, long_profile)
+                        self.shadow_generator.update_maps(short_profile, long_profile)
+
+                        poc_price = short_profile['POC']['center']
                         logger.debug(
-                            f"🗺️ 地图更新完毕！当前核心引力区 (POC): {poc_price} | 发现 {len(profile_data['tradable_zones'])} 个交火区。")
+                            f"🗺️ 双轨地图更新完毕！日内短线核心 (POC): {poc_price} | 战术交火区: {len(short_profile['tradable_zones'])}个 | 战略防线: {len(long_profile['tradable_zones'])}个。")
                 else:
                     logger.error("❌ 拉取 1m K线失败，沿用旧地图。")
 
