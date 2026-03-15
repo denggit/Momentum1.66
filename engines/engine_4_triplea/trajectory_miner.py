@@ -121,22 +121,39 @@ class TrajectoryMiner:
             swing_low = min(prices_in_tape)
             swing_high = max(prices_in_tape)
 
+            tp_price = None
+            sl_price = None
+
+            # 🚀 V2.1 新增：强制底线利润空间 (防止吃不到肉的垃圾记录)
+            # 1. 最小盈亏比：必须大于止损风险的 1.5 倍
+            # 2. 最小绝对空间：硬性规定利润空间不能低于现价的 0.5% (比如 2100刀必须有至少 10.5 刀的利润)
+            min_rr = 1.5
+            min_pct_profit = 0.005
+            min_absolute_profit = price * min_pct_profit
+
             if direction == "LONG":
                 # 做多条件：过去30分钟内必须有一个明显的深坑 (至少低于当前价 3 刀)
                 if price - swing_low < 3.0:
                     return  # 没有深坑，说明是高位追涨，无视
 
                 sl_price = swing_low  # 止损直接设为刚刚查到的深坑底部！
+                risk = price - sl_price
 
-                # 向上寻址找 TP
-                candidate_zones = [z for z in tradable_zones if
-                                   z.get('center', 0) > target_zone.get('center', price) and "MEGA" not in z.get('type',
-                                                                                                                 '')]
+                # 计算这单的“强制底线 TP”位置
+                required_profit = max(risk * min_rr, min_absolute_profit)
+                min_tp_target = price + required_profit
+
+                # 向上寻址：💥 只找那些在“强制底线”之上的阻力框！太近的框直接跨越无视！
+                candidate_zones = [z for z in tradable_zones
+                                   if z.get('halo_low', 0) >= min_tp_target
+                                   and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
+                    # 在满足底线距离的框里，找最近的一个
                     next_zone = min(candidate_zones, key=lambda z: z.get('center') - price)
                     tp_price = next_zone.get('halo_low')
                 else:
-                    tp_price = price + 20.0
+                    # 兜底：如果前面一马平川没有框，就直接用强制底线做 TP
+                    tp_price = min_tp_target
 
             else:  # SHORT
                 # 做空条件：过去30分钟内必须有一个明显的尖峰 (至少高于当前价 3 刀)
@@ -144,17 +161,23 @@ class TrajectoryMiner:
                     return
 
                 sl_price = swing_high  # 止损直接设为尖峰顶部！
+                risk = sl_price - price
 
-                # 向下寻址找 TP
-                candidate_zones = [z for z in tradable_zones if
-                                   z.get('center', float('inf')) < target_zone.get('center',
-                                                                                   price) and "MEGA" not in z.get(
-                                       'type', '')]
+                # 计算这单的“强制底线 TP”位置
+                required_profit = max(risk * min_rr, min_absolute_profit)
+                min_tp_target = price - required_profit
+
+                # 向下寻址：💥 只找那些在“强制底线”之下的支撑框！
+                candidate_zones = [z for z in tradable_zones
+                                   if z.get('halo_high', float('inf')) <= min_tp_target
+                                   and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
+                    # 在满足底线距离的框里，找最近的一个
                     next_zone = min(candidate_zones, key=lambda z: price - z.get('center'))
                     tp_price = next_zone.get('halo_high')
                 else:
-                    tp_price = price - 20.0
+                    # 兜底
+                    tp_price = min_tp_target
 
             # ==========================================
             # 📸 4. 瞬间锁存与挂机 (最核心动作)
