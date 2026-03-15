@@ -29,7 +29,8 @@ class TripleASignalGenerator:
         self.min_box_size = 0.25  # 保底最小箱子
         self.box_size_pct = 0.00015  # 价格的万分之1.5
         self.current_box_size = 0.25
-        self.vol_spike_threshold = 2.0  # 爆量倍数
+        self.vol_spike_threshold = 2.0  # 相对爆量倍数
+        self.min_absorption_usdt = 10_000_000.0  # 🚨 绝对爆量门槛：1000万 USDT
         self.delta_ratio_threshold = 0.35  # 空头攻击强度
         self.cluster_ratio_threshold = 0.45  # 成交密集度
         self.price_range_pct_limit = 0.0012  # 最大允许振幅 (0.12%)
@@ -124,10 +125,10 @@ class TripleASignalGenerator:
         return None
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        # 检查价格是否超出交易区域范围（无论多头还是空头）
-        if price < self.target_zone['halo_low'] or price > self.target_zone['halo_high']:
-            self._log_debug(
-                f"💥 [A1-吸收失败] 价格 {price} 超出交易区域 [{self.target_zone['halo_low']}, {self.target_zone['halo_high']}]")
+        halo_low = self.target_zone['halo_low']
+        halo_high = self.target_zone['halo_high']
+
+        if price < halo_low or price > halo_high:
             self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
@@ -135,17 +136,27 @@ class TripleASignalGenerator:
         if not self.global_boxes:
             return None
 
+        # ==========================================
+        # 🛡️ 防伪滤镜 1：绝对 USDT 成交量底线 + 相对倍数
+        # ==========================================
+        # 直接乘：15秒内总张数 * 0.1(合约面值) * 现价 = 真实 USDT 金额
+        current_vol_usdt = self.global_volume * 0.1 * price
         baseline_15s_vol = self.profile.get('avg_vol_1m', 100) / 4.0
-        if self.global_volume < (baseline_15s_vol * self.vol_spike_threshold):
+
+        # 必须同时满足：1. 大于平时的相对爆量倍数；2. 绝对金额大于 1000 万 USDT
+        if self.global_volume < (
+                baseline_15s_vol * self.vol_spike_threshold) or current_vol_usdt < self.min_absorption_usdt:
             self.absorption_start_time = 0.0
             return None
 
+        # ==========================================
+        # 🛡️ 防伪滤镜 2：极其苛刻的净买卖比
+        # ==========================================
         delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
         if delta_ratio < self.delta_ratio_threshold:
             self.absorption_start_time = 0.0
             return None
 
-        # 确定交易方向：global_cvd < 0 为多头（卖压被吸收），global_cvd > 0 为空头（买压被吸收）
         direction = "LONG" if self.global_cvd < 0 else "SHORT" if self.global_cvd > 0 else None
         if direction is None:
             self.absorption_start_time = 0.0
@@ -329,18 +340,19 @@ class TripleASignalGenerator:
                     tp_target = None
                     poc_price = self.profile.get('POC', {}).get('center', float('inf'))
 
-                    # 🔍 1. 结构性寻址
+                    # 🔍 1. 结构性寻址 (多头)
                     if price < poc_price:
                         # 抄底模式：寻找上方宏观天花板 (VAH) 的下沿
                         for zone in self.tradable_zones:
-                            if 'VAH' in zone['type']:
+                            # 必须确保阵地下沿的距离，大于最低盈亏比底线
+                            if 'VAH' in zone['type'] and zone.get('halo_low') >= price + min_gross_reward:
                                 tp_target = zone.get('halo_low')
                                 break
                     else:
                         # 顺势模式：向上寻找最近的 HVN 的下沿
-                        # (tradable_zones 是从高到低排序的，我们倒序遍历，找第一个比现价高的 HVN)
                         for zone in reversed(self.tradable_zones):
-                            if zone['center'] > price and zone['type'] == 'HVN':
+                            if zone['center'] > price and zone['type'] == 'HVN' and zone.get(
+                                    'halo_low') >= price + min_gross_reward:
                                 tp_target = zone.get('halo_low')
                                 break
 
@@ -370,18 +382,19 @@ class TripleASignalGenerator:
                     tp_target = None
                     poc_price = self.profile.get('POC', {}).get('center', -float('inf'))
 
-                    # 🔍 1. 结构性寻址
+                    # 🔍 1. 结构性寻址 (空头)
                     if price > poc_price:
                         # 摸顶模式：寻找下方宏观地板 (VAL) 的上沿
                         for zone in self.tradable_zones:
-                            if 'VAL' in zone['type']:
+                            # 必须确保阵地上沿的距离，大于最低盈亏比底线
+                            if 'VAL' in zone['type'] and zone.get('halo_high') <= price - min_gross_reward:
                                 tp_target = zone.get('halo_high')
                                 break
                     else:
                         # 顺势模式：向下寻找最近的 HVN 的上沿
-                        # (tradable_zones 是从高到低排序的，正序遍历找第一个比现价低的 HVN)
                         for zone in self.tradable_zones:
-                            if zone['center'] < price and zone['type'] == 'HVN':
+                            if zone['center'] < price and zone['type'] == 'HVN' and zone.get(
+                                    'halo_high') <= price - min_gross_reward:
                                 tp_target = zone.get('halo_high')
                                 break
 
