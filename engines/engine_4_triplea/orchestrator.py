@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import sys
+import copy
 from datetime import datetime
 
 import aiohttp
@@ -30,6 +31,7 @@ if project_root not in sys.path:
 from src.data_feed.okx_loader import OKXDataLoader
 from src.utils.volume_profile_builder import VolumeProfileBuilder
 from src.strategy.triplea.signal_generator import TripleASignalGenerator
+from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
 from src.execution.trader import OKXTrader
 from engines.engine_4_triplea.execution_manager import TripleAExecutionManager
 from src.utils.log import get_logger
@@ -55,7 +57,7 @@ class TripleAOrchestrator:
 
         # 👻 影子引擎：科考打捞船 (参数故意放宽，用于测试边界)
         self.shadow_queue = asyncio.Queue(maxsize=10000)  # 影子引擎专用队列
-        self.shadow_generator = TripleASignalGenerator(symbol=symbol)
+        self.shadow_generator = ResearchTripleASignalGenerator(symbol=symbol)
         self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
         self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
 
@@ -70,15 +72,26 @@ class TripleAOrchestrator:
         logger.info(f"🚀 TripleA 四号引擎编排器初始化完成: {symbol} [{mode.upper()}]")
 
     def _init_research_vessel(self):
-        """初始化科考船 CSV 表头（只记录平仓结果）"""
+        """初始化科考船 CSV 表头（包含完整数据）"""
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        if not os.path.exists(self.log_file):
-            with open(self.log_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    "Entry_Time", "Close_Time", "Action", "Entry_Price",
-                    "Close_Price", "SL_Price", "TP_Price", "Score", "Close_Reason", "Gross_PnL"
-                ])
+        with open(self.log_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                # 基础信息
+                "Entry_Time", "Close_Time", "Action", "Entry_Price",
+                "Close_Price", "SL_Price", "TP_Price", "Score", "Close_Reason", "Gross_PnL",
+                # 🆕 增加终极评价指标
+                "MFE_Distance", "MAE_Distance",
+                # 时间戳信息
+                "A1_Start_Time", "A1_End_Time", "A2_Start_Time", "A2_End_Time",
+                "A3_Start_Time", "A3_End_Time", "Entry_Time_Unix",
+                # CVD指标
+                "Global_CVD", "Global_Volume", "Delta_Ratio", "Recent_Vol", "Recent_CVD", "Recent_Delta_Ratio",
+                # 诊断数据
+                "Box_Size", "Vol_Spike_Threshold", "Delta_Ratio_Threshold",
+                # 交易区域信息
+                "Tradable_Zones_JSON"
+            ])
 
     async def run(self):
         """启动编排器主循环"""
@@ -232,52 +245,101 @@ class TripleAOrchestrator:
             # 我们不需要调用 API 去平仓，只打印一条日志，本地引擎已经自动重置为 IDLE。
             logger.info(f"🔄 本地引擎飞行状态终结 ({reason})，已准备好迎接下一轮交火。")
 
+    async def _write_shadow_trade_to_csv(self, trade_data: dict, close_price: float, reason: str):
+        """异步写入影子交易数据到CSV文件（使用线程池避免阻塞）"""
+        import json
+        entry_price = trade_data['Entry_Price']
+
+        # 计算纯点数毛利
+        if trade_data['Action'] == "BUY":
+            gross_pnl = close_price - entry_price
+        else:
+            gross_pnl = entry_price - close_price
+
+        # 序列化tradable_zones为JSON
+        tradable_zones_json = json.dumps(
+            trade_data.get('Tradable_Zones', []),
+            default=str
+        )
+
+        # 准备行数据
+        row = [
+            # 基础信息
+            trade_data['Entry_Time'],
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            trade_data['Action'],
+            entry_price,
+            close_price,
+            trade_data['SL_Price'],
+            trade_data['TP_Price'],
+            trade_data['Score'],
+            reason,
+            round(gross_pnl, 4),
+            # 🆕 写入评价指标
+            trade_data.get('MFE_Distance', 0),
+            trade_data.get('MAE_Distance', 0),
+            # 时间戳信息
+            trade_data['Timestamps'].get('a1_start_time', 0),
+            trade_data['Timestamps'].get('a1_end_time', 0),
+            trade_data['Timestamps'].get('a2_start_time', 0),
+            trade_data['Timestamps'].get('a2_end_time', 0),
+            trade_data['Timestamps'].get('a3_start_time', 0),
+            trade_data['Timestamps'].get('a3_end_time', 0),
+            trade_data['Timestamps'].get('entry_time', 0),
+            # CVD指标
+            trade_data['CVD_Metrics'].get('global_cvd', 0),
+            trade_data['CVD_Metrics'].get('global_volume', 0),
+            trade_data['CVD_Metrics'].get('delta_ratio', 0),
+            trade_data['CVD_Metrics'].get('recent_vol', 0),
+            trade_data['CVD_Metrics'].get('recent_cvd', 0),
+            trade_data['CVD_Metrics'].get('recent_delta_ratio', 0),
+            # 诊断数据
+            trade_data['Diagnostics'].get('current_box_size', 0),
+            trade_data['Diagnostics'].get('vol_spike_threshold', 0),
+            trade_data['Diagnostics'].get('delta_ratio_threshold', 0),
+            # 交易区域信息
+            tradable_zones_json
+        ]
+
+        # 使用线程池异步写入文件
+        def write_to_file():
+            with open(self.log_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(row)
+
+        await asyncio.to_thread(write_to_file)
+        logger.info(f"🚢 [科考打捞] 影子订单终结 ({reason})，毛利: {gross_pnl:.4f}，已异步写入 CSV。")
+
     async def _handle_shadow_signal(self, signal: dict):
         """👻 处理影子引擎的信号：只记录，不发单，直到订单完结写入 CSV"""
+        import copy  # 确保导入 copy
         reason = signal.get('reason')
         action = signal.get('action')
         price = signal.get('price', signal.get('entry_price'))
 
         if reason == "TRIPLE_A_COMPLETE":
-            # 影子引擎抓到了宽松条件下的突破，存入内存
             self.shadow_active_trade = {
                 'Entry_Time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'Action': action,
                 'Entry_Price': price,
                 'SL_Price': signal['stop_loss'],
                 'TP_Price': signal['take_profit'],
-                'Score': signal['signal_score']
+                'Score': signal['signal_score'],
+                'Timestamps': signal.get('timestamps', {}),
+                'CVD_Metrics': signal.get('cvd_metrics', {}),
+                'Diagnostics': signal.get('diagnostics', {}),
+                # 🆕 极其关键：使用 deepcopy 锁定开仓那一刻的地图快照，防止后续被污染
+                'Tradable_Zones': copy.deepcopy(self.shadow_generator.tradable_zones)
             }
             logger.debug(f"👻 [影子引擎] 虚拟开仓 {action} @ {price}")
 
         elif action in ["CLOSE_LONG", "CLOSE_SHORT"] and self.shadow_active_trade:
-            # 影子引擎的订单撞击了虚拟止盈或止损！
-            entry_price = self.shadow_active_trade['Entry_Price']
+            # 🆕 提取刚刚计算出的 MFE/MAE
+            self.shadow_active_trade['MFE_Distance'] = signal.get('mfe_distance', 0.0)
+            self.shadow_active_trade['MAE_Distance'] = signal.get('mae_distance', 0.0)
 
-            # 计算纯点数毛利
-            if self.shadow_active_trade['Action'] == "BUY":
-                gross_pnl = price - entry_price
-            else:
-                gross_pnl = entry_price - price
-
-            # 写入科考船冷库
-            with open(self.log_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([
-                    self.shadow_active_trade['Entry_Time'],
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    self.shadow_active_trade['Action'],
-                    entry_price,
-                    price,
-                    self.shadow_active_trade['SL_Price'],
-                    self.shadow_active_trade['TP_Price'],
-                    self.shadow_active_trade['Score'],
-                    reason,  # 比如 "TAKE_PROFIT_HIT" 或 "STOP_LOSS_HIT"
-                    round(gross_pnl, 4)
-                ])
-
-            logger.info(f"🚢 [科考打捞] 影子订单终结 ({reason})，毛利: {gross_pnl:.4f}，已写入 CSV。")
-            self.shadow_active_trade = {}  # 清空缓存，等待下一次虚拟开仓
+            await self._write_shadow_trade_to_csv(self.shadow_active_trade, price, reason)
+            self.shadow_active_trade = {}
 
     async def _shadow_engine_consumer(self):
         """

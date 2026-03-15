@@ -485,3 +485,5 @@ class TripleASignalGenerator:
             self.current_tp = 0.0
 
         return signal
+
+
