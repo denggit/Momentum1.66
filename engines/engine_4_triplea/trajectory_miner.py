@@ -1,0 +1,322 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+@Author     : Zijun Deng
+@Date       : 3/15/26 4:34 PM
+@File       : trajectory_miner.py
+@Description: 轨迹矿工 - 异步记录成功突破(WIN)和假突破止损(LOSS)前15分钟的完整逐秒底层指标轨迹
+"""
+
+import asyncio
+import copy
+import csv
+import os
+import time
+from collections import deque
+from typing import Dict, List
+
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
+
+
+class TrajectoryMiner:
+    """轨迹矿工 - 异步记录成功突破(WIN)和假突破止损(LOSS)前15分钟的完整逐秒底层指标轨迹"""
+
+    def __init__(self, symbol: str = "ETH-USDT-SWAP"):
+        self.symbol = symbol
+
+        # 全局录像带：固定长度1800（30分钟 * 60秒），每秒钟无脑推入一次底层快照
+        self.rolling_tape = deque(maxlen=1800)  # 每个元素是字典格式
+
+        # 幽灵追踪器：{tracker_id: tracker_data}
+        self.active_trackers: Dict[str, Dict] = {}
+
+        # 冷却字典：防止同一个框在震荡市被反复追踪 {zone_key: expiry_timestamp}
+        self.cooldowns: Dict[str, float] = {}
+
+        # 输出目录
+        self.output_dir = "data/triplea/miner"
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # 追踪器ID计数器
+        self._tracker_counter = 0
+
+        # V2.0 新增参数
+        self.spike_multiplier = 1.5  # A3 爆量触发门槛
+        self.zone_margin = 5.0  # 允许出框的判定容差 (点数)
+
+        logger.info(f"🚀 轨迹矿工V2.0初始化完成: {symbol}")
+
+    def update_tape_tick(self, price: float, cvd: float, vol: float, delta_ratio: float):
+        """
+        每秒钟调用一次，更新全局录像带
+        :param price: 当前价格
+        :param cvd: 15秒窗口的全局CVD
+        :param vol: 15秒窗口的全局成交量
+        :param delta_ratio: 净买卖比 (abs(cvd)/vol)
+        """
+        try:
+            snapshot = {
+                "timestamp": time.time(),
+                "price": price,
+                "cvd": cvd,
+                "vol": vol,
+                "delta_ratio": delta_ratio
+            }
+            self.rolling_tape.append(snapshot)
+        except Exception as e:
+            logger.error(f"❌ 更新录像带异常: {e}")
+
+    def check_and_spawn_tracker(self, price: float, cvd: float, vol: float, baseline_vol: float,
+                                tradable_zones: List[Dict]):
+        """
+        A3 狙击雷达：爆量触发 -> 战区定位 -> 现场倒查 -> 瞬间锁存
+        """
+        try:
+            # ==========================================
+            # 🛡️ 1. 异动扳机 (A3 点火检测)
+            # ==========================================
+            if vol < baseline_vol * self.spike_multiplier:
+                return  # 没爆量，直接睡大觉
+
+            direction = "LONG" if cvd > 0 else "SHORT"
+
+            # ==========================================
+            # 🗺️ 2. 战场定位 (必须在框内，或刚出框的边缘)
+            # ==========================================
+            target_zone = None
+            for zone in tradable_zones:
+                if "MEGA" in zone.get('type', '') or zone.get('type') == "POC":
+                    continue
+                halo_low = zone.get('halo_low')
+                halo_high = zone.get('halo_high')
+                if halo_low is None or halo_high is None:
+                    continue
+
+                # 判定容差：允许在框内，也允许刚刚突破出框
+                if (halo_low - self.zone_margin) <= price <= (halo_high + self.zone_margin):
+                    target_zone = zone
+                    break
+
+            if not target_zone:
+                return  # 爆量发生在半空中的垃圾时间，无视
+
+            zone_key = f"{target_zone.get('type', 'UNKNOWN')}_{target_zone.get('halo_low'): .2f}_{target_zone.get('halo_high'): .2f}"
+
+            # 检查冷却 (防抖：避免连续爆量导致重复录像)
+            if zone_key in self.cooldowns:
+                if time.time() < self.cooldowns[zone_key]:
+                    return
+                else:
+                    del self.cooldowns[zone_key]
+
+            # ==========================================
+            # 🔍 3. 倒查犯罪现场 (寻找 A1 吸收深坑)
+            # ==========================================
+            if len(self.rolling_tape) < 60:
+                return  # 录像带太短，不足以形成坑，放弃
+
+            prices_in_tape = [snapshot['price'] for snapshot in self.rolling_tape]
+            swing_low = min(prices_in_tape)
+            swing_high = max(prices_in_tape)
+
+            if direction == "LONG":
+                # 做多条件：过去30分钟内必须有一个明显的深坑 (至少低于当前价 3 刀)
+                if price - swing_low < 3.0:
+                    return  # 没有深坑，说明是高位追涨，无视
+
+                sl_price = swing_low  # 止损直接设为刚刚查到的深坑底部！
+
+                # 向上寻址找 TP
+                candidate_zones = [z for z in tradable_zones if
+                                   z.get('center', 0) > target_zone.get('center', price) and "MEGA" not in z.get('type',
+                                                                                                                 '')]
+                if candidate_zones:
+                    next_zone = min(candidate_zones, key=lambda z: z.get('center') - price)
+                    tp_price = next_zone.get('halo_low')
+                else:
+                    tp_price = price + 20.0
+
+            else:  # SHORT
+                # 做空条件：过去30分钟内必须有一个明显的尖峰 (至少高于当前价 3 刀)
+                if swing_high - price < 3.0:
+                    return
+
+                sl_price = swing_high  # 止损直接设为尖峰顶部！
+
+                # 向下寻址找 TP
+                candidate_zones = [z for z in tradable_zones if
+                                   z.get('center', float('inf')) < target_zone.get('center',
+                                                                                   price) and "MEGA" not in z.get(
+                                       'type', '')]
+                if candidate_zones:
+                    next_zone = min(candidate_zones, key=lambda z: price - z.get('center'))
+                    tp_price = next_zone.get('halo_high')
+                else:
+                    tp_price = price - 20.0
+
+            # ==========================================
+            # 📸 4. 瞬间锁存与挂机 (最核心动作)
+            # ==========================================
+            tracker_id = self._generate_tracker_id()
+
+            # 🚨 极度关键：在 A3 爆量的这一瞬间，立刻拔出 U 盘锁死！
+            frozen_tape = copy.deepcopy(list(self.rolling_tape))
+
+            tracker_data = {
+                "tracker_id": tracker_id,
+                "zone_key": zone_key,
+                "entry_price": price,
+                "entry_time": time.time(),
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "direction": direction,
+                "frozen_tape": frozen_tape,  # 👈 随身携带锁死的起涨点录像带
+                "mfe_price": price,  # 最大有利价格
+                "mae_price": price  # 最大不利价格
+            }
+
+            self.active_trackers[tracker_id] = tracker_data
+
+            # 立刻加入 5 分钟冷却，防止接下来几分钟的爆量重复触发
+            self.cooldowns[zone_key] = time.time() + 300
+
+            logger.info(
+                f"📸 抓获 A3 爆量起涨点! {direction} @ {price: .2f} | 倒查 Swing: {swing_low if direction == 'LONG' else swing_high: .2f} | TP={tp_price: .2f}, SL={sl_price: .2f}")
+
+        except Exception as e:
+            logger.error(f"❌ A3雷达扫描异常: {e}")
+
+    def evaluate_trackers(self, price: float):
+        """
+        结算器：只看现价是否撞线，撞线就带着之前的锁死录像带去写 CSV
+        """
+        try:
+            completed_trackers = []
+
+            for tracker_id, tracker in list(self.active_trackers.items()):
+                tp_price = tracker["tp_price"]
+                sl_price = tracker["sl_price"]
+                direction = tracker["direction"]
+
+                # 🚀 实时更新 MFE 和 MAE
+                if tracker["direction"] == "LONG":
+                    tracker["mfe_price"] = max(tracker["mfe_price"], price)
+                    tracker["mae_price"] = min(tracker["mae_price"], price)
+                else:
+                    tracker["mfe_price"] = min(tracker["mfe_price"], price)
+                    tracker["mae_price"] = max(tracker["mae_price"], price)
+
+                hit_tp = (price >= tp_price) if direction == "LONG" else (price <= tp_price)
+                hit_sl = (price <= sl_price) if direction == "LONG" else (price >= sl_price)
+
+                if hit_tp or hit_sl:
+                    result_type = "WIN" if hit_tp else "LOSS"
+                    entry_price = tracker["entry_price"]
+
+                    # 算盈亏百分比
+                    if direction == "LONG":
+                        pnl_pct = (price - entry_price) / entry_price * 100
+                    else:
+                        pnl_pct = (entry_price - price) / entry_price * 100
+
+                    duration_sec = int(time.time() - tracker["entry_time"])
+
+                    # 计算 MFE 和 MAE 距离
+                    if direction == "LONG":
+                        mae_dist = tracker["entry_price"] - tracker["mae_price"]
+                        mfe_dist = tracker["mfe_price"] - tracker["entry_price"]
+                    else:
+                        mae_dist = tracker["mae_price"] - tracker["entry_price"]
+                        mfe_dist = tracker["entry_price"] - tracker["mfe_price"]
+
+                    settlement_info = {
+                        "tracker_id": tracker_id,
+                        "result_type": result_type,
+                        "settlement_price": price,
+                        "settlement_time": time.time(),
+                        "pnl_pct": pnl_pct,
+                        "duration_sec": duration_sec,
+                        "tape_data": tracker["frozen_tape"],  # 👈 写入的是当时锁死的起涨点录像带！
+                        "tracker_data": copy.deepcopy(tracker),
+                        "mae_distance": mae_dist,  # 👈 塞入最大不利回撤距离
+                        "mfe_distance": mfe_dist  # 👈 塞入最大有利距离
+                    }
+
+                    completed_trackers.append(settlement_info)
+                    del self.active_trackers[tracker_id]
+                    logger.info(
+                        f"🎯 录像带结算: {result_type} @ {price: .2f} (耗时: {duration_sec}s, 盈亏: {pnl_pct: .2f}%)")
+
+            for settlement in completed_trackers:
+                asyncio.create_task(self._dump_to_csv_async(settlement))
+
+        except Exception as e:
+            logger.error(f"❌ 结算异常: {e}")
+
+    async def _dump_to_csv_async(self, settlement: Dict):
+        try:
+            tracker_id = settlement["tracker_id"]
+            result_type = settlement["result_type"]
+            settlement_time = settlement["settlement_time"]
+            tape_data = settlement["tape_data"]
+
+            # 🚀 新增：提取盈亏和耗时，格式化为字符串
+            pnl_pct = settlement["pnl_pct"]
+            duration = settlement["duration_sec"]
+
+            # 例如: P1.25 (赚1.25%) 或者 L0.45 (亏0.45%)
+            pnl_str = f"P{pnl_pct: .2f}" if pnl_pct >= 0 else f"L{abs(pnl_pct): .2f}"
+
+            # 生成超强可读性的文件名！
+            # 格式例: WIN_ETH-USDT-SWAP_20260315_143000_P1.25_245s_TR_123.csv
+            timestamp_str = time.strftime("%Y%m%d_%H%M%S", time.localtime(settlement_time))
+            filename = f"{result_type}_{self.symbol}_{timestamp_str}_{pnl_str}_{duration}s_{tracker_id}.csv"
+
+            filepath = os.path.join(self.output_dir, filename)
+
+            # 准备CSV行数据
+            rows = []
+            for i, snapshot in enumerate(tape_data):
+                # 计算T_minus（距离结算时刻倒退的秒数）
+                t_minus = - (len(tape_data) - 1 - i)  # 从-(len-1)到0 (例如 -1799 到 0)
+
+                row = [
+                    snapshot["timestamp"],
+                    t_minus,
+                    snapshot["price"],
+                    snapshot["cvd"],
+                    snapshot["vol"],
+                    snapshot["delta_ratio"]
+                ]
+                rows.append(row)
+
+            # 使用线程池异步写入文件（避免阻塞主循环）
+            def write_to_file():
+                with open(filepath, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Timestamp", "T_minus", "Price", "CVD_15s", "Volume_15s", "Delta_Ratio"])
+                    for r in rows:
+                        writer.writerow(r)
+
+            await asyncio.to_thread(write_to_file)
+            logger.debug(f"💾 轨迹数据已写入: {filename} ({len(rows)}行)")
+
+        except Exception as e:
+            logger.error(f"❌ 异步写入CSV异常: {e}")
+
+    def _generate_tracker_id(self) -> str:
+        """生成唯一的追踪器ID"""
+        self._tracker_counter += 1
+        timestamp = int(time.time() * 1000) % 1000000
+        return f"TR_{timestamp}_{self._tracker_counter}"
+
+    def cleanup_expired_cooldowns(self):
+        """清理过期的冷却条目"""
+        current_time = time.time()
+        expired_keys = [k for k, v in self.cooldowns.items() if v < current_time]
+        for key in expired_keys:
+            del self.cooldowns[key]
+        if expired_keys:
+            logger.debug(f"🧹 清理了 {len(expired_keys)} 个过期的冷却条目")

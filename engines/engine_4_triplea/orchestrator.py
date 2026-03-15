@@ -34,6 +34,7 @@ from src.strategy.triplea.signal_generator import TripleASignalGenerator
 from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
 from src.execution.trader import OKXTrader
 from engines.engine_4_triplea.execution_manager import TripleAExecutionManager
+from engines.engine_4_triplea.trajectory_miner import TrajectoryMiner
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -61,11 +62,15 @@ class TripleAOrchestrator:
         self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
         self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
 
+        # 🚀 轨迹矿工：异步记录成功/失败前的15分钟轨迹
+        self.miner = TrajectoryMiner(symbol=symbol)
+
         # 📝 影子引擎的运行状态缓存与日志
         self.shadow_active_trade = {}
         self.log_file = f"data/tripleA/shadow_research_{symbol}.csv"
         self._init_research_vessel()
 
+        self.current_price = 0.0
         self._is_running = False
         self._tasks = []
 
@@ -113,6 +118,9 @@ class TripleAOrchestrator:
 
         # 启动毫秒级 Tick 数据流和微观引擎
         self._tasks.append(asyncio.create_task(self._ws_tick_loop()))
+
+        # 启动轨迹矿工打点循环
+        self._tasks.append(asyncio.create_task(self._miner_ticker_loop()))
 
         # 启动影子引擎异步消费者
         self._tasks.append(asyncio.create_task(self._shadow_engine_consumer()))
@@ -165,6 +173,29 @@ class TripleAOrchestrator:
             # 休息 5 分钟再画下一张
             await asyncio.sleep(300)
 
+    async def _miner_ticker_loop(self):
+        """1秒钟心跳：专门负责给行车记录仪喂数据"""
+        while self._is_running:
+            await asyncio.sleep(1.0)
+            # 提取主引擎当前的 15s 滑动窗口数据
+            # 计算 delta_ratio = abs(global_cvd) / (global_volume + 1e-8)
+            global_volume = self.main_generator.global_volume
+            global_cvd = self.main_generator.global_cvd
+            delta_ratio = abs(global_cvd) / (global_volume + 1e-8) if global_volume > 0 else 0.0
+
+            # 获取当前价格（使用最近的价格）
+            current_price = self.current_price
+
+            # 更新矿工录像带
+            self.miner.update_tape_tick(
+                price=current_price,
+                cvd=global_cvd,
+                vol=global_volume,
+                delta_ratio=delta_ratio
+            )
+            # 清理过期的冷却条目
+            self.miner.cleanup_expired_cooldowns()
+
     async def _ws_tick_loop(self):
         """Tick 数据流协程：直连 OKX WebSocket 喂养高频引擎"""
         ws_url = "wss://ws.okx.com:8443/ws/v5/public"
@@ -199,11 +230,33 @@ class TripleAOrchestrator:
                                             'ts': int(trade['ts'])
                                         }
 
+                                        # 更新当前价格
+                                        self.current_price = tick['price']
+
                                         # 🚀 优先级 1：主引擎同步处理 (最高优先级，严禁延迟)
                                         main_signal = self.main_generator.process_tick(tick)
                                         if main_signal:
                                             # 使用 create_task 异步处理信号执行，不阻塞 Tick 接收
                                             asyncio.create_task(self._handle_main_signal(main_signal))
+
+                                        # 🚀 轨迹矿工：极速检查并追踪（非阻塞）
+                                        try:
+                                            # 安全获取基准成交量
+                                            if hasattr(self.main_generator, 'profile') and self.main_generator.profile:
+                                                baseline_vol = self.main_generator.profile.get('avg_vol_1m', 100) / 4.0
+                                            else:
+                                                baseline_vol = 25.0  # 默认值
+
+                                            self.miner.check_and_spawn_tracker(
+                                                price=tick['price'],
+                                                cvd=self.main_generator.global_cvd,
+                                                vol=self.main_generator.global_volume,
+                                                baseline_vol=baseline_vol,
+                                                tradable_zones=self.main_generator.tradable_zones
+                                            )
+                                            self.miner.evaluate_trackers(tick['price'])
+                                        except Exception as e:
+                                            logger.error(f"❌ 矿工处理异常: {e}")
 
                                         # 🚀 优先级 2：将 Tick 丢入影子队列 (非阻塞)
                                         try:
