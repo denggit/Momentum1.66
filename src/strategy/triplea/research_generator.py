@@ -12,13 +12,13 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
         self.timestamp_tracker = {
             "a1_start_time": 0.0,  # A1开始时间
             "a2_start_time": 0.0,  # A2开始时间
-            "entry_time": 0.0      # 入场时间
+            "entry_time": 0.0  # 入场时间
         }
         # 🆕 阶段指标跟踪 (精简版)
         self.stage_metrics = {
             "a1": {},  # A1阶段指标
             "a2": {},  # A2阶段指标
-            "a3": {}   # A3阶段指标 (只记录触发时的状态)
+            "a3": {}  # A3阶段指标 (只记录触发时的状态)
         }
         self._current_tick_time = 0.0  # 当前tick的时间戳
 
@@ -52,16 +52,19 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
                 # 计算簇占比 (cluster_ratio)
                 center_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
                 left_box_1 = round((center_box - self.current_box_size) / self.current_box_size) * self.current_box_size
-                left_box_2 = round((center_box - 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
-                right_box_1 = round((center_box + self.current_box_size) / self.current_box_size) * self.current_box_size
-                right_box_2 = round((center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
+                left_box_2 = round(
+                    (center_box - 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
+                right_box_1 = round(
+                    (center_box + self.current_box_size) / self.current_box_size) * self.current_box_size
+                right_box_2 = round(
+                    (center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
 
                 cluster_vol = (
-                    self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
-                    self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
-                    self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                    self.global_boxes.get(right_box_1, {}).get('volume', 0.0) +
-                    self.global_boxes.get(right_box_2, {}).get('volume', 0.0)
+                        self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
+                        self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
+                        self.global_boxes.get(center_box, {}).get('volume', 0.0) +
+                        self.global_boxes.get(right_box_1, {}).get('volume', 0.0) +
+                        self.global_boxes.get(right_box_2, {}).get('volume', 0.0)
                 )
                 cluster_ratio = cluster_vol / (self.global_volume + 1e-8)
 
@@ -213,23 +216,27 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
             self.timestamp_tracker['mfe_price'] = min(self.timestamp_tracker['mfe_price'], price)
             self.timestamp_tracker['mae_price'] = max(self.timestamp_tracker['mae_price'], price)
 
+        # 🚀 核心修复：在调用父类之前，先把当前状态和极值"快照"保存到局部变量中！
+        # 因为一旦调用 super() 触发撞线，父类会调用 _reset_to_idle，提前把 self.timestamp_tracker 清空。
+        current_status = self.status
+        current_mfe = self.timestamp_tracker['mfe_price']
+        current_mae = self.timestamp_tracker['mae_price']
+
+        # 调用父类逻辑
         result = super()._manage_position_by_tick(tick)
 
-        # 如果订单结束，计算距离并打包进信号
+        # 如果订单结束，使用提前保存的快照变量计算距离
         if result and result.get('action') in ["CLOSE_LONG", "CLOSE_SHORT"]:
             entry_price = self.micro_tracker.get('absorption_price', price)  # 近似入场价
-            if self.status == "LONG":
-                mfe_dist = self.timestamp_tracker['mfe_price'] - entry_price
-                mae_dist = entry_price - self.timestamp_tracker['mae_price']
-            else:
-                mfe_dist = entry_price - self.timestamp_tracker['mfe_price']
-                mae_dist = self.timestamp_tracker['mae_price'] - entry_price
+
+            if current_status == "LONG":
+                mfe_dist = current_mfe - entry_price
+                mae_dist = entry_price - current_mae
+            else:  # SHORT
+                mfe_dist = entry_price - current_mfe
+                mae_dist = current_mae - entry_price
 
             result['mfe_distance'] = round(mfe_dist, 4)
             result['mae_distance'] = round(mae_dist, 4)
-
-            # 清理状态
-            self.timestamp_tracker.pop('mfe_price', None)
-            self.timestamp_tracker.pop('mae_price', None)
 
         return result
