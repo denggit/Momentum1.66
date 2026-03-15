@@ -43,12 +43,17 @@ class TripleASignalGenerator:
         self.current_sl = 0.0
         self.current_tp = 0.0
 
+        # 🚀 新增：120秒大局观轨迹记忆 (解决插针和顺势问题)
+        self.context_prices = deque()
+        self.context_window_sec = 120.0
+
         self.micro_tracker = {
             "absorption_price": 0.0,
             "micro_resistance": 0.0,
             "micro_support": 0.0,  # 新增：空头支撑位
             "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
-            "a2_start_time": 0.0
+            "a2_start_time": 0.0,
+            "allowed_direction": "ANY"  # 👈 新增：允许的开仓方向钢印
         }
 
     def update_macro_map(self, profile_data: Dict):
@@ -114,13 +119,17 @@ class TripleASignalGenerator:
     def _handle_idle(self, price: float) -> Optional[Dict]:
         """阶段 0: 寻找交火区"""
         for zone in self.tradable_zones:
-            # 🚀 铁律：坚决不在绞肉机（纯 POC 或 MEGA 融合区）里开仓！
             if "MEGA" in zone['type'] or zone['type'] == "POC":
                 continue
 
             if zone['halo_low'] <= price <= zone['halo_high']:
                 self.status = "A1_WAIT_ABSORPTION"
                 self.target_zone = zone
+
+                # 🚀 新增：在进框的这一瞬间，立刻回头查轨迹，打上方向钢印！
+                allowed_dir = self._get_approach_direction(zone['halo_low'], zone['halo_high'])
+                self.micro_tracker['allowed_direction'] = allowed_dir
+
                 return None
         return None
 
@@ -159,6 +168,13 @@ class TripleASignalGenerator:
 
         direction = "LONG" if self.global_cvd < 0 else "SHORT" if self.global_cvd > 0 else None
         if direction is None:
+            self.absorption_start_time = 0.0
+            return None
+
+        # 🚀 V2.3 核心杀招：顺势与扫损物理过滤器
+        allowed_dir = self.micro_tracker.get('allowed_direction', 'ANY')
+        if allowed_dir != 'ANY' and direction != allowed_dir:
+            self._log_debug(f"🚫 [上下文过滤] 轨迹要求只能 {allowed_dir}，但当前底部呈现 {direction} 异动，视为逆势，拒接！")
             self.absorption_start_time = 0.0
             return None
 
@@ -438,6 +454,11 @@ class TripleASignalGenerator:
         # 【微调1】队列里还是老老实实存原始的 price，为了以后可能的“重铸”做准备
         self.rolling_ticks.append((current_time, tick_delta, size, price))
 
+        # 🚀 新增：更新大局观轨迹 (只存时间和价格)
+        self.context_prices.append((current_time, price))
+        while self.context_prices and current_time - self.context_prices[0][0] > self.context_window_sec:
+            self.context_prices.popleft()
+
         self.global_cvd += tick_delta
         self.global_volume += size
 
@@ -510,6 +531,18 @@ class TripleASignalGenerator:
             self.current_tp = 0.0
 
         return signal
+
+    def _get_approach_direction(self, halo_low: float, halo_high: float) -> str:
+        """
+        🚀 时空回溯：倒查过去 2 分钟的轨迹，判断是从哪边撞进来的
+        完美解决插针：如果是先在上方，再砸穿下方，再收回，由于我们从旧到新查，依然会判定为从上方来 (LONG)！
+        """
+        for ts, p in self.context_prices:
+            if p > halo_high:
+                return "LONG"  # 最早是从上方来的 -> 寻找支撑/底背离 -> 只能做多
+            elif p < halo_low:
+                return "SHORT"  # 最早是从下方来的 -> 寻找阻力/顶背离 -> 只能做空
+        return "ANY"  # 2分钟内一直都在框里震荡
 
     # ==========================================
     # 🔇 日志消音器：如果是影子引擎，就闭嘴不打印日常刷屏
