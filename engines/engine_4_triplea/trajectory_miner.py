@@ -132,9 +132,13 @@ class TrajectoryMiner:
             min_absolute_profit = price * min_pct_profit
 
             if direction == "LONG":
-                # 做多条件：过去30分钟内必须有一个明显的深坑 (至少低于当前价 3 刀)
+                # 做多条件 1：过去30分钟内必须有一个明显的深坑 (至少低于当前价 3 刀)
                 if price - swing_low < 3.0:
                     return  # 没有深坑，说明是高位追涨，无视
+
+                # 🚀 V2.2 新增约束：绝对对齐实盘空间！最低点不能跌穿当前支撑框的下沿超过 5 刀
+                if swing_low < target_zone.get('halo_low') - 5.0:
+                    return  # 跌穿宏观阵地太深，说明主力防线根本不在这里，拒录！
 
                 sl_price = swing_low  # 止损直接设为刚刚查到的深坑底部！
                 risk = price - sl_price
@@ -143,22 +147,24 @@ class TrajectoryMiner:
                 required_profit = max(risk * min_rr, min_absolute_profit)
                 min_tp_target = price + required_profit
 
-                # 向上寻址：💥 只找那些在“强制底线”之上的阻力框！太近的框直接跨越无视！
+                # 向上寻址找 TP
                 candidate_zones = [z for z in tradable_zones
                                    if z.get('halo_low', 0) >= min_tp_target
                                    and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
-                    # 在满足底线距离的框里，找最近的一个
                     next_zone = min(candidate_zones, key=lambda z: z.get('center') - price)
                     tp_price = next_zone.get('halo_low')
                 else:
-                    # 兜底：如果前面一马平川没有框，就直接用强制底线做 TP
                     tp_price = min_tp_target
 
             else:  # SHORT
-                # 做空条件：过去30分钟内必须有一个明显的尖峰 (至少高于当前价 3 刀)
+                # 做空条件 1：过去30分钟内必须有一个明显的尖峰 (至少高于当前价 3 刀)
                 if swing_high - price < 3.0:
                     return
+
+                # 🚀 V2.2 新增约束：绝对对齐实盘空间！最高点不能涨破当前阻力框的上沿超过 5 刀
+                if swing_high > target_zone.get('halo_high') + 5.0:
+                    return  # 涨破宏观阵地太高，说明主力防线根本不在这里，拒录！
 
                 sl_price = swing_high  # 止损直接设为尖峰顶部！
                 risk = sl_price - price
@@ -167,16 +173,14 @@ class TrajectoryMiner:
                 required_profit = max(risk * min_rr, min_absolute_profit)
                 min_tp_target = price - required_profit
 
-                # 向下寻址：💥 只找那些在“强制底线”之下的支撑框！
+                # 向下寻址找 TP
                 candidate_zones = [z for z in tradable_zones
                                    if z.get('halo_high', float('inf')) <= min_tp_target
                                    and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
-                    # 在满足底线距离的框里，找最近的一个
                     next_zone = min(candidate_zones, key=lambda z: price - z.get('center'))
                     tp_price = next_zone.get('halo_high')
                 else:
-                    # 兜底
                     tp_price = min_tp_target
 
             # ==========================================
