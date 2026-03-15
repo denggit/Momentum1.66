@@ -85,8 +85,18 @@ class TripleAOrchestrator:
                 # 时间戳信息
                 "A1_Start_Time", "A1_End_Time", "A2_Start_Time", "A2_End_Time",
                 "A3_Start_Time", "A3_End_Time", "Entry_Time_Unix",
-                # CVD指标
+                # CVD指标 (入场时)
                 "Global_CVD", "Global_Volume", "Delta_Ratio", "Recent_Vol", "Recent_CVD", "Recent_Delta_Ratio",
+                # 🆕 A1阶段指标
+                "A1_Global_CVD", "A1_Global_Volume", "A1_Delta_Ratio", "A1_Cluster_Ratio",
+                "A1_Price_Range_Pct", "A1_Efficiency", "A1_Center_Box", "A1_Direction",
+                # 🆕 A2阶段指标
+                "A2_Start_Global_CVD", "A2_Start_Global_Volume", "A2_End_Global_CVD", "A2_End_Global_Volume",
+                "A2_CVD_Change", "A2_Volume_Change", "A2_Delta_Ratio_Change", "A2_Duration",
+                # 🆕 A3阶段指标
+                "A3_Start_Global_CVD", "A3_Start_Global_Volume", "A3_End_Global_CVD", "A3_End_Global_Volume",
+                "A3_CVD_Change", "A3_Volume_Change", "A3_Delta_Ratio_Change", "A3_Duration",
+                "A3_Recent_Vol", "A3_Recent_CVD", "A3_Recent_Delta_Ratio",
                 # 诊断数据
                 "Box_Size", "Vol_Spike_Threshold", "Delta_Ratio_Threshold",
                 # 交易区域信息
@@ -263,6 +273,11 @@ class TripleAOrchestrator:
         )
 
         # 准备行数据
+        stage_metrics = trade_data.get('Stage_Metrics', {})
+        a1_metrics = stage_metrics.get('a1', {})
+        a2_metrics = stage_metrics.get('a2', {})
+        a3_metrics = stage_metrics.get('a3', {})
+
         row = [
             # 基础信息
             trade_data['Entry_Time'],
@@ -286,13 +301,43 @@ class TripleAOrchestrator:
             trade_data['Timestamps'].get('a3_start_time', 0),
             trade_data['Timestamps'].get('a3_end_time', 0),
             trade_data['Timestamps'].get('entry_time', 0),
-            # CVD指标
+            # CVD指标 (入场时)
             trade_data['CVD_Metrics'].get('global_cvd', 0),
             trade_data['CVD_Metrics'].get('global_volume', 0),
             trade_data['CVD_Metrics'].get('delta_ratio', 0),
             trade_data['CVD_Metrics'].get('recent_vol', 0),
             trade_data['CVD_Metrics'].get('recent_cvd', 0),
             trade_data['CVD_Metrics'].get('recent_delta_ratio', 0),
+            # 🆕 A1阶段指标
+            a1_metrics.get('global_cvd', 0),
+            a1_metrics.get('global_volume', 0),
+            a1_metrics.get('delta_ratio', 0),
+            a1_metrics.get('cluster_ratio', 0),
+            a1_metrics.get('price_range_pct', 0),
+            a1_metrics.get('efficiency', 0),
+            a1_metrics.get('center_box', 0),
+            a1_metrics.get('direction', ''),
+            # 🆕 A2阶段指标
+            a2_metrics.get('start_global_cvd', 0),
+            a2_metrics.get('start_global_volume', 0),
+            a2_metrics.get('end_global_cvd', 0),
+            a2_metrics.get('end_global_volume', 0),
+            a2_metrics.get('cvd_change', 0),
+            a2_metrics.get('volume_change', 0),
+            a2_metrics.get('delta_ratio_change', 0),
+            a2_metrics.get('duration', 0),
+            # 🆕 A3阶段指标
+            a3_metrics.get('start_global_cvd', 0),
+            a3_metrics.get('start_global_volume', 0),
+            a3_metrics.get('end_global_cvd', 0),
+            a3_metrics.get('end_global_volume', 0),
+            a3_metrics.get('cvd_change', 0),
+            a3_metrics.get('volume_change', 0),
+            a3_metrics.get('delta_ratio_change', 0),
+            a3_metrics.get('duration', 0),
+            a3_metrics.get('recent_vol', 0),
+            a3_metrics.get('recent_cvd', 0),
+            a3_metrics.get('recent_delta_ratio', 0),
             # 诊断数据
             trade_data['Diagnostics'].get('current_box_size', 0),
             trade_data['Diagnostics'].get('vol_spike_threshold', 0),
@@ -328,6 +373,8 @@ class TripleAOrchestrator:
                 'Timestamps': signal.get('timestamps', {}),
                 'CVD_Metrics': signal.get('cvd_metrics', {}),
                 'Diagnostics': signal.get('diagnostics', {}),
+                # 🆕 添加阶段指标
+                'Stage_Metrics': copy.deepcopy(signal.get('stage_metrics', {})),
                 # 🆕 极其关键：使用 deepcopy 锁定开仓那一刻的地图快照，防止后续被污染
                 'Tradable_Zones': copy.deepcopy(self.shadow_generator.tradable_zones)
             }

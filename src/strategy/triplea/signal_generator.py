@@ -7,8 +7,9 @@ logger = get_logger(__name__)
 
 
 class TripleASignalGenerator:
-    def __init__(self, symbol: str = "ETH-USDT-SWAP"):
+    def __init__(self, symbol: str = "ETH-USDT-SWAP", is_shadow: bool = False):
         self.symbol = symbol
+        self.is_shadow = is_shadow
         self.status = "IDLE"
         self.tradable_zones = []
         self.target_zone = None
@@ -72,7 +73,7 @@ class TripleASignalGenerator:
 
         # 🚀 极其优雅的防抖设计：只在 IDLE 且网格偏差大于 0.03U（对应以太坊约 200刀 的宏观位移）时才拉闸重启
         if self.status == "IDLE" and abs(new_box_size - self.current_box_size) > 0.03:
-            logger.debug(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
+            self._log_debug(f"🔄 [IDLE安全期] 宏观网格换挡：{self.current_box_size: .4f} -> {new_box_size: .4f}。")
 
             self.current_box_size = new_box_size
 
@@ -82,7 +83,7 @@ class TripleASignalGenerator:
             self.global_volume = 0.0
             self.global_cvd = 0.0
 
-            logger.debug("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
+            self._log_debug("🧹 底层账本已清空，雷达重启中 (需等待 15 秒填满窗口)...")
 
     def process_tick(self, tick: Dict) -> Optional[Dict]:
         price = tick['price']
@@ -125,7 +126,7 @@ class TripleASignalGenerator:
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
         # 检查价格是否超出交易区域范围（无论多头还是空头）
         if price < self.target_zone['halo_low'] or price > self.target_zone['halo_high']:
-            logger.debug(
+            self._log_debug(
                 f"💥 [A1-吸收失败] 价格 {price} 超出交易区域 [{self.target_zone['halo_low']}, {self.target_zone['halo_high']}]")
             self.absorption_start_time = 0.0
             self._reset_to_idle()
@@ -197,12 +198,14 @@ class TripleASignalGenerator:
             self.micro_tracker['micro_resistance'] = float(center_box + self.current_box_size)
             self.micro_tracker['micro_support'] = float(center_box - self.current_box_size)
             direction_cn = "多头" if direction == "LONG" else "空头"
-            logger.info(f"🧱 [A1-{direction_cn}吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
+            self._log_info(
+                f"🧱 [A1-{direction_cn}吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
 
             self.absorption_start_time = 0.0
 
             efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
-            logger.info(f"📊 [指标] 簇占比: {cluster_ratio: .1%}, Delta率: {delta_ratio: .1%}, 效率: {efficiency: .2f}")
+            self._log_info(
+                f"📊 [指标] 簇占比: {cluster_ratio: .1%}, Delta率: {delta_ratio: .1%}, 效率: {efficiency: .2f}")
 
         return None
 
@@ -214,14 +217,14 @@ class TripleASignalGenerator:
         if direction == "LONG":
             # 多头积累：价格不能跌破吸收底线
             if price < self.micro_tracker['absorption_price']:
-                logger.debug("💥 [A2-多头积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
+                self._log_debug("💥 [A2-多头积累失败] 吸收底线被击穿，主力防线崩溃，撤退！")
                 self.absorption_start_time = 0.0
                 self._reset_to_idle()
                 return None
         elif direction == "SHORT":
             # 严格对称：只要涨破吸收核心价（天花板），空头防线即告崩溃！
             if price > self.micro_tracker['absorption_price']:
-                logger.debug("💥 [A2/A3-空头失败] 吸收天花板被突破，防线崩溃，撤退！")
+                self._log_debug("💥 [A2/A3-空头失败] 吸收天花板被突破，防线崩溃，撤退！")
                 self._reset_to_idle()
                 return None
         else:
@@ -236,7 +239,7 @@ class TripleASignalGenerator:
         if current_time - self.micro_tracker['a2_start_time'] >= 5.0:
             self.status = "A3_WAIT_AGGRESSION"
             direction = self.micro_tracker.get('direction', 'UNKNOWN')
-            logger.info(f"🔋 [A2-{direction}积累完成] 历时 5 秒筹码换手完毕，等待突破。")
+            self._log_info(f"🔋 [A2-{direction}积累完成] 历时 5 秒筹码换手完毕，等待突破。")
             return None
 
         return None
@@ -255,7 +258,7 @@ class TripleASignalGenerator:
         if direction == "LONG":
             # 多头攻击：价格不能跌破吸收底线
             if price < self.micro_tracker['absorption_price']:
-                logger.debug("💥 [A3-多头攻击失败] 吸收底线被击穿，多头攻击取消！")
+                self._log_debug("💥 [A3-多头攻击失败] 吸收底线被击穿，多头攻击取消！")
                 self._reset_to_idle()
                 return None
 
@@ -266,7 +269,7 @@ class TripleASignalGenerator:
         else:  # SHORT
             # 空头攻击：价格不能突破吸收阻力位
             if price > self.micro_tracker['absorption_price']:
-                logger.debug("💥 [A3-空头攻击失败] 吸收阻力位被突破，空头攻击取消！")
+                self._log_debug("💥 [A3-空头攻击失败] 吸收阻力位被突破，空头攻击取消！")
                 self._reset_to_idle()
                 return None
 
@@ -307,7 +310,7 @@ class TripleASignalGenerator:
                 momentum_desc = f"净卖出占比 {-delta_ratio_recent:.1%}"
 
             if is_volume_spike and is_strong_momentum:
-                logger.info(
+                self._log_info(
                     f"⚔️ [A3-{log_prefix}攻击达成] 1.5秒内爆量 {recent_vol:.2f}, {momentum_desc}，真突破确立！")
 
                 # ---------------------------------------------------------
@@ -344,12 +347,12 @@ class TripleASignalGenerator:
                     # 🛡️ 2. 降级兜底 (如果地图上找不到结构，直接强行按 2.5R:R 算止盈)
                     if tp_target is None:
                         tp_target = price + min_gross_reward
-                        logger.debug(f"🗺️ 宏观地图未找到前方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
+                        self._log_debug(f"🗺️ 宏观地图未找到前方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
 
                     # ⚖️ 3. 终极风控拦截 (如果找到了结构，但结构离得太近，不够塞牙缝，直接拒接开仓！)
                     actual_gross_reward = tp_target - price
                     if actual_gross_reward < min_gross_reward:
-                        logger.warning(
+                        self._log_warning(
                             f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做多！")
                         self._reset_to_idle()
                         return None
@@ -385,12 +388,12 @@ class TripleASignalGenerator:
                     # 🛡️ 2. 降级兜底
                     if tp_target is None:
                         tp_target = price - min_gross_reward
-                        logger.debug(f"🗺️ 宏观地图未找到下方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
+                        self._log_debug(f"🗺️ 宏观地图未找到下方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
 
                     # ⚖️ 3. 终极风控拦截
                     actual_gross_reward = price - tp_target
                     if actual_gross_reward < min_gross_reward:
-                        logger.warning(
+                        self._log_warning(
                             f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做空！")
                         self._reset_to_idle()
                         return None
@@ -449,14 +452,23 @@ class TripleASignalGenerator:
     def _reset_to_idle(self):
         self.status = "IDLE"
         self.target_zone = None
-        self.absorption_start_time = 0.0  # 🆕 确保计时器绝对清零！
+        self.absorption_start_time = 0.0
         self.micro_tracker = {
             "absorption_price": 0.0,
             "micro_resistance": 0.0,
-            "micro_support": 0.0,  # 新增：空头支撑位
-            "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
+            "micro_support": 0.0,
+            "direction": None,
             "a2_start_time": 0.0
         }
+
+        # 🚀 专家级修复：打断状态机死循环！
+        # 如果订单/侦察失败被重置，说明之前的微观动量是不连贯的或有毒的。
+        # 暴力清空 15 秒滑动窗口，强制引擎进入“冷却盲区”，等待下一波全新行情的蓄力！
+        self.rolling_ticks.clear()
+        self.global_boxes.clear()
+        self.global_volume = 0.0
+        self.global_cvd = 0.0
+        self._log_debug("🧹 状态已重置，底层账本已排空，等待新的资金入场...")
 
     def _manage_position_by_tick(self, tick: Dict) -> Optional[Dict]:
         """
@@ -479,11 +491,28 @@ class TripleASignalGenerator:
                 signal = {"action": "CLOSE_SHORT", "reason": "TAKE_PROFIT_HIT", "price": price}
 
         if signal:
-            logger.info(f"🏁 订单终结！触发原因: {signal['reason']}，成交价: {price}。")
+            self._log_info(f"🏁 订单终结！触发原因: {signal['reason']}，成交价: {price}。")
             self._reset_to_idle()
             self.current_sl = 0.0
             self.current_tp = 0.0
 
         return signal
 
+    # ==========================================
+    # 🔇 日志消音器：如果是影子引擎，就闭嘴不打印日常刷屏
+    # ==========================================
+    def _log_info(self, msg: str):
+        if not self.is_shadow:
+            logger.info(msg)
 
+    def _log_debug(self, msg: str):
+        if not self.is_shadow:
+            logger.debug(msg)
+
+    def _log_warning(self, msg: str):
+        if not self.is_shadow:
+            logger.warning(msg)
+
+    def _log_error(self, msg: str):
+        if not self.is_shadow:
+            logger.error(msg)
