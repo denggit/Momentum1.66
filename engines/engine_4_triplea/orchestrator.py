@@ -77,30 +77,23 @@ class TripleAOrchestrator:
         with open(self.log_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
-                # 基础信息
-                "Entry_Time", "Close_Time", "Action", "Entry_Price",
-                "Close_Price", "SL_Price", "TP_Price", "Score", "Close_Reason", "Gross_PnL",
-                # 🆕 增加终极评价指标
-                "MFE_Distance", "MAE_Distance",
-                # 时间戳信息
-                "A1_Start_Time", "A1_End_Time", "A2_Start_Time", "A2_End_Time",
-                "A3_Start_Time", "A3_End_Time", "Entry_Time_Unix",
-                # CVD指标 (入场时)
-                "Global_CVD", "Global_Volume", "Delta_Ratio", "Recent_Vol", "Recent_CVD", "Recent_Delta_Ratio",
-                # 🆕 A1阶段指标
-                "A1_Global_CVD", "A1_Global_Volume", "A1_Delta_Ratio", "A1_Cluster_Ratio",
-                "A1_Price_Range_Pct", "A1_Efficiency", "A1_Center_Box", "A1_Direction",
-                # 🆕 A2阶段指标
-                "A2_Start_Global_CVD", "A2_Start_Global_Volume", "A2_End_Global_CVD", "A2_End_Global_Volume",
-                "A2_CVD_Change", "A2_Volume_Change", "A2_Delta_Ratio_Change", "A2_Duration",
-                # 🆕 A3阶段指标
-                "A3_Start_Global_CVD", "A3_Start_Global_Volume", "A3_End_Global_CVD", "A3_End_Global_Volume",
-                "A3_CVD_Change", "A3_Volume_Change", "A3_Delta_Ratio_Change", "A3_Duration",
-                "A3_Recent_Vol", "A3_Recent_CVD", "A3_Recent_Delta_Ratio",
-                # 诊断数据
+                # 【基本结果】 (评判这单好坏)
+                "Action", "Entry_Price", "Close_Price", "SL_Price", "TP_Price",
+                "Score", "Close_Reason", "Gross_PnL", "MFE_Distance", "MAE_Distance",
+                # 【时间与配置】 (横向对比依据)
+                "Entry_Time_Unix", "A1_Duration_Sec", "A2_Duration_Sec",
                 "Box_Size", "Vol_Spike_Threshold", "Delta_Ratio_Threshold",
-                # 交易区域信息
-                "Tradable_Zones_JSON"
+                # 【宏观阵地】 (你在哪里开的枪)
+                "Target_Zone_High", "Target_Zone_Low", "Macro_POC_Price", "Distance_to_POC",
+                # 【A1 吸收期底牌】 (主力建仓力度)
+                "A1_Global_Volume", "A1_Global_CVD", "A1_Delta_Ratio",
+                "A1_Cluster_Ratio", "A1_Efficiency",
+                # 【A2 结束状态】 (换手后的动量 - 查背离)
+                "A2_End_Global_CVD",
+                # 【A3 拔枪时全局状态】 (15秒窗口的最终滑落情况 -> 查背离)
+                "A3_Global_Volume", "A3_Global_CVD", "A3_Delta_Ratio",
+                # 【A3 拔枪时瞬时动量】 (1.5秒导火索 -> 查真假突破)
+                "A3_Recent_Vol", "A3_Recent_CVD", "A3_Recent_Delta_Ratio"
             ])
 
     async def run(self):
@@ -161,7 +154,7 @@ class TripleAOrchestrator:
                         self.shadow_generator.update_macro_map(profile_data)
 
                         poc_price = profile_data['POC']['center']
-                        logger.info(
+                        logger.debug(
                             f"🗺️ 地图更新完毕！当前核心引力区 (POC): {poc_price} | 发现 {len(profile_data['tradable_zones'])} 个交火区。")
                 else:
                     logger.error("❌ 拉取 1m K线失败，沿用旧地图。")
@@ -266,11 +259,6 @@ class TripleAOrchestrator:
         else:
             gross_pnl = entry_price - close_price
 
-        # 序列化tradable_zones为JSON
-        tradable_zones_json = json.dumps(
-            trade_data.get('Tradable_Zones', []),
-            default=str
-        )
 
         # 准备行数据
         stage_metrics = trade_data.get('Stage_Metrics', {})
@@ -279,9 +267,7 @@ class TripleAOrchestrator:
         a3_metrics = stage_metrics.get('a3', {})
 
         row = [
-            # 基础信息
-            trade_data['Entry_Time'],
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            # 【基本结果】 (评判这单好坏)
             trade_data['Action'],
             entry_price,
             close_price,
@@ -290,60 +276,36 @@ class TripleAOrchestrator:
             trade_data['Score'],
             reason,
             round(gross_pnl, 4),
-            # 🆕 写入评价指标
             trade_data.get('MFE_Distance', 0),
             trade_data.get('MAE_Distance', 0),
-            # 时间戳信息
-            trade_data['Timestamps'].get('a1_start_time', 0),
-            trade_data['Timestamps'].get('a1_end_time', 0),
-            trade_data['Timestamps'].get('a2_start_time', 0),
-            trade_data['Timestamps'].get('a2_end_time', 0),
-            trade_data['Timestamps'].get('a3_start_time', 0),
-            trade_data['Timestamps'].get('a3_end_time', 0),
-            trade_data['Timestamps'].get('entry_time', 0),
-            # CVD指标 (入场时)
-            trade_data['CVD_Metrics'].get('global_cvd', 0),
-            trade_data['CVD_Metrics'].get('global_volume', 0),
-            trade_data['CVD_Metrics'].get('delta_ratio', 0),
-            trade_data['CVD_Metrics'].get('recent_vol', 0),
-            trade_data['CVD_Metrics'].get('recent_cvd', 0),
-            trade_data['CVD_Metrics'].get('recent_delta_ratio', 0),
-            # 🆕 A1阶段指标
-            a1_metrics.get('global_cvd', 0),
+            # 【时间与配置】 (横向对比依据)
+            trade_data.get('Entry_Time_Unix', 0.0),
+            trade_data.get('A1_Duration_Sec', 0.0),
+            trade_data.get('A2_Duration_Sec', 0.0),
+            trade_data.get('Box_Size', 0.0),
+            trade_data.get('Vol_Spike_Threshold', 0.0),
+            trade_data.get('Delta_Ratio_Threshold', 0.0),
+            # 【宏观阵地】 (你在哪里开的枪)
+            trade_data.get('Target_Zone_High', 0.0),
+            trade_data.get('Target_Zone_Low', 0.0),
+            trade_data.get('Macro_POC_Price', 0.0),
+            trade_data.get('Distance_to_POC', 0.0),
+            # 【A1 吸收期底牌】 (主力建仓力度)
             a1_metrics.get('global_volume', 0),
+            a1_metrics.get('global_cvd', 0),
             a1_metrics.get('delta_ratio', 0),
             a1_metrics.get('cluster_ratio', 0),
-            a1_metrics.get('price_range_pct', 0),
             a1_metrics.get('efficiency', 0),
-            a1_metrics.get('center_box', 0),
-            a1_metrics.get('direction', ''),
-            # 🆕 A2阶段指标
-            a2_metrics.get('start_global_cvd', 0),
-            a2_metrics.get('start_global_volume', 0),
+            # 【A2 结束状态】 (换手后的动量 - 查背离)
             a2_metrics.get('end_global_cvd', 0),
-            a2_metrics.get('end_global_volume', 0),
-            a2_metrics.get('cvd_change', 0),
-            a2_metrics.get('volume_change', 0),
-            a2_metrics.get('delta_ratio_change', 0),
-            a2_metrics.get('duration', 0),
-            # 🆕 A3阶段指标
-            a3_metrics.get('start_global_cvd', 0),
-            a3_metrics.get('start_global_volume', 0),
-            a3_metrics.get('end_global_cvd', 0),
-            a3_metrics.get('end_global_volume', 0),
-            a3_metrics.get('cvd_change', 0),
-            a3_metrics.get('volume_change', 0),
-            a3_metrics.get('delta_ratio_change', 0),
-            a3_metrics.get('duration', 0),
+            # 【A3 拔枪时全局状态】 (15秒窗口的最终滑落情况 -> 查背离)
+            a3_metrics.get('global_volume', 0),
+            a3_metrics.get('global_cvd', 0),
+            a3_metrics.get('delta_ratio', 0),
+            # 【A3 拔枪时瞬时动量】 (1.5秒导火索 -> 查真假突破)
             a3_metrics.get('recent_vol', 0),
             a3_metrics.get('recent_cvd', 0),
-            a3_metrics.get('recent_delta_ratio', 0),
-            # 诊断数据
-            trade_data['Diagnostics'].get('current_box_size', 0),
-            trade_data['Diagnostics'].get('vol_spike_threshold', 0),
-            trade_data['Diagnostics'].get('delta_ratio_threshold', 0),
-            # 交易区域信息
-            tradable_zones_json
+            a3_metrics.get('recent_delta_ratio', 0)
         ]
 
         # 使用线程池异步写入文件
@@ -364,15 +326,22 @@ class TripleAOrchestrator:
 
         if reason == "TRIPLE_A_COMPLETE":
             self.shadow_active_trade = {
-                'Entry_Time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'Action': action,
                 'Entry_Price': price,
                 'SL_Price': signal['stop_loss'],
                 'TP_Price': signal['take_profit'],
                 'Score': signal['signal_score'],
-                'Timestamps': signal.get('timestamps', {}),
-                'CVD_Metrics': signal.get('cvd_metrics', {}),
-                'Diagnostics': signal.get('diagnostics', {}),
+                # 🆕 新字段（从信号中直接获取）
+                'Entry_Time_Unix': signal.get('entry_time_unix', 0.0),
+                'A1_Duration_Sec': signal.get('a1_duration_sec', 0.0),
+                'A2_Duration_Sec': signal.get('a2_duration_sec', 0.0),
+                'Target_Zone_High': signal.get('target_zone_high', 0.0),
+                'Target_Zone_Low': signal.get('target_zone_low', 0.0),
+                'Macro_POC_Price': signal.get('macro_poc_price', 0.0),
+                'Distance_to_POC': signal.get('distance_to_poc', 0.0),
+                'Box_Size': signal.get('current_box_size', 0.0),
+                'Vol_Spike_Threshold': signal.get('vol_spike_threshold', 0.0),
+                'Delta_Ratio_Threshold': signal.get('delta_ratio_threshold', 0.0),
                 # 🆕 添加阶段指标
                 'Stage_Metrics': copy.deepcopy(signal.get('stage_metrics', {})),
                 # 🆕 极其关键：使用 deepcopy 锁定开仓那一刻的地图快照，防止后续被污染

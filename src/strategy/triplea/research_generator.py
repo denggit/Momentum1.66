@@ -8,21 +8,17 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
     def __init__(self, symbol: str = "ETH-USDT-SWAP"):
         super().__init__(symbol, is_shadow=True)
-        # 添加时间戳跟踪字段
+        # 添加时间戳跟踪字段 (精简版，只记录开始时间和持续时间)
         self.timestamp_tracker = {
             "a1_start_time": 0.0,  # A1开始时间
-            "a1_end_time": 0.0,  # A1结束时间 (A2开始时间)
             "a2_start_time": 0.0,  # A2开始时间
-            "a2_end_time": 0.0,  # A2结束时间 (A3开始时间)
-            "a3_start_time": 0.0,  # A3开始时间
-            "a3_end_time": 0.0,  # A3结束时间 (入场时间)
-            "entry_time": 0.0  # 入场时间
+            "entry_time": 0.0      # 入场时间
         }
-        # 🆕 阶段指标跟踪
+        # 🆕 阶段指标跟踪 (精简版)
         self.stage_metrics = {
             "a1": {},  # A1阶段指标
             "a2": {},  # A2阶段指标
-            "a3": {}   # A3阶段指标
+            "a3": {}   # A3阶段指标 (只记录触发时的状态)
         }
         self._current_tick_time = 0.0  # 当前tick的时间戳
 
@@ -39,10 +35,13 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
         return result
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        """重写：进入A2时记录A1结束和A2开始时间，并保存A1阶段指标"""
+        """重写：进入A2时记录A2开始时间，并保存A1阶段指标（包括持续时间）"""
         result = super()._handle_absorption(price, current_time)
         if self.status == "A2_WAIT_ACCUMULATION":
-            self.timestamp_tracker["a1_end_time"] = current_time
+            # 计算A1持续时间
+            a1_start_time = self.timestamp_tracker.get("a1_start_time", 0.0)
+            a1_duration = current_time - a1_start_time if a1_start_time > 0 else 0.0
+
             self.timestamp_tracker["a2_start_time"] = current_time
 
             # 🆕 保存A1阶段指标
@@ -75,16 +74,14 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
                 # 计算效率指标
                 efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
 
-                # 保存到阶段指标
+                # 保存到阶段指标（精简版，移除不必要的字段）
                 self.stage_metrics["a1"] = {
-                    "global_cvd": self.global_cvd,
                     "global_volume": self.global_volume,
+                    "global_cvd": self.global_cvd,
                     "delta_ratio": delta_ratio,
                     "cluster_ratio": cluster_ratio,
-                    "price_range_pct": price_range_pct,
                     "efficiency": efficiency,
-                    "center_box": center_box,
-                    "direction": "LONG" if self.global_cvd < 0 else "SHORT" if self.global_cvd > 0 else None
+                    "duration_sec": a1_duration
                 }
                 # 同时记录A2开始时的基准值（用于计算A2阶段变化）
                 self.stage_metrics["a2_start"] = {
@@ -98,53 +95,29 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
         return result
 
     def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
-        """重写：进入A3时记录A2结束和A3开始时间，并保存A2阶段指标"""
+        """重写：进入A3时记录A2持续时间，并保存A2阶段指标"""
         result = super()._handle_accumulation(price, current_time)
         if self.status == "A3_WAIT_AGGRESSION":
-            self.timestamp_tracker["a2_end_time"] = current_time
-            self.timestamp_tracker["a3_start_time"] = current_time
+            # 计算A2持续时间
+            a2_start_time = self.timestamp_tracker.get("a2_start_time", 0.0)
+            a2_duration = current_time - a2_start_time if a2_start_time > 0 else 0.0
 
-            # 🆕 保存A2阶段指标
+            # 🆕 保存A2阶段指标（精简版，只记录结束状态和持续时间）
             a2_start_metrics = self.stage_metrics.get("a2_start", {})
-            a2_end_metrics = {
-                "global_cvd": self.global_cvd,
-                "global_volume": self.global_volume,
-                "timestamp": current_time
-            }
-
-            # 计算A2阶段变化
-            cvd_change = self.global_cvd - a2_start_metrics.get("global_cvd", 0.0)
-            volume_change = self.global_volume - a2_start_metrics.get("global_volume", 0.0)
-            delta_ratio_change = 0.0
-            if volume_change > 0:
-                delta_ratio_change = cvd_change / volume_change
 
             # 保存A2阶段综合指标
             self.stage_metrics["a2"] = {
-                "start_global_cvd": a2_start_metrics.get("global_cvd", 0.0),
-                "start_global_volume": a2_start_metrics.get("global_volume", 0.0),
                 "end_global_cvd": self.global_cvd,
                 "end_global_volume": self.global_volume,
-                "cvd_change": cvd_change,
-                "volume_change": volume_change,
-                "delta_ratio_change": delta_ratio_change,
-                "duration": current_time - a2_start_metrics.get("timestamp", current_time)
-            }
-
-            # 记录A3开始时的基准值（用于计算A3阶段变化）
-            self.stage_metrics["a3_start"] = {
-                "global_cvd": self.global_cvd,
-                "global_volume": self.global_volume,
-                "timestamp": current_time
+                "duration_sec": a2_duration
             }
         return result
 
     def _handle_aggression(self, tick: Dict) -> Optional[Dict]:
-        """重写：生成信号时记录A3结束和入场时间，并返回增强数据"""
+        """重写：生成信号时记录入场时间，并返回精简版增强数据"""
         result = super()._handle_aggression(tick)
         if result and result.get('reason') == "TRIPLE_A_COMPLETE":
             current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
-            self.timestamp_tracker["a3_end_time"] = current_time
             self.timestamp_tracker["entry_time"] = current_time
 
             # 获取父类计算的数据
@@ -160,46 +133,47 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
                 else:
                     break
 
-            # 🆕 计算A3阶段变化
-            a3_start_metrics = self.stage_metrics.get("a3_start", {})
-            a3_cvd_change = self.global_cvd - a3_start_metrics.get("global_cvd", 0.0)
-            a3_volume_change = self.global_volume - a3_start_metrics.get("global_volume", 0.0)
-            a3_delta_ratio_change = 0.0
-            if a3_volume_change > 0:
-                a3_delta_ratio_change = a3_cvd_change / a3_volume_change
+            # 计算全局Delta比率
+            global_delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
+            recent_delta_ratio = recent_cvd / (recent_vol + 1e-8)
 
-            # 保存A3阶段指标
+            # 🆕 获取目标区域信息和POC价格
+            target_zone_high = 0.0
+            target_zone_low = 0.0
+            macro_poc_price = 0.0
+            distance_to_poc = 0.0
+
+            if self.target_zone:
+                target_zone_high = self.target_zone.get('zone_high', 0.0)
+                target_zone_low = self.target_zone.get('zone_low', 0.0)
+
+            if self.profile and 'POC' in self.profile:
+                macro_poc_price = self.profile['POC'].get('center', 0.0)
+                distance_to_poc = abs(price - macro_poc_price)
+
+            # 保存A3阶段指标（精简版：只记录触发时的状态）
             self.stage_metrics["a3"] = {
-                "start_global_cvd": a3_start_metrics.get("global_cvd", 0.0),
-                "start_global_volume": a3_start_metrics.get("global_volume", 0.0),
-                "end_global_cvd": self.global_cvd,
-                "end_global_volume": self.global_volume,
-                "cvd_change": a3_cvd_change,
-                "volume_change": a3_volume_change,
-                "delta_ratio_change": a3_delta_ratio_change,
-                "duration": current_time - a3_start_metrics.get("timestamp", current_time),
+                "global_volume": self.global_volume,
+                "global_cvd": self.global_cvd,
+                "delta_ratio": global_delta_ratio,
                 "recent_vol": recent_vol,
                 "recent_cvd": recent_cvd,
-                "recent_delta_ratio": recent_cvd / (recent_vol + 1e-8)
+                "recent_delta_ratio": recent_delta_ratio
             }
 
-            # 扩展信号字典
+            # 扩展信号字典（精简版）
             result.update({
-                "timestamps": self.timestamp_tracker.copy(),
-                "cvd_metrics": {
-                    "global_cvd": self.global_cvd,
-                    "global_volume": self.global_volume,
-                    "delta_ratio": abs(self.global_cvd) / (self.global_volume + 1e-8),
-                    "recent_vol": recent_vol,
-                    "recent_cvd": recent_cvd,
-                    "recent_delta_ratio": recent_cvd / (recent_vol + 1e-8)
-                },
-                "diagnostics": {
-                    "current_box_size": self.current_box_size,
-                    "vol_spike_threshold": self.vol_spike_threshold,
-                    "delta_ratio_threshold": self.delta_ratio_threshold
-                },
-                # 🆕 添加阶段指标
+                "entry_time_unix": current_time,
+                "a1_duration_sec": self.stage_metrics.get("a1", {}).get("duration_sec", 0.0),
+                "a2_duration_sec": self.stage_metrics.get("a2", {}).get("duration_sec", 0.0),
+                "target_zone_high": target_zone_high,
+                "target_zone_low": target_zone_low,
+                "macro_poc_price": macro_poc_price,
+                "distance_to_poc": distance_to_poc,
+                "current_box_size": self.current_box_size,
+                "vol_spike_threshold": self.vol_spike_threshold,
+                "delta_ratio_threshold": self.delta_ratio_threshold,
+                # 🆕 添加阶段指标（精简版）
                 "stage_metrics": {
                     "a1": self.stage_metrics.get("a1", {}),
                     "a2": self.stage_metrics.get("a2", {}),
@@ -211,7 +185,11 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
     def _reset_to_idle(self):
         """重写：重置时清空时间戳记录和阶段指标"""
         super()._reset_to_idle()
-        self.timestamp_tracker = {k: 0.0 for k in self.timestamp_tracker}
+        self.timestamp_tracker = {
+            "a1_start_time": 0.0,
+            "a2_start_time": 0.0,
+            "entry_time": 0.0
+        }
         self.stage_metrics = {
             "a1": {},
             "a2": {},
