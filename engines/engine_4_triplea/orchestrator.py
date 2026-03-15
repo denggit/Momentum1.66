@@ -49,7 +49,7 @@ class TripleAOrchestrator:
         # 1. 实例化核心组件
         # ==========================================
         self.trader = OKXTrader(symbol=symbol, leverage=20, risk_pct=0.5)
-        self.vp_builder = VolumeProfileBuilder(value_area_pct=0.70, bin_size=0.5, zone_pct=0.002)
+        self.vp_builder = VolumeProfileBuilder(value_area_pct=0.70, bin_size=0.5)
         self.data_loader = OKXDataLoader(symbol=symbol, timeframe="1m")
         self.execution_manager = TripleAExecutionManager(trader=self.trader)
 

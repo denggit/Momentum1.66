@@ -4,19 +4,26 @@ from scipy.signal import find_peaks
 
 
 class VolumeProfileBuilder:
-    def __init__(self, value_area_pct=0.70, bin_size=0.5, zone_pct=0.002):
+    def __init__(self, value_area_pct=0.70, bin_size=0.5):
         """
         value_area_pct: 价值区间包含的成交量比例 (默认 70%)
         bin_size: 分箱精度 (比如 0.5 USDT，对 ETH 来说是比较合理的颗粒度)
-        zone_pct: 框的单侧容错百分比，默认 0.002 (即 0.2%)
         """
         self.value_area_pct = value_area_pct
         self.bin_size = bin_size
-        self.zone_pct = zone_pct
 
     def _create_zone(self, center_price, zone_type):
-        """内部辅助方法：将一根价格线转换为有厚度的框"""
-        buffer_price = center_price * self.zone_pct
+        """内部辅助方法：根据不同阵地类型，赋予非对称的战区厚度 (直接取消 Halo 概念)"""
+        # 🚀 按照战术属性分配不同的宽度百分比
+        if zone_type == "POC":
+            buffer_pct = 0.0015  # POC 最窄 (±0.15%)，纯磁铁区
+        elif zone_type in ["VAH", "VAL"]:
+            buffer_pct = 0.0025  # 宏观城墙最宽 (±0.25%)，容纳插针
+        else:
+            buffer_pct = 0.0020  # HVN 战壕标准宽 (±0.20%)
+
+        buffer_price = center_price * buffer_pct
+
         return {
             "type": zone_type,
             "center": round(center_price, 4),
@@ -115,12 +122,14 @@ class VolumeProfileBuilder:
         # ==========================================
         # 4. 寻找次级节点 (HVN)，并处理下级冲突 (排他与过滤)
         # ==========================================
-        # 冲突解决法则 1：HVN 撞 HVN -> 用 distance 参数强制保留最大者，过滤极近杂音
-        # 我们假设两个 HVN 之间至少需要隔开一个框的完整厚度 (2 * zone_pct)
-        min_bins_distance = max(1, int((poc_price * self.zone_pct * 2) / self.bin_size))
+        # 我们假设两个 HVN 之间至少需要隔开一定距离
+        hvn_buffer_pct = 0.0020
+        min_bins_distance = max(1, int((poc_price * hvn_buffer_pct * 2) / self.bin_size))
 
+        # 🚀 V2.0 升级：将 prominence 从 0.1 提高到 0.4 或 0.5！
+        # 意思是：山峰的成交量必须至少是最高峰(POC)的 40% 以上，否则视为散户对敲噪音
         peaks, _ = find_peaks(volume_profile,
-                              prominence=np.max(volume_profile) * 0.1,
+                              prominence=np.max(volume_profile) * 0.4,
                               distance=min_bins_distance)
 
         valid_hvns = []
@@ -132,16 +141,16 @@ class VolumeProfileBuilder:
             temp_hvn = self._create_zone(center, "HVN")
             temp_hvn["volume"] = volume_profile[p]
 
-            # 冲突解决法则 2：下级服从上级 -> 如果 HVN 撞了核心节点，无情舍弃
+            # 冲突解决法则 2：下级服从上级
             if (self._check_overlap(temp_hvn, poc_zone) or
                     self._check_overlap(temp_hvn, vah_zone) or
                     self._check_overlap(temp_hvn, val_zone)):
-                continue  # 丢弃这个多余的 HVN
+                continue
 
             valid_hvns.append(temp_hvn)
 
-        # 按成交量从大到小对有效 HVN 排序（仅供参考语义）
-        valid_hvns = sorted(valid_hvns, key=lambda x: x['volume'], reverse=True)
+        # 🚀 V2.0 升级：按成交量从大到小排序，并【只保留前 3 个最大】的 HVN！
+        valid_hvns = sorted(valid_hvns, key=lambda x: x['volume'], reverse=True)[:3]
 
         # ==========================================
         # 5. 组装专供机器人引擎交易的清爽地图 (去重 + 排序)
@@ -174,7 +183,7 @@ class VolumeProfileBuilder:
             "avg_vol_1m": avg_vol,
             "metadata": {
                 "bin_size_used": self.bin_size,
-                "zone_pct_used": self.zone_pct,
+                "zone_widths_pct": {"POC": 0.0015, "HVN": 0.0020, "VAH_VAL": 0.0025},
                 "total_volume": total_volume
             }
         }

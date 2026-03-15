@@ -89,20 +89,20 @@ class TrajectoryMiner:
             for zone in tradable_zones:
                 if "MEGA" in zone.get('type', '') or zone.get('type') == "POC":
                     continue
-                halo_low = zone.get('halo_low')
-                halo_high = zone.get('halo_high')
-                if halo_low is None or halo_high is None:
+                zone_low = zone.get('zone_low')
+                zone_high = zone.get('zone_high')
+                if zone_low is None or zone_high is None:
                     continue
 
                 # 判定容差：允许在框内，也允许刚刚突破出框
-                if (halo_low - self.zone_margin) <= price <= (halo_high + self.zone_margin):
+                if (zone_low - self.zone_margin) <= price <= (zone_high + self.zone_margin):
                     target_zone = zone
                     break
 
             if not target_zone:
                 return  # 爆量发生在半空中的垃圾时间，无视
 
-            zone_key = f"{target_zone.get('type', 'UNKNOWN')}_{target_zone.get('halo_low'): .2f}_{target_zone.get('halo_high'): .2f}"
+            zone_key = f"{target_zone.get('type', 'UNKNOWN')}_{target_zone.get('zone_low'): .2f}_{target_zone.get('zone_high'): .2f}"
 
             # 检查冷却 (防抖：避免连续爆量导致重复录像)
             if zone_key in self.cooldowns:
@@ -137,7 +137,7 @@ class TrajectoryMiner:
                     return  # 没有深坑，说明是高位追涨，无视
 
                 # 🚀 V2.2 新增约束：绝对对齐实盘空间！最低点不能跌穿当前支撑框的下沿超过 5 刀
-                if swing_low < target_zone.get('halo_low') - 5.0:
+                if swing_low < target_zone.get('zone_low') - 5.0:
                     return  # 跌穿宏观阵地太深，说明主力防线根本不在这里，拒录！
 
                 sl_price = swing_low  # 止损直接设为刚刚查到的深坑底部！
@@ -149,11 +149,11 @@ class TrajectoryMiner:
 
                 # 向上寻址找 TP
                 candidate_zones = [z for z in tradable_zones
-                                   if z.get('halo_low', 0) >= min_tp_target
+                                   if z.get('zone_low', 0) >= min_tp_target
                                    and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
                     next_zone = min(candidate_zones, key=lambda z: z.get('center') - price)
-                    tp_price = next_zone.get('halo_low')
+                    tp_price = next_zone.get('zone_low')
                 else:
                     tp_price = min_tp_target
 
@@ -163,7 +163,7 @@ class TrajectoryMiner:
                     return
 
                 # 🚀 V2.2 新增约束：绝对对齐实盘空间！最高点不能涨破当前阻力框的上沿超过 5 刀
-                if swing_high > target_zone.get('halo_high') + 5.0:
+                if swing_high > target_zone.get('zone_high') + 5.0:
                     return  # 涨破宏观阵地太高，说明主力防线根本不在这里，拒录！
 
                 sl_price = swing_high  # 止损直接设为尖峰顶部！
@@ -175,11 +175,11 @@ class TrajectoryMiner:
 
                 # 向下寻址找 TP
                 candidate_zones = [z for z in tradable_zones
-                                   if z.get('halo_high', float('inf')) <= min_tp_target
+                                   if z.get('zone_high', float('inf')) <= min_tp_target
                                    and "MEGA" not in z.get('type', '')]
                 if candidate_zones:
                     next_zone = min(candidate_zones, key=lambda z: price - z.get('center'))
-                    tp_price = next_zone.get('halo_high')
+                    tp_price = next_zone.get('zone_high')
                 else:
                     tp_price = min_tp_target
 

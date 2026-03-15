@@ -13,7 +13,6 @@ class TripleASignalGenerator:
         self.status = "IDLE"
         self.tradable_zones = []
         self.target_zone = None
-        self.radar_expansion = 0.5
         self.profile = {}
 
         # ==========================================
@@ -64,10 +63,6 @@ class TripleASignalGenerator:
         safe_tradable_zones = []
         for zone in raw_zones:
             safe_zone = zone.copy()
-            if "MEGA" not in safe_zone['type']:
-                zone_width = safe_zone['zone_high'] - safe_zone['zone_low']
-                safe_zone['halo_high'] = safe_zone['zone_high'] + (zone_width * self.radar_expansion)
-                safe_zone['halo_low'] = safe_zone['zone_low'] - (zone_width * self.radar_expansion)
 
             # 把加工好的安全字典塞进新列表
             safe_tradable_zones.append(safe_zone)
@@ -122,22 +117,22 @@ class TripleASignalGenerator:
             if "MEGA" in zone['type'] or zone['type'] == "POC":
                 continue
 
-            if zone['halo_low'] <= price <= zone['halo_high']:
+            if zone['zone_low'] <= price <= zone['zone_high']:
                 self.status = "A1_WAIT_ABSORPTION"
                 self.target_zone = zone
 
                 # 🚀 新增：在进框的这一瞬间，立刻回头查轨迹，打上方向钢印！
-                allowed_dir = self._get_approach_direction(zone['halo_low'], zone['halo_high'])
+                allowed_dir = self._get_approach_direction(zone['zone_low'], zone['zone_high'])
                 self.micro_tracker['allowed_direction'] = allowed_dir
 
                 return None
         return None
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        halo_low = self.target_zone['halo_low']
-        halo_high = self.target_zone['halo_high']
+        zone_low = self.target_zone['zone_low']
+        zone_high = self.target_zone['zone_high']
 
-        if price < halo_low or price > halo_high:
+        if price < zone_low or price > zone_high:
             self.absorption_start_time = 0.0
             self._reset_to_idle()
             return None
@@ -361,15 +356,15 @@ class TripleASignalGenerator:
                         # 抄底模式：寻找上方宏观天花板 (VAH) 的下沿
                         for zone in self.tradable_zones:
                             # 必须确保阵地下沿的距离，大于最低盈亏比底线
-                            if 'VAH' in zone['type'] and zone.get('halo_low') >= price + min_gross_reward:
-                                tp_target = zone.get('halo_low')
+                            if 'VAH' in zone['type'] and zone.get('zone_low') >= price + min_gross_reward:
+                                tp_target = zone.get('zone_low')
                                 break
                     else:
                         # 顺势模式：向上寻找最近的 HVN 的下沿
                         for zone in reversed(self.tradable_zones):
                             if zone['center'] > price and zone['type'] == 'HVN' and zone.get(
-                                    'halo_low') >= price + min_gross_reward:
-                                tp_target = zone.get('halo_low')
+                                    'zone_low') >= price + min_gross_reward:
+                                tp_target = zone.get('zone_low')
                                 break
 
                     # 🛡️ 2. 降级兜底 (如果地图上找不到结构，直接强行按 2.5R:R 算止盈)
@@ -403,15 +398,15 @@ class TripleASignalGenerator:
                         # 摸顶模式：寻找下方宏观地板 (VAL) 的上沿
                         for zone in self.tradable_zones:
                             # 必须确保阵地上沿的距离，大于最低盈亏比底线
-                            if 'VAL' in zone['type'] and zone.get('halo_high') <= price - min_gross_reward:
-                                tp_target = zone.get('halo_high')
+                            if 'VAL' in zone['type'] and zone.get('zone_high') <= price - min_gross_reward:
+                                tp_target = zone.get('zone_high')
                                 break
                     else:
                         # 顺势模式：向下寻找最近的 HVN 的上沿
                         for zone in self.tradable_zones:
                             if zone['center'] < price and zone['type'] == 'HVN' and zone.get(
-                                    'halo_high') <= price - min_gross_reward:
-                                tp_target = zone.get('halo_high')
+                                    'zone_high') <= price - min_gross_reward:
+                                tp_target = zone.get('zone_high')
                                 break
 
                     # 🛡️ 2. 降级兜底
@@ -532,15 +527,15 @@ class TripleASignalGenerator:
 
         return signal
 
-    def _get_approach_direction(self, halo_low: float, halo_high: float) -> str:
+    def _get_approach_direction(self, zone_low: float, zone_high: float) -> str:
         """
         🚀 时空回溯：倒查过去 2 分钟的轨迹，判断是从哪边撞进来的
         完美解决插针：如果是先在上方，再砸穿下方，再收回，由于我们从旧到新查，依然会判定为从上方来 (LONG)！
         """
         for ts, p in self.context_prices:
-            if p > halo_high:
+            if p > zone_high:
                 return "LONG"  # 最早是从上方来的 -> 寻找支撑/底背离 -> 只能做多
-            elif p < halo_low:
+            elif p < zone_low:
                 return "SHORT"  # 最早是从下方来的 -> 寻找阻力/顶背离 -> 只能做空
         return "ANY"  # 2分钟内一直都在框里震荡
 
