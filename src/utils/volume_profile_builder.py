@@ -168,8 +168,9 @@ class VolumeProfileBuilder:
         tradable_zones = sorted(tradable_zones, key=lambda x: x['center'], reverse=True)
 
         # 🆕 【新增】：顺手计算这批 1 分钟 K 线的平均成交量
-        # 假设你的 DataFrame 里包含 'volume' 或 'vol' 列
-        avg_vol = df_1m['volume'].mean() if 'volume' in df_1m.columns else df_1m['vol'].mean()
+        # 🚀 提取过去 1 小时 (60根 1m K线) 的均量作为纯净基准，防止被 24h 远古数据或 A1 极值扭曲
+        df_1h = df_1m.tail(60)
+        avg_vol = df_1h['volume'].mean() if 'volume' in df_1h.columns else df_1h['vol'].mean()
 
         # ==========================================
         # 6. 终极输出返回
