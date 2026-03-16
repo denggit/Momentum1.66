@@ -42,6 +42,14 @@ class TripleASignalGenerator:
         self.persistence_time = 3.0  # 吸收持续时间
         self.absorption_start_time = 0.0  # 吸收计时器
 
+        # A3攻击阶段参数（基于轨迹矿工分析优化）
+        self.a3_req_vol_multiplier = 2.0  # 成交量突增倍数（原动态2.0-4.0，固定为2.0）
+        self.a3_req_delta_ratio = 0.35  # 净买卖比阈值（原动态0.30-0.50，固定为0.35）
+
+        # 新增过滤条件（基于轨迹矿工分析）
+        self.min_max_volume = 120_000  # 最小最大成交量要求（原150k，调整为120k）
+        self.volume_peak_position_threshold = 0.35  # 成交量峰值位置阈值（原0.4，调整为0.35）
+
         # ==========================================
         # 📸 订单生命周期内存
         # ==========================================
@@ -58,7 +66,10 @@ class TripleASignalGenerator:
             "micro_support": 0.0,  # 新增：空头支撑位
             "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
             "a2_start_time": 0.0,
-            "allowed_direction": None  # 👈 新增：允许的开仓方向钢印
+            "allowed_direction": None,  # 👈 新增：允许的开仓方向钢印
+            "history_start_time": 0.0,  # 👈 新增：历史数据开始时间
+            "volume_history": [],  # 👈 新增：历史成交量记录
+            "cvd_history": []  # 👈 新增：历史CVD记录
         }
 
     def _process_zones(self, raw_zones):
@@ -189,9 +200,8 @@ class TripleASignalGenerator:
             return None
 
         # 🚀 基于轨迹矿工分析新增：最小最大成交量要求 (WIN平均221k vs LOSS平均112k)
-        min_max_volume = 150_000  # 15秒窗口最小成交量要求
-        if self.global_volume < min_max_volume:
-            self._log_debug(f"🚫 [成交量过滤] 15秒成交量 {self.global_volume:.0f} < 最小要求 {min_max_volume}，拒接！")
+        if self.global_volume < self.min_max_volume:
+            self._log_debug(f"🚫 [成交量过滤] 15秒成交量 {self.global_volume:.0f} < 最小要求 {self.min_max_volume}，拒接！")
             self.absorption_start_time = 0.0
             return None
 
@@ -257,6 +267,12 @@ class TripleASignalGenerator:
             self.micro_tracker['absorption_price'] = float(center_box)
             self.micro_tracker['direction'] = direction
             self.micro_tracker['a2_start_time'] = current_time
+            # 👇 初始化历史数据记录（用于CVD方向一致性和成交量峰值位置检查）
+            self.micro_tracker['history_start_time'] = current_time
+            self.micro_tracker['cumulative_volume'] = 0.0  # 从A1开始的累计成交量
+            self.micro_tracker['cumulative_cvd'] = 0.0     # 从A1开始的累计CVD变化
+            self.micro_tracker['volume_history'] = []      # 时间-成交量历史（用于峰值位置检查）
+            self.micro_tracker['cvd_history'] = []         # 时间-CVD历史
 
             # 根据交易方向设置关键价位
             self.micro_tracker['micro_resistance'] = float(center_box + self.current_box_size)
@@ -368,16 +384,39 @@ class TripleASignalGenerator:
 
                 # --- 动态纯度检查 (Dynamic Momentum Filter) - 基于轨迹矿工分析优化 ---
                 boxes_above = (price - breakout_threshold) / self.current_box_size
-                req_vol_multiplier = 2.5  # 固定值（原2.0-4.0动态，提高以匹配WIN的高成交量特征）
-                req_delta_ratio = 0.35  # 固定值（原0.30-0.50动态，取中间值）
-
-                is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
+                # 使用实例变量中的A3参数
+                is_volume_spike = recent_vol > (baseline_3s_vol * self.a3_req_vol_multiplier)
                 delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
-                is_strong_momentum = delta_ratio_recent > req_delta_ratio
+                is_strong_momentum = delta_ratio_recent > self.a3_req_delta_ratio
+
+                # 🚀 基于轨迹矿工分析新增：CVD方向一致性检查
+                if direction == "LONG" and self.micro_tracker.get('cumulative_cvd', 0) >= 0:
+                    self._log_debug(f"🚫 [CVD方向过滤] LONG交易但累计CVD非负({self.micro_tracker.get('cumulative_cvd', 0):.0f})，拒接！")
+                    self._reset_to_idle()
+                    return None
+
+                # 🚀 基于轨迹矿工分析新增：成交量峰值位置检查
+                volume_history = self.micro_tracker.get('volume_history', [])
+                if len(volume_history) >= 2:
+                    # 找到成交量峰值的位置
+                    max_volume = max(v for _, v in volume_history)
+                    # 找到第一个达到最大值的记录
+                    max_time = volume_history[0][0]  # 默认值
+                    for t, v in volume_history:
+                        if v == max_volume:
+                            max_time = t
+                            break
+                    total_duration = current_time - self.micro_tracker.get('history_start_time', current_time)
+                    if total_duration > 0:
+                        peak_position = (max_time - self.micro_tracker.get('history_start_time', current_time)) / total_duration
+                        if peak_position < self.volume_peak_position_threshold:
+                            self._log_debug(f"🚫 [峰值位置过滤] 成交量峰值位置{peak_position:.2f} < 阈值{self.volume_peak_position_threshold}，拒接！")
+                            self._reset_to_idle()
+                            return None
 
                 if is_volume_spike and is_strong_momentum:
                     self._log_info(
-                        f"⚔️ [A3-多头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{req_vol_multiplier}x), 净买入占比 {delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
+                        f"⚔️ [A3-多头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{self.a3_req_vol_multiplier}x), 净买入占比 {delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
 
                     # ---------------------------------------------------------
                     # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
@@ -458,16 +497,39 @@ class TripleASignalGenerator:
 
                 # --- 动态纯度检查 (Dynamic Momentum Filter) - 基于轨迹矿工分析优化 ---
                 boxes_below = (breakdown_threshold - price) / self.current_box_size
-                req_vol_multiplier = 2.5  # 固定值（原2.0-4.0动态，提高以匹配WIN的高成交量特征）
-                req_delta_ratio = 0.35  # 固定值（原0.30-0.50动态，取中间值）
-
-                is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
+                # 使用实例变量中的A3参数
+                is_volume_spike = recent_vol > (baseline_3s_vol * self.a3_req_vol_multiplier)
                 delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
-                is_strong_momentum = delta_ratio_recent < -req_delta_ratio
+                is_strong_momentum = delta_ratio_recent < -self.a3_req_delta_ratio
+
+                # 🚀 基于轨迹矿工分析新增：CVD方向一致性检查
+                if direction == "SHORT" and self.micro_tracker.get('cumulative_cvd', 0) <= 0:
+                    self._log_debug(f"🚫 [CVD方向过滤] SHORT交易但累计CVD非正({self.micro_tracker.get('cumulative_cvd', 0):.0f})，拒接！")
+                    self._reset_to_idle()
+                    return None
+
+                # 🚀 基于轨迹矿工分析新增：成交量峰值位置检查
+                volume_history = self.micro_tracker.get('volume_history', [])
+                if len(volume_history) >= 2:
+                    # 找到成交量峰值的位置
+                    max_volume = max(v for _, v in volume_history)
+                    # 找到第一个达到最大值的记录
+                    max_time = volume_history[0][0]  # 默认值
+                    for t, v in volume_history:
+                        if v == max_volume:
+                            max_time = t
+                            break
+                    total_duration = current_time - self.micro_tracker.get('history_start_time', current_time)
+                    if total_duration > 0:
+                        peak_position = (max_time - self.micro_tracker.get('history_start_time', current_time)) / total_duration
+                        if peak_position < self.volume_peak_position_threshold:
+                            self._log_debug(f"🚫 [峰值位置过滤] 成交量峰值位置{peak_position:.2f} < 阈值{self.volume_peak_position_threshold}，拒接！")
+                            self._reset_to_idle()
+                            return None
 
                 if is_volume_spike and is_strong_momentum:
                     self._log_info(
-                        f"⚔️ [A3-空头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{req_vol_multiplier}x), 净卖出占比 {-delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
+                        f"⚔️ [A3-空头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{self.a3_req_vol_multiplier}x), 净卖出占比 {-delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
 
                     # ---------------------------------------------------------
                     # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
@@ -522,6 +584,19 @@ class TripleASignalGenerator:
 
     def _update_rolling_data(self, price: float, size: float, side: str, current_time: float):
         tick_delta = size if side == 'buy' else -size
+
+        # 记录A2/A3阶段的历史数据用于过滤检查
+        if self.status in ["A2_WAIT_ACCUMULATION", "A3_WAIT_AGGRESSION"]:
+            if hasattr(self, 'micro_tracker') and 'cumulative_volume' in self.micro_tracker:
+                # 更新从A1开始的累计成交量和CVD
+                self.micro_tracker['cumulative_volume'] += size
+                self.micro_tracker['cumulative_cvd'] += tick_delta
+                # 记录时间-成交量历史（用于峰值位置检查）
+                # 每0.5秒记录一次，避免数据量过大
+                if (not self.micro_tracker['volume_history'] or
+                    current_time - self.micro_tracker['volume_history'][-1][0] >= 0.5):
+                    self.micro_tracker['volume_history'].append((current_time, self.micro_tracker['cumulative_volume']))
+                    self.micro_tracker['cvd_history'].append((current_time, self.micro_tracker['cumulative_cvd']))
 
         # 【微调1】队列里还是老老实实存原始的 price，为了以后可能的“重铸”做准备
         self.rolling_ticks.append((current_time, tick_delta, size, price))
@@ -580,7 +655,12 @@ class TripleASignalGenerator:
             "direction": None,
             "a2_start_time": 0.0,
             "allowed_direction": preserved_dir,  # 👈 继承方向
-            "locked_zone_key": preserved_key     # 👈 继承坐标
+            "locked_zone_key": preserved_key,    # 👈 继承坐标
+            "history_start_time": 0.0,           # 👈 历史数据开始时间
+            "cumulative_volume": 0.0,            # 👈 从A1开始的累计成交量
+            "cumulative_cvd": 0.0,               # 👈 从A1开始的累计CVD变化
+            "volume_history": [],                # 👈 时间-成交量历史
+            "cvd_history": []                    # 👈 时间-CVD历史
         }
 
         # 🚀 专家级修复：打断状态机死循环！

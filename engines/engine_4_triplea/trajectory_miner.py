@@ -43,8 +43,16 @@ class TrajectoryMiner:
         self._tracker_counter = 0
 
         # V2.0 新增参数 - 基于轨迹矿工分析优化
-        self.spike_multiplier = 2.0  # A3 爆量触发门槛（原1.5，提高以匹配WIN的高成交量特征）
+        # 🚨 修正：矿工应该使用宽松参数收集数据，实盘才用严格参数
+        self.spike_multiplier = 1.5  # 矿工A3爆量触发门槛（宽松参数，用于数据收集）
         self.zone_margin = 5.0  # 允许出框的判定容差 (点数)
+
+        # 🆕 V2.1 新增：矿工专用A1检测参数（宽松版本）
+        self.a1_spike_threshold = 1.3  # A1成交量突增倍数（实盘用1.8，矿工用宽松1.3）
+        self.a1_delta_ratio_threshold = 0.20  # A1净买卖比门槛（实盘用0.30，矿工用0.20）
+        self.a1_price_stability_pct = 0.002  # A1价格稳定要求（0.2%振幅）
+        self.a1_min_duration = 1.0  # A1最小持续时间（秒，实盘用3.0，矿工用1.0）
+        self.a1_cooldown_sec = 30  # A1记录冷却时间，防止重复记录
 
         logger.info(f"🚀 轨迹矿工V2.0初始化完成: {symbol}")
 
@@ -68,12 +76,108 @@ class TrajectoryMiner:
         except Exception as e:
             logger.error(f"❌ 更新录像带异常: {e}")
 
+    def check_a1_pattern(self, price: float, cvd: float, vol: float, delta_ratio: float,
+                         baseline_vol: float, tradable_zones: List[Dict]):
+        """
+        A1吸收形态检测（矿工宽松版本）
+        目标：收集所有疑似A1的形态，包括失败的案例
+        """
+        try:
+            # 1. 冷却检查
+            current_time = time.time()
+            if hasattr(self, '_last_a1_record_time'):
+                if current_time - self._last_a1_record_time < self.a1_cooldown_sec:
+                    return False
+
+            # 2. 成交量突增检查（宽松条件）
+            if vol < baseline_vol * self.a1_spike_threshold:
+                return False
+
+            # 3. 净买卖比检查（宽松条件）
+            if abs(delta_ratio) < self.a1_delta_ratio_threshold:
+                return False
+
+            # 4. 价格稳定性检查（使用最近15秒数据）
+            if len(self.rolling_tape) < 15:
+                return False
+
+            recent_prices = [snapshot['price'] for snapshot in list(self.rolling_tape)[-15:]]
+            price_range = max(recent_prices) - min(recent_prices)
+            avg_price = sum(recent_prices) / len(recent_prices)
+            price_stability = price_range / (avg_price + 1e-8)
+
+            if price_stability > self.a1_price_stability_pct:
+                return False  # 价格波动太大，不是A1吸收
+
+            # 5. 区域检查（是否在交易区域内）
+            in_zone = False
+            for zone in tradable_zones:
+                if "MEGA" in zone.get('type', '') or zone.get('type') == "POC":
+                    continue
+                zone_low = zone.get('zone_low')
+                zone_high = zone.get('zone_high')
+                if zone_low is None or zone_high is None:
+                    continue
+                if zone_low <= price <= zone_high:
+                    in_zone = True
+                    break
+
+            if not in_zone:
+                return False  # 不在交易区域内
+
+            # 6. 记录A1疑似形态
+            self._record_a1_suspect(price, cvd, vol, delta_ratio, recent_prices)
+            self._last_a1_record_time = current_time
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ A1形态检测异常: {e}")
+            return False
+
+    def _record_a1_suspect(self, price: float, cvd: float, vol: float, delta_ratio: float,
+                          recent_prices: List[float]):
+        """记录A1疑似形态到文件"""
+        try:
+            a1_dir = os.path.join(self.output_dir, "a1_suspects")
+            os.makedirs(a1_dir, exist_ok=True)
+
+            timestamp = int(time.time())
+            filename = f"A1_SUSPECT_{timestamp}_{price:.2f}.json"
+            filepath = os.path.join(a1_dir, filename)
+
+            a1_data = {
+                "timestamp": timestamp,
+                "price": price,
+                "cvd": cvd,
+                "vol": vol,
+                "delta_ratio": delta_ratio,
+                "price_range": max(recent_prices) - min(recent_prices),
+                "price_avg": sum(recent_prices) / len(recent_prices),
+                "recent_prices": recent_prices[-10:],  # 只保存最近10个价格
+                "rolling_tape_length": len(self.rolling_tape)
+            }
+
+            import json
+            with open(filepath, 'w') as f:
+                json.dump(a1_data, f, indent=2)
+
+            logger.debug(f"📝 记录A1疑似形态: {price:.2f}, CVD={cvd:.0f}, Vol={vol:.0f}")
+
+        except Exception as e:
+            logger.error(f"❌ 记录A1疑似形态失败: {e}")
+
     def check_and_spawn_tracker(self, price: float, cvd: float, vol: float, baseline_vol: float,
                                 tradable_zones: List[Dict]):
         """
         A3 狙击雷达：爆量触发 -> 战区定位 -> 现场倒查 -> 瞬间锁存
         """
         try:
+            # ==========================================
+            # 🔍 0. A1吸收形态检测（矿工宽松版本，独立于A3）
+            # ==========================================
+            delta_ratio = abs(cvd) / (vol + 1e-8)
+            self.check_a1_pattern(price, cvd, vol, delta_ratio, baseline_vol, tradable_zones)
+
             # ==========================================
             # 🛡️ 1. 异动扳机 (A3 点火检测)
             # ==========================================
