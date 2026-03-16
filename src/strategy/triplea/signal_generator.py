@@ -35,7 +35,7 @@ class TripleASignalGenerator:
         self.box_size_pct = 0.00015  # 价格的万分之1.5
         self.current_box_size = 0.25
         self.vol_spike_threshold = 2.0  # 相对爆量倍数
-        self.min_absorption_usdt = 10_000_000.0  # 🚨 绝对爆量门槛：1000万 USDT
+        self.min_absorption_usdt = 5_000_000.0  # 🚨 绝对爆量门槛：500万 USDT
         self.delta_ratio_threshold = 0.35  # 空头攻击强度
         self.cluster_ratio_threshold = 0.45  # 成交密集度
         self.price_range_pct_limit = 0.0012  # 最大允许振幅 (0.12%)
