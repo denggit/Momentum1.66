@@ -42,8 +42,8 @@ class TrajectoryMiner:
         # 追踪器ID计数器
         self._tracker_counter = 0
 
-        # V2.0 新增参数
-        self.spike_multiplier = 1.5  # A3 爆量触发门槛
+        # V2.0 新增参数 - 基于轨迹矿工分析优化
+        self.spike_multiplier = 2.0  # A3 爆量触发门槛（原1.5，提高以匹配WIN的高成交量特征）
         self.zone_margin = 5.0  # 允许出框的判定容差 (点数)
 
         logger.info(f"🚀 轨迹矿工V2.0初始化完成: {symbol}")

@@ -30,13 +30,13 @@ class TripleASignalGenerator:
         self.recent_cvd_3s = 0.0
         self.recent_vol_3s = 0.0
 
-        # 🆕 动态自适应参数
+        # 🆕 动态自适应参数 - 基于轨迹矿工分析优化
         self.min_box_size = 0.25  # 保底最小箱子
         self.box_size_pct = 0.00015  # 价格的万分之1.5
         self.current_box_size = 0.25
-        self.vol_spike_threshold = 2.0  # 相对爆量倍数
-        self.min_absorption_usdt = 5_000_000.0  # 🚨 绝对爆量门槛：500万 USDT
-        self.delta_ratio_threshold = 0.35  # 空头攻击强度
+        self.vol_spike_threshold = 1.8  # 相对爆量倍数（原2.0，降低以提高A1检测率）
+        self.min_absorption_usdt = 3_000_000.0  # 🚨 绝对爆量门槛：300万 USDT（原500万，降低以适配更多场景）
+        self.delta_ratio_threshold = 0.30  # 空头攻击强度（原0.35，降低以提高检测率）
         self.cluster_ratio_threshold = 0.45  # 成交密集度
         self.price_range_pct_limit = 0.0012  # 最大允许振幅 (0.12%)
         self.persistence_time = 3.0  # 吸收持续时间
@@ -58,7 +58,7 @@ class TripleASignalGenerator:
             "micro_support": 0.0,  # 新增：空头支撑位
             "direction": None,  # "LONG" 或 "SHORT"，表示交易方向
             "a2_start_time": 0.0,
-            "allowed_direction": "ANY"  # 👈 新增：允许的开仓方向钢印
+            "allowed_direction": None  # 👈 新增：允许的开仓方向钢印
         }
 
     def _process_zones(self, raw_zones):
@@ -124,19 +124,43 @@ class TripleASignalGenerator:
 
     def _handle_idle(self, price: float) -> Optional[Dict]:
         """阶段 0: 寻找交火区"""
+        in_zone = False
+
         for zone in self.tradable_zones:
             if "MEGA" in zone['type'] or zone['type'] == "POC":
                 continue
 
             if zone['zone_low'] <= price <= zone['zone_high']:
+                in_zone = True
                 self.status = "A1_WAIT_ABSORPTION"
                 self.target_zone = zone
 
-                # 🚀 新增：在进框的这一瞬间，立刻回头查轨迹，打上方向钢印！
-                allowed_dir = self._get_approach_direction(zone['zone_low'], zone['zone_high'])
-                self.micro_tracker['allowed_direction'] = allowed_dir
+                # 获取当前框的唯一身份指纹
+                current_zone_key = (zone['zone_low'], zone['zone_high'])
+                locked_key = self.micro_tracker.get('locked_zone_key')
+
+                # 🚀 钢印防抖机制：如果还在之前的阵地里摩擦，绝不重新计算方向！直接沿用！
+                if locked_key == current_zone_key and self.micro_tracker.get('allowed_direction', 'ANY') != 'ANY':
+                    pass  # 什么都不用做，坚守上一轮留下的 allowed_direction
+                else:
+                    # 第一次进这个阵地，用 120 秒回溯查出身，并打上钢印！
+                    allowed_dir = self._get_approach_direction(zone['zone_low'], zone['zone_high'])
+                    self.micro_tracker['locked_zone_key'] = current_zone_key
+                    self.micro_tracker['allowed_direction'] = allowed_dir
 
                 return None
+
+        # 🚀 真空地带宽容度检查：防插针把钢印洗掉
+        if not in_zone and self.micro_tracker.get('locked_zone_key') is not None:
+            locked_key = self.micro_tracker['locked_zone_key']
+            zone_low, zone_high = locked_key
+
+            # 如果价格已经彻底跑偏（比如偏离阵地超过 2 个箱子）
+            # 这才视为真突破/真跌破，彻底抹除阵地钢印，准备迎接下一场战役！
+            if price < zone_low - (self.current_box_size * 2.0) or price > zone_high + (self.current_box_size * 2.0):
+                self.micro_tracker['locked_zone_key'] = None
+                self.micro_tracker['allowed_direction'] = "ANY"
+
         return None
 
     def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
@@ -161,6 +185,13 @@ class TripleASignalGenerator:
         # 必须同时满足：1. 大于平时的相对爆量倍数；2. 绝对金额大于 1000 万 USDT
         if self.global_volume < (
                 baseline_15s_vol * self.vol_spike_threshold) or current_vol_usdt < self.min_absorption_usdt:
+            self.absorption_start_time = 0.0
+            return None
+
+        # 🚀 基于轨迹矿工分析新增：最小最大成交量要求 (WIN平均221k vs LOSS平均112k)
+        min_max_volume = 150_000  # 15秒窗口最小成交量要求
+        if self.global_volume < min_max_volume:
+            self._log_debug(f"🚫 [成交量过滤] 15秒成交量 {self.global_volume:.0f} < 最小要求 {min_max_volume}，拒接！")
             self.absorption_start_time = 0.0
             return None
 
@@ -335,10 +366,10 @@ class TripleASignalGenerator:
                 if price <= start_price or price < ceiling:
                     return None  # 轨迹不是有效向上的突破
 
-                # --- 动态纯度检查 (Dynamic Momentum Filter) ---
+                # --- 动态纯度检查 (Dynamic Momentum Filter) - 基于轨迹矿工分析优化 ---
                 boxes_above = (price - breakout_threshold) / self.current_box_size
-                req_vol_multiplier = 4.0 if boxes_above > 1.5 else 2.0
-                req_delta_ratio = 0.50 if boxes_above > 1.5 else 0.30
+                req_vol_multiplier = 2.5  # 固定值（原2.0-4.0动态，提高以匹配WIN的高成交量特征）
+                req_delta_ratio = 0.35  # 固定值（原0.30-0.50动态，取中间值）
 
                 is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
                 delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
@@ -425,10 +456,10 @@ class TripleASignalGenerator:
                 if price >= start_price or price > floor:
                     return None  # 轨迹不是有效向下的跌破
 
-                # --- 动态纯度检查 (Dynamic Momentum Filter) ---
+                # --- 动态纯度检查 (Dynamic Momentum Filter) - 基于轨迹矿工分析优化 ---
                 boxes_below = (breakdown_threshold - price) / self.current_box_size
-                req_vol_multiplier = 4.0 if boxes_below > 1.5 else 2.0
-                req_delta_ratio = 0.50 if boxes_below > 1.5 else 0.30
+                req_vol_multiplier = 2.5  # 固定值（原2.0-4.0动态，提高以匹配WIN的高成交量特征）
+                req_delta_ratio = 0.35  # 固定值（原0.30-0.50动态，取中间值）
 
                 is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
                 delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
@@ -535,6 +566,10 @@ class TripleASignalGenerator:
                 del self.global_boxes[old_box_id]
 
     def _reset_to_idle(self):
+        # 🚀 专家级修复：打断状态机死循环，同时【保留阵地钢印】！防失忆！
+        preserved_dir = self.micro_tracker.get('allowed_direction', 'ANY') if hasattr(self, 'micro_tracker') else 'ANY'
+        preserved_key = self.micro_tracker.get('locked_zone_key', None) if hasattr(self, 'micro_tracker') else None
+
         self.status = "IDLE"
         self.target_zone = None
         self.absorption_start_time = 0.0
@@ -544,7 +579,8 @@ class TripleASignalGenerator:
             "micro_support": 0.0,
             "direction": None,
             "a2_start_time": 0.0,
-            "allowed_direction": "ANY"
+            "allowed_direction": preserved_dir,  # 👈 继承方向
+            "locked_zone_key": preserved_key     # 👈 继承坐标
         }
 
         # 🚀 专家级修复：打断状态机死循环！
