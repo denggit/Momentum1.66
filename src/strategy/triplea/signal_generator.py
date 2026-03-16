@@ -25,6 +25,11 @@ class TripleASignalGenerator:
         self.global_volume = 0.0
         self.global_boxes = {}
 
+        # 🚀 新增：A3 专属的 3 秒极致 O(1) 动量账本
+        self.rolling_ticks_3s = deque()
+        self.recent_cvd_3s = 0.0
+        self.recent_vol_3s = 0.0
+
         # 🆕 动态自适应参数
         self.min_box_size = 0.25  # 保底最小箱子
         self.box_size_pct = 0.00015  # 价格的万分之1.5
@@ -273,7 +278,7 @@ class TripleASignalGenerator:
         return None
 
     def _handle_aggression(self, tick: Dict) -> Optional[Dict]:
-        """第三重 A3: Aggression (1.5秒微观动量确认拔枪)"""
+        """第三重 A3: Aggression (3秒微观动量确认拔枪)"""
         price = tick['price']
         current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
         direction = self.micro_tracker.get('direction')
@@ -282,114 +287,161 @@ class TripleASignalGenerator:
             self._reset_to_idle()
             return None
 
+        # 🚀 终极风控 1：Time-To-Live (TTL) 时间过期过滤
+        setup_age = current_time - self.absorption_start_time
+        if setup_age > 1800:
+            self._log_debug(f"⏳ [A3-状态过期] 潜伏时间过长 ({setup_age:.0f}秒)，吸收势能已彻底消散，重置雷达！")
+            self._reset_to_idle()
+            return None
+
+        # 🚀 极致 O(1) 提取 3 秒向量账本，0 循环！
+        lookback_sec = 3.0
+        recent_vol = self.recent_vol_3s
+        recent_cvd = self.recent_cvd_3s
+        # 队列最左边的元素，就是 3 秒前那一瞬间的“起跑点价格”
+        start_price = self.rolling_ticks_3s[0][3] if self.rolling_ticks_3s else price
+
+        baseline_3s_vol = (self.profile.get('avg_vol_1m', 60.0) / 60.0) * lookback_sec
+        ceiling = self.micro_tracker['micro_resistance']
+        floor = self.micro_tracker['micro_support']
+        poc_price = self.profile.get('POC', {}).get('center', price)
+
         # 根据交易方向进行不同的价格检查
         if direction == "LONG":
-            # 多头攻击：价格不能跌破吸收底线
+            # 1. 跌破吸收底线：主力防守失败
             if price < self.micro_tracker['absorption_price']:
                 self._log_debug("💥 [A3-多头攻击失败] 吸收底线被击穿，多头攻击取消！")
                 self._reset_to_idle()
                 return None
 
-            # 🚨 【专家级修复】增加突破的 Buffer (缓冲区)，必须实质性越过天花板 (比如高出半个箱子)，防假突破
-            breakout_threshold = self.micro_tracker['micro_resistance'] + (self.current_box_size * 0.5)
-            should_check_breakout = price > breakout_threshold
+            breakout_threshold = ceiling + (self.current_box_size * 0.5)
+            fomo_threshold = breakout_threshold + (self.current_box_size * 4.0)
+
+            # 2. 无量慢涨越过极限警戒线，视为错过最佳突破口，放弃
+            if price > fomo_threshold:
+                self._log_debug("💥 [A3-错过点火] 价格无量慢涨，已飘过最佳突破口，拒接！")
+                self._reset_to_idle()
+                return None
+
+            # 3. 在点火区内考核向量与纯度
+            if breakout_threshold < price <= fomo_threshold:
+                # --- 向量轨迹检查 (Vector Trajectory) ---
+                max_start_price = ceiling + (self.current_box_size * 1.5)
+                if start_price > max_start_price:
+                    self._log_debug(f"💥 [A3-追高拦截] 3秒前起跑点({start_price})已远离天花板({ceiling})，拒接！")
+                    self._reset_to_idle()
+                    return None
+
+                if price <= start_price or price < ceiling:
+                    return None  # 轨迹不是有效向上的突破
+
+                # --- 动态纯度检查 (Dynamic Momentum Filter) ---
+                boxes_above = (price - breakout_threshold) / self.current_box_size
+                req_vol_multiplier = 4.0 if boxes_above > 1.5 else 2.0
+                req_delta_ratio = 0.50 if boxes_above > 1.5 else 0.30
+
+                is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
+                delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
+                is_strong_momentum = delta_ratio_recent > req_delta_ratio
+
+                if is_volume_spike and is_strong_momentum:
+                    self._log_info(
+                        f"⚔️ [A3-多头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{req_vol_multiplier}x), 净买入占比 {delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
+
+                    # ---------------------------------------------------------
+                    # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
+                    # ---------------------------------------------------------
+                    estimated_fee = price * 0.0010  
+                    sl = self.micro_tracker['absorption_price'] - self.current_box_size
+                    risk_distance = price - sl
+
+                    net_risk = risk_distance + estimated_fee
+                    min_gross_reward = (net_risk * 2.5) + estimated_fee
+
+                    tp_target = None
+
+                    if price < poc_price:
+                        for zone in self.macro_zones:  
+                            if 'VAH' in zone['type'] and zone.get('zone_low') >= price + min_gross_reward:
+                                tp_target = zone.get('zone_low')
+                                break
+                    else:
+                        for zone in reversed(self.macro_zones):  
+                            if zone['center'] > price and zone['type'] == 'HVN' and zone.get('zone_low') >= price + min_gross_reward:
+                                tp_target = zone.get('zone_low')
+                                break
+
+                    if tp_target is None:
+                        tp_target = price + min_gross_reward
+                        self._log_debug(f"🗺️ 宏观地图未找到前方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
+
+                    actual_gross_reward = tp_target - price
+                    if actual_gross_reward < min_gross_reward:
+                        self._log_warning(f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做多！")
+                        self._reset_to_idle()
+                        return None
+
+                    # 状态机维护
+                    self.current_sl = sl
+                    self.current_tp = tp_target
+                    self.status = direction
+
+                    signal_score = (abs(delta_ratio_recent) * 100) + (recent_vol / baseline_3s_vol)
+
+                    return {
+                        "action": "BUY",
+                        "entry_price": price,
+                        "stop_loss": round(sl, 4),
+                        "take_profit": round(tp_target, 4),
+                        "signal_score": round(signal_score, 2),
+                        "reason": "TRIPLE_A_COMPLETE"
+                    }
 
         else:  # SHORT
-            # 空头攻击：价格不能突破吸收阻力位
+            # 1. 突破吸收上线：主力防守失败
             if price > self.micro_tracker['absorption_price']:
                 self._log_debug("💥 [A3-空头攻击失败] 吸收阻力位被突破，空头攻击取消！")
                 self._reset_to_idle()
                 return None
 
-            # 空头攻击：检查价格跌破支撑位（支撑位减去半个箱子作为缓冲区）
-            breakdown_threshold = self.micro_tracker['micro_support'] - (self.current_box_size * 0.5)
-            should_check_breakout = price < breakdown_threshold
+            breakdown_threshold = floor - (self.current_box_size * 0.5)
+            fomo_threshold = breakdown_threshold - (self.current_box_size * 4.0)
 
-        if should_check_breakout:
-            # 🚀 价格破位！立刻启动“1.5秒微观动量”扫描！
-            recent_vol = 0.0
-            recent_cvd = 0.0
-            lookback_sec = 1.5
+            # 2. 无量慢跌越过极限警戒线，视为错过最佳突破口，放弃
+            if price < fomo_threshold:
+                self._log_debug("💥 [A3-错过点火] 价格无量慢跌，已飘过最佳跌破口，拒接！")
+                self._reset_to_idle()
+                return None
 
-            # 从队列最末尾（最新 Tick）往前遍历，只取最近 1.5 秒的数据
-            for t in reversed(self.rolling_ticks):
-                if current_time - t[0] <= lookback_sec:
-                    recent_cvd += t[1]  # tick_delta
-                    recent_vol += t[2]  # size
-                else:
-                    break  # 超过 1.5 秒，直接打断，极其节省算力！
+            # 3. 在点火区内考核向量与纯度
+            if fomo_threshold <= price < breakdown_threshold:
+                # --- 向量轨迹检查 (Vector Trajectory) ---
+                min_start_price = floor - (self.current_box_size * 1.5)
+                if start_price < min_start_price:
+                    self._log_debug(f"💥 [A3-追空拦截] 3秒前起跑点({start_price})已远离地板({floor})，拒接！")
+                    self._reset_to_idle()
+                    return None
 
-            # 1. 局部 Volume Spike 判定 (这 1.5 秒的量，必须大于平时 1.5 秒均量的 2 倍)
-            baseline_1_5s_vol = (self.profile.get('avg_vol_1m', 60.0) / 60.0) * lookback_sec
-            is_volume_spike = recent_vol > (baseline_1_5s_vol * 2.0)
+                if price >= start_price or price > floor:
+                    return None  # 轨迹不是有效向下的跌破
 
-            # 2. 局部 Delta Ratio 判定
-            delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
+                # --- 动态纯度检查 (Dynamic Momentum Filter) ---
+                boxes_below = (breakdown_threshold - price) / self.current_box_size
+                req_vol_multiplier = 4.0 if boxes_below > 1.5 else 2.0
+                req_delta_ratio = 0.50 if boxes_below > 1.5 else 0.30
 
-            if direction == "LONG":
-                # 多头攻击：需要主动买盘占优（净买入）
-                is_strong_momentum = delta_ratio_recent > 0.30
-                log_prefix = "多头"
-                momentum_desc = f"净买入占比 {delta_ratio_recent:.1%}"
-            else:  # SHORT
-                # 空头攻击：需要主动卖盘占优（净卖出）
-                is_strong_momentum = delta_ratio_recent < -0.30
-                log_prefix = "空头"
-                momentum_desc = f"净卖出占比 {-delta_ratio_recent:.1%}"
+                is_volume_spike = recent_vol > (baseline_3s_vol * req_vol_multiplier)
+                delta_ratio_recent = recent_cvd / (recent_vol + 1e-8)
+                is_strong_momentum = delta_ratio_recent < -req_delta_ratio
 
-            if is_volume_spike and is_strong_momentum:
-                self._log_info(
-                    f"⚔️ [A3-{log_prefix}攻击达成] 1.5秒内爆量 {recent_vol:.2f}, {momentum_desc}，真突破确立！")
+                if is_volume_spike and is_strong_momentum:
+                    self._log_info(
+                        f"⚔️ [A3-空头攻击达成] {lookback_sec}秒内爆量 {recent_vol:.2f} (>{req_vol_multiplier}x), 净卖出占比 {-delta_ratio_recent:.1%}！轨迹: {start_price} -> {price}")
 
-                # ---------------------------------------------------------
-                # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
-                # ---------------------------------------------------------
-                estimated_fee = price * 0.0010  # 估算双边千分之一手续费
-
-                if direction == "LONG":
-                    sl = self.micro_tracker['absorption_price'] - self.current_box_size
-                    risk_distance = price - sl
-
-                    # 提前算好 2.5 倍净盈亏比所需的最小盘面利润
-                    net_risk = risk_distance + estimated_fee
-                    min_gross_reward = (net_risk * 2.5) + estimated_fee
-
-                    tp_target = None
-                    poc_price = self.profile.get('POC', {}).get('center', float('inf'))
-
-                    # 🔍 1. 结构性寻址 (多头)
-                    if price < poc_price:
-                        # 抄底模式：寻找上方宏观天花板 (VAH) 的下沿
-                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
-                            # 必须确保阵地下沿的距离，大于最低盈亏比底线
-                            if 'VAH' in zone['type'] and zone.get('zone_low') >= price + min_gross_reward:
-                                tp_target = zone.get('zone_low')
-                                break
-                    else:
-                        # 顺势模式：向上寻找最近的 HVN 的下沿
-                        for zone in reversed(self.macro_zones):  # 👈 🚀 抬头看 24 小时大地图！
-                            if zone['center'] > price and zone['type'] == 'HVN' and zone.get(
-                                    'zone_low') >= price + min_gross_reward:
-                                tp_target = zone.get('zone_low')
-                                break
-
-                    # 🛡️ 2. 降级兜底 (如果地图上找不到结构，直接强行按 2.5R:R 算止盈)
-                    if tp_target is None:
-                        tp_target = price + min_gross_reward
-                        self._log_debug(f"🗺️ 宏观地图未找到前方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
-
-                    # ⚖️ 3. 终极风控拦截 (如果找到了结构，但结构离得太近，不够塞牙缝，直接拒接开仓！)
-                    actual_gross_reward = tp_target - price
-                    if actual_gross_reward < min_gross_reward:
-                        self._log_warning(
-                            f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做多！")
-                        self._reset_to_idle()
-                        return None
-
-                    tp = tp_target
-                    action = "BUY"
-
-                else:  # SHORT
+                    # ---------------------------------------------------------
+                    # 🎯 动态结构性寻址与净盈亏比兜底 (全地形自适应)
+                    # ---------------------------------------------------------
+                    estimated_fee = price * 0.0010  
                     sl = self.micro_tracker['absorption_price'] + self.current_box_size
                     risk_distance = sl - price
 
@@ -397,55 +449,43 @@ class TripleASignalGenerator:
                     min_gross_reward = (net_risk * 2.5) + estimated_fee
 
                     tp_target = None
-                    poc_price = self.profile.get('POC', {}).get('center', -float('inf'))
 
-                    # 🔍 1. 结构性寻址 (空头)
                     if price > poc_price:
-                        # 摸顶模式：寻找下方宏观地板 (VAL) 的上沿
-                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
-                            # 必须确保阵地上沿的距离，大于最低盈亏比底线
+                        for zone in self.macro_zones:  
                             if 'VAL' in zone['type'] and zone.get('zone_high') <= price - min_gross_reward:
                                 tp_target = zone.get('zone_high')
                                 break
                     else:
-                        # 顺势模式：向下寻找最近的 HVN 的上沿
-                        for zone in self.macro_zones:  # 👈 🚀 抬头看 24 小时大地图！
-                            if zone['center'] < price and zone['type'] == 'HVN' and zone.get(
-                                    'zone_high') <= price - min_gross_reward:
+                        for zone in self.macro_zones:  
+                            if zone['center'] < price and zone['type'] == 'HVN' and zone.get('zone_high') <= price - min_gross_reward:
                                 tp_target = zone.get('zone_high')
                                 break
 
-                    # 🛡️ 2. 降级兜底
                     if tp_target is None:
                         tp_target = price - min_gross_reward
                         self._log_debug(f"🗺️ 宏观地图未找到下方阵地，启用纯数学 1:2.5 净盈亏比止盈: {tp_target:.2f}")
 
-                    # ⚖️ 3. 终极风控拦截
                     actual_gross_reward = price - tp_target
                     if actual_gross_reward < min_gross_reward:
-                        self._log_warning(
-                            f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做空！")
+                        self._log_warning(f"🚫 [风控拦截] 前方阵地太近！需盈利 {min_gross_reward:.2f}U，实际仅 {actual_gross_reward:.2f}U，放弃做空！")
                         self._reset_to_idle()
                         return None
 
-                    tp = tp_target
-                    action = "SELL"
+                    # 状态机维护
+                    self.current_sl = sl
+                    self.current_tp = tp_target
+                    self.status = direction
 
-                self.current_sl = sl
-                self.current_tp = tp
-                self.status = direction
+                    signal_score = (abs(delta_ratio_recent) * 100) + (recent_vol / baseline_3s_vol)
 
-                # 【专家级修复】输出信号分数 (Score)，供未来的资金管理模块决定仓位大小
-                signal_score = (abs(delta_ratio_recent) * 100) + (recent_vol / baseline_1_5s_vol)
-
-                return {
-                    "action": action,
-                    "entry_price": price,
-                    "stop_loss": sl,
-                    "take_profit": tp,
-                    "signal_score": round(signal_score, 2),
-                    "reason": "TRIPLE_A_COMPLETE"
-                }
+                    return {
+                        "action": "SELL",
+                        "entry_price": price,
+                        "stop_loss": round(sl, 4),
+                        "take_profit": round(tp_target, 4),
+                        "signal_score": round(signal_score, 2),
+                        "reason": "TRIPLE_A_COMPLETE"
+                    }
 
         return None
 
@@ -462,6 +502,16 @@ class TripleASignalGenerator:
 
         self.global_cvd += tick_delta
         self.global_volume += size
+        
+        # 🚀 新增：极致 O(1) 维护 3 秒滑窗账本
+        self.rolling_ticks_3s.append((current_time, tick_delta, size, price))
+        self.recent_cvd_3s += tick_delta
+        self.recent_vol_3s += size
+
+        while self.rolling_ticks_3s and current_time - self.rolling_ticks_3s[0][0] > 3.0:
+            _, old_delta, old_size, _ = self.rolling_ticks_3s.popleft()
+            self.recent_cvd_3s -= old_delta
+            self.recent_vol_3s -= old_size
 
         # 进场：用当前的绝对网格装箱
         box_id = round(price / self.current_box_size) * self.current_box_size
@@ -470,7 +520,7 @@ class TripleASignalGenerator:
         self.global_boxes[box_id]['volume'] += size
         self.global_boxes[box_id]['delta'] += tick_delta
 
-        # 退场：用当前的绝对网格扣减
+        # 退场：用当前的绝对网格扣减 (15秒)
         while self.rolling_ticks and current_time - self.rolling_ticks[0][0] > self.rolling_window_sec:
             old_time, old_delta, old_size, old_price = self.rolling_ticks.popleft()
 
@@ -493,16 +543,21 @@ class TripleASignalGenerator:
             "micro_resistance": 0.0,
             "micro_support": 0.0,
             "direction": None,
-            "a2_start_time": 0.0
+            "a2_start_time": 0.0,
+            "allowed_direction": "ANY"
         }
 
         # 🚀 专家级修复：打断状态机死循环！
-        # 如果订单/侦察失败被重置，说明之前的微观动量是不连贯的或有毒的。
-        # 暴力清空 15 秒滑动窗口，强制引擎进入“冷却盲区”，等待下一波全新行情的蓄力！
         self.rolling_ticks.clear()
         self.global_boxes.clear()
         self.global_volume = 0.0
         self.global_cvd = 0.0
+        
+        # 🚀 清空 3 秒账本
+        self.rolling_ticks_3s.clear()
+        self.recent_cvd_3s = 0.0
+        self.recent_vol_3s = 0.0
+        
         self._log_debug("🧹 状态已重置，底层账本已排空，等待新的资金入场...")
 
     def _manage_position_by_tick(self, tick: Dict) -> Optional[Dict]:
