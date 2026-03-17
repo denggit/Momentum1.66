@@ -234,11 +234,9 @@ class TripleASignalGenerator:
         # right_box_2 = round((center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
 
         cluster_vol = (
-                # self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
                 self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
                 self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                self.global_boxes.get(right_box_1, {}).get('volume', 0.0) +
-                # self.global_boxes.get(right_box_2, {}).get('volume', 0.0)
+                self.global_boxes.get(right_box_1, {}).get('volume', 0.0)
         )
 
         cluster_ratio = cluster_vol / self.global_volume
