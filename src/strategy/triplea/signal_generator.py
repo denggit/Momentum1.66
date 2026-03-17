@@ -25,6 +25,10 @@ class TripleASignalGenerator:
         self.global_volume = 0.0
         self.global_boxes = {}
 
+        # 🚀 你的专属：10 分钟结构性吸收账本 (600秒)
+        self.rolling_ticks_10m = deque()
+        self.global_boxes_10m = {}  # 记录 10 分钟内的每一个价格框的成交量
+
         # 🚀 新增：A3 专属的 3 秒极致 O(1) 动量账本
         self.rolling_ticks_3s = deque()
         self.recent_cvd_3s = 0.0
@@ -229,15 +233,35 @@ class TripleASignalGenerator:
 
         # 使用锚定的网格大小计算左右偏移 (完美严丝合缝)
         left_box_1 = round((center_box - self.current_box_size) / self.current_box_size) * self.current_box_size
-        # left_box_2 = round((center_box - 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
         right_box_1 = round((center_box + self.current_box_size) / self.current_box_size) * self.current_box_size
-        # right_box_2 = round((center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
 
-        cluster_vol = (
-                self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
-                self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                self.global_boxes.get(right_box_1, {}).get('volume', 0.0)
+        # ==========================================
+        # 🛡️ 你的终极防伪：10分钟局部空间异常突起 (Spatial Prominence)
+        # ==========================================
+        # 1. 算出这 3 个核心箱子在过去 10 分钟里，总共沉淀了多少筹码
+        cluster_vol_10m = (
+            self.global_boxes_10m.get(left_box_1, 0.0) +
+            self.global_boxes_10m.get(center_box, 0.0) +
+            self.global_boxes_10m.get(right_box_1, 0.0)
         )
+
+        # 2. 算出 10 分钟地图里，"除了这3个核心箱之外，其他所有箱子" 的平均成交量 (即：平庸的背景噪音)
+        total_vol_10m = sum(self.global_boxes_10m.values())
+        other_vol_10m = total_vol_10m - cluster_vol_10m
+        other_boxes_count = len(self.global_boxes_10m) - 3
+
+        if other_boxes_count > 0:
+            avg_background_vol = other_vol_10m / other_boxes_count
+            avg_cluster_vol = cluster_vol_10m / 3.0
+
+            # 3. 物理审判：这 3 个并行的核心箱的均量，是不是极其【显著】地大于周围的背景箱？
+            # 设定显著倍数为 3.0 倍 (即：这3个箱子必须比背景厚重至少 3 倍)
+            prominence_multiplier = 3.0 
+            
+            if avg_cluster_vol < avg_background_vol * prominence_multiplier:
+                self._log_debug(f"🚫 [10m结构过滤] 核心区均量({avg_cluster_vol:.0f}) 没有显著大于 背景均量({avg_background_vol:.0f})，说明没有冰山，拒接！")
+                self.absorption_start_time = 0.0
+                return None
 
         cluster_ratio = cluster_vol / self.global_volume
 
@@ -635,6 +659,23 @@ class TripleASignalGenerator:
 
             if self.global_boxes[old_box_id]['volume'] <= 1e-8:
                 del self.global_boxes[old_box_id]
+
+        # ---------------------------------------------------------
+        # 🚀 维护 10 分钟的微观大地图
+        # ---------------------------------------------------------
+        # 我们只存时间和对应的箱子ID、成交量，极其节省内存
+        self.rolling_ticks_10m.append((current_time, size, box_id))
+        
+        if box_id not in self.global_boxes_10m:
+            self.global_boxes_10m[box_id] = 0.0
+        self.global_boxes_10m[box_id] += size
+
+        # 踢出 10 分钟前的数据
+        while self.rolling_ticks_10m and current_time - self.rolling_ticks_10m[0][0] > 600.0:
+            old_time, old_size, old_box_id = self.rolling_ticks_10m.popleft()
+            self.global_boxes_10m[old_box_id] -= old_size
+            if self.global_boxes_10m[old_box_id] <= 1e-8:
+                del self.global_boxes_10m[old_box_id]
 
     def _reset_to_idle(self):
         # 🚀 专家级修复：打断状态机死循环，同时【保留阵地钢印】！防失忆！
