@@ -281,8 +281,6 @@ class TripleASignalGenerator:
             self._log_info(
                 f"🧱 [A1-{direction_cn}吸收确认] 熬过 {self.persistence_time}秒 爆量轰炸！核心箱: {center_box}")
 
-            self.absorption_start_time = 0.0
-
             efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
             self._log_info(
                 f"📊 [指标] 簇占比: {cluster_ratio: .1%}, Delta率: {delta_ratio: .1%}, 效率: {efficiency: .2f}")
@@ -662,17 +660,6 @@ class TripleASignalGenerator:
             "volume_history": [],                # 👈 时间-成交量历史
             "cvd_history": []                    # 👈 时间-CVD历史
         }
-
-        # 🚀 专家级修复：打断状态机死循环！
-        self.rolling_ticks.clear()
-        self.global_boxes.clear()
-        self.global_volume = 0.0
-        self.global_cvd = 0.0
-        
-        # 🚀 清空 3 秒账本
-        self.rolling_ticks_3s.clear()
-        self.recent_cvd_3s = 0.0
-        self.recent_vol_3s = 0.0
         
         self._log_debug("🧹 状态已重置，底层账本已排空，等待新的资金入场...")
 
