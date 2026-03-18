@@ -44,57 +44,17 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
             self.timestamp_tracker["a2_start_time"] = current_time
 
-            # 🆕 保存A1阶段指标
-            if self.global_boxes:
-                # 计算Delta比率
-                delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
-
-                # 计算簇占比 (cluster_ratio)
-                center_box = max(self.global_boxes.keys(), key=lambda k: self.global_boxes[k]['volume'])
-                left_box_1 = round((center_box - self.current_box_size) / self.current_box_size) * self.current_box_size
-                left_box_2 = round(
-                    (center_box - 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
-                right_box_1 = round(
-                    (center_box + self.current_box_size) / self.current_box_size) * self.current_box_size
-                right_box_2 = round(
-                    (center_box + 2 * self.current_box_size) / self.current_box_size) * self.current_box_size
-
-                cluster_vol = (
-                        self.global_boxes.get(left_box_2, {}).get('volume', 0.0) +
-                        self.global_boxes.get(left_box_1, {}).get('volume', 0.0) +
-                        self.global_boxes.get(center_box, {}).get('volume', 0.0) +
-                        self.global_boxes.get(right_box_1, {}).get('volume', 0.0) +
-                        self.global_boxes.get(right_box_2, {}).get('volume', 0.0)
-                )
-                cluster_ratio = cluster_vol / (self.global_volume + 1e-8)
-
-                # 计算价格范围百分比
-                min_price = min(self.global_boxes.keys())
-                max_price = max(self.global_boxes.keys())
-                mid_price = (max_price + min_price) / 2.0
-                price_range_pct = (max_price - min_price) / (mid_price + 1e-8)
-
-                # 计算效率指标
-                efficiency = abs(self.global_cvd) / (price_range_pct + 1e-6)
-
-                # 保存到阶段指标（精简版，移除不必要的字段）
-                self.stage_metrics["a1"] = {
-                    "global_volume": self.global_volume,
-                    "global_cvd": self.global_cvd,
-                    "delta_ratio": delta_ratio,
-                    "cluster_ratio": cluster_ratio,
-                    "efficiency": efficiency,
-                    "duration_sec": a1_duration
-                }
-                # 同时记录A2开始时的基准值（用于计算A2阶段变化）
-                self.stage_metrics["a2_start"] = {
-                    "global_cvd": self.global_cvd,
-                    "global_volume": self.global_volume,
-                    "timestamp": current_time
-                }
-            else:
-                self.stage_metrics["a1"] = {}
-                self.stage_metrics["a2_start"] = {}
+            # 🆕 保存A1阶段指标（简化版，不依赖网格系统）
+            # 新算法实现后将填充具体指标
+            self.stage_metrics["a1"] = {
+                "duration_sec": a1_duration,
+                "current_cvd_15s": self.current_cvd_15s,
+                "cvd_hourly_avg": self.cvd_hourly_avg
+            }
+            # 同时记录A2开始时的基准值（用于计算A2阶段变化）
+            self.stage_metrics["a2_start"] = {
+                "timestamp": current_time
+            }
         return result
 
     def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
@@ -105,13 +65,9 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
             a2_start_time = self.timestamp_tracker.get("a2_start_time", 0.0)
             a2_duration = current_time - a2_start_time if a2_start_time > 0 else 0.0
 
-            # 🆕 保存A2阶段指标（精简版，只记录结束状态和持续时间）
-            a2_start_metrics = self.stage_metrics.get("a2_start", {})
-
-            # 保存A2阶段综合指标
+            # 🆕 保存A2阶段指标（精简版，只记录持续时间）
+            # 新算法实现后将填充具体指标
             self.stage_metrics["a2"] = {
-                "end_global_cvd": self.global_cvd,
-                "end_global_volume": self.global_volume,
                 "duration_sec": a2_duration
             }
         return result
@@ -125,20 +81,10 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
             # 获取父类计算的数据
             price = tick['price']
+            # rolling_ticks已移除，近期成交量数据暂不可用
             recent_vol = 0.0
             recent_cvd = 0.0
-            lookback_sec = 1.5
-            # 计算近期成交量（从父类复制逻辑或直接访问父类属性）
-            for t in reversed(self.rolling_ticks):
-                if current_time - t[0] <= lookback_sec:
-                    recent_cvd += t[1]  # tick_delta
-                    recent_vol += t[2]  # size
-                else:
-                    break
-
-            # 计算全局Delta比率
-            global_delta_ratio = abs(self.global_cvd) / (self.global_volume + 1e-8)
-            recent_delta_ratio = recent_cvd / (recent_vol + 1e-8)
+            recent_delta_ratio = 0.0
 
             # 🆕 获取目标区域信息和POC价格
             target_zone_high = 0.0
@@ -156,9 +102,7 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
             # 保存A3阶段指标（精简版：只记录触发时的状态）
             self.stage_metrics["a3"] = {
-                "global_volume": self.global_volume,
-                "global_cvd": self.global_cvd,
-                "delta_ratio": global_delta_ratio,
+                "current_cvd_15s": self.current_cvd_15s,
                 "recent_vol": recent_vol,
                 "recent_cvd": recent_cvd,
                 "recent_delta_ratio": recent_delta_ratio
@@ -173,9 +117,6 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
                 "target_zone_low": target_zone_low,
                 "macro_poc_price": macro_poc_price,
                 "distance_to_poc": distance_to_poc,
-                "current_box_size": self.current_box_size,
-                "vol_spike_threshold": self.vol_spike_threshold,
-                "delta_ratio_threshold": self.delta_ratio_threshold,
                 # 🆕 添加阶段指标（精简版）
                 "stage_metrics": {
                     "a1": self.stage_metrics.get("a1", {}),
@@ -227,7 +168,7 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
         # 如果订单结束，使用提前保存的快照变量计算距离
         if result and result.get('action') in ["CLOSE_LONG", "CLOSE_SHORT"]:
-            entry_price = self.micro_tracker.get('absorption_price', price)  # 近似入场价
+            entry_price = self.micro_tracker.get('entry_price', price)  # 近似入场价
 
             if current_status == "LONG":
                 mfe_dist = current_mfe - entry_price

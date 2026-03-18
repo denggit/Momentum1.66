@@ -36,7 +36,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.data_feed.okx_stream import OKXTickStreamer
-from src.strategy.orderflow import OrderFlowMath
+from src.strategy.orderflow.orderflow import OrderFlowMath
 from src.strategy.orderflow.smc_validator import SMCValidator
 from src.execution.orderflow_executor import OrderFlowExecutor
 from src.execution.lifecycle_manager import LifecycleManager
