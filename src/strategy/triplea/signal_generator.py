@@ -1,4 +1,3 @@
-from collections import deque
 from typing import Dict, Optional
 
 from src.utils.log import get_logger
@@ -33,7 +32,7 @@ class TripleASignalGenerator:
 
         # CVD检测基础设施 - 精简框架，新算法将重新实现
         self.current_cvd_15s = 0.0  # 当前CVD累加值（供参考）
-        self.cvd_hourly_avg = 0.0   # 历史CVD平均值（供参考）
+        self.cvd_hourly_avg = 0.0  # 历史CVD平均值（供参考）
         self.cvd_spike_threshold = 3.0  # 突增阈值（供参考）
 
     def _process_zones(self, raw_zones):
@@ -121,7 +120,7 @@ class TripleASignalGenerator:
             "stop_loss": 0.0,
             "take_profit": 0.0,
             "allowed_direction": preserved_dir,  # 继承方向
-            "locked_zone_key": preserved_key     # 继承坐标
+            "locked_zone_key": preserved_key  # 继承坐标
         }
 
         self._log_debug("🧹 状态已重置，等待新的资金入场...")
@@ -153,7 +152,6 @@ class TripleASignalGenerator:
             self.current_tp = 0.0
 
         return signal
-
 
     # ==========================================
     # 🔇 日志消音器：如果是影子引擎，就闭嘴不打印日常刷屏

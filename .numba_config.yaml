@@ -1,0 +1,100 @@
+# Numba JIT编译配置 - 四号引擎v3.0高性能优化版
+# 双核隔离架构 + 进程池管理 + 矩阵广播优化
+
+# 编译选项
+compiler:
+  # 启用缓存以加速重复编译
+  cache: true
+  # 缓存目录（使用用户主目录避免权限问题）
+  cache_dir: "~/.cache/numba"
+  # 优化级别：3为最高优化
+  optimization_level: 3
+  # 启用循环向量化
+  loop_vectorize: true
+  # 启用自动并行化
+  auto_parallelize: true
+  # 启用快速数学优化（注意精度损失）
+  fastmath: true
+  # 启用边界检查（调试时启用，生产时禁用）
+  boundscheck: false
+  # 启用调试信息（调试时启用，生产时禁用）
+  debug: false
+
+# 目标架构
+target:
+  # CPU目标：根据阿里云2C2G服务器配置
+  cpu:
+    # 启用AVX2指令集（如果可用）
+    enable_avx2: true
+    # 启用FMA指令集（如果可用）
+    enable_fma: true
+    # 线程数：2核服务器
+    num_threads: 2
+
+# 预热策略
+warmup:
+  # 预热样本数量
+  sample_size: 1000
+  # 预热数据类型
+  dtype: "float64"
+  # 预热编译超时（毫秒）
+  timeout_ms: 500
+  # 启用后台预热
+  background: true
+
+# 进程池配置
+process_pool:
+  # Worker进程数量（绑定到核心1）
+  num_workers: 1
+  # 任务队列大小
+  task_queue_size: 1000
+  # Worker进程CPU亲和性（核心1）
+  cpu_affinity: [1]
+  # 主进程CPU亲和性（核心0）
+  main_cpu_affinity: [0]
+
+# 性能监控
+monitoring:
+  # 启用JIT编译时间监控
+  enable_jit_timing: true
+  # 启用缓存命中率监控
+  enable_cache_hit_rate: true
+  # 启用内存使用监控
+  enable_memory_usage: true
+  # 采样间隔（秒）
+  sampling_interval: 60
+
+# 矩阵计算优化
+matrix_ops:
+  # 启用Numpy广播优化
+  enable_broadcasting: true
+  # 启用内存视图优化
+  enable_memory_view: true
+  # 启用预分配缓冲区
+  enable_preallocation: true
+  # 缓冲区大小（元素数量）
+  buffer_size: 1000000
+
+# 调试选项（仅开发环境启用）
+debugging:
+  # 启用编译报告
+  enable_compilation_report: false
+  # 启用类型注解报告
+  enable_type_annotation_report: false
+  # 启用IR转储
+  enable_ir_dump: false
+  # 启用汇编转储
+  enable_assembly_dump: false
+
+# 环境特定配置
+environment:
+  # 服务器类型：阿里云2C2G东京
+  server_type: "aliyun_2c2g_tokyo"
+  # 操作系统：Linux
+  os: "linux"
+  # Python版本要求
+  python_version: ">=3.8"
+  # 内存限制（MB）
+  memory_limit_mb: 2048
+  # CPU核心限制
+  cpu_cores: 2
