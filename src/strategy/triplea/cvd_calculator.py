@@ -67,6 +67,10 @@ class CVDCalculator:
             'total_processing_time_ns': 0
         }
 
+        # 统计更新频率控制（每10个tick更新一次统计）
+        self.stats_update_counter = 0
+        self.stats_update_interval = 10  # 每10个tick更新一次统计
+
         logger.info(f"CVDCalculator初始化完成，窗口大小: {window_sizes}")
 
     def on_tick(self, tick: NormalizedTick) -> Dict[int, float]:
@@ -92,12 +96,15 @@ class CVDCalculator:
                 cvd_value = self._update_window_cvd(window, tick)
                 updated_cvd[window] = cvd_value
 
-            # 更新统计特征
-            self._update_statistics()
-
             # 更新性能统计
             self.stats['ticks_processed'] += 1
             self.stats['cvd_updates'] += len(self.window_sizes)
+
+            # 控制统计特征更新频率（每10个tick更新一次）
+            self.stats_update_counter += 1
+            if self.stats_update_counter >= self.stats_update_interval:
+                self._update_statistics()
+                self.stats_update_counter = 0
 
             return updated_cvd
 
@@ -140,9 +147,18 @@ class CVDCalculator:
 
         return current_cvd
 
-    def _update_statistics(self):
-        """更新CVD统计特征（均值、标准差、Z-score）"""
-        for window in self.window_sizes:
+    def _update_statistics(self, window: Optional[int] = None):
+        """更新CVD统计特征（均值、标准差、Z-score）
+
+        Args:
+            window: 指定窗口大小，None表示更新所有窗口
+        """
+        if window is not None:
+            windows = [window]
+        else:
+            windows = self.window_sizes
+
+        for window in windows:
             history = list(self.cvd_history[window])
             if len(history) < 2:
                 continue
@@ -185,6 +201,9 @@ class CVDCalculator:
         Returns:
             统计特征字典
         """
+        # 确保统计信息是最新的
+        self._update_statistics(window)
+
         if window is not None:
             return {window: self.cvd_stats[window]}
         return self.cvd_stats.copy()

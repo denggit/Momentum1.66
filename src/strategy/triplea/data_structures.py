@@ -139,6 +139,12 @@ class KDEEngineConfig:
     lvn_density_percentile: float = 30.0   # 密度低于30%分位认定为LVN
     min_slice_ticks: int = 100      # 脉冲波最少包含100笔Tick才计算KDE
 
+    # 自适应网格配置（实盘保命核心）
+    adaptive_grid: bool = True       # 强烈建议默认开启自适应！实盘保命的核心。
+    target_grid_step: float = 0.5    # 目标步长：0.50 USDT (过滤微观噪音的甜点区)
+    min_grid_size: int = 30          # 下限：防止大瀑布时点数过少，曲线变成多边形
+    max_grid_size: int = 80          # 上限：熔断机制，死保 0.2ms 以内的极速延迟
+
 
 @dataclass
 class RiskManagerConfig:
