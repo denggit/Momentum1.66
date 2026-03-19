@@ -1,0 +1,75 @@
+# 四号引擎v3.0 默认配置
+
+# 进程池配置
+process_pool:
+  max_workers: 1  # 最大Worker数量（默认1个Worker，绑定到核心1）
+  task_queue_size: 1000  # 任务队列大小
+  worker_timeout: 60.0  # Worker超时时间（秒）
+  heartbeat_interval: 5.0  # 心跳检测间隔（秒）
+  enable_heartbeat: true  # 是否启用心跳检测
+  task_timeout: 30.0  # 任务执行超时时间（秒）
+  max_retries: 3  # 任务最大重试次数
+
+# CPU亲和性配置
+cpu_affinity:
+  main_process_core: 0  # 主进程核心（I/O密集）
+  worker_process_core: 1  # Worker进程核心（CPU密集）
+  enable_affinity: true  # 是否启用CPU亲和性绑定
+  check_interval: 5.0  # 亲和性检查间隔（秒）
+
+# Numba JIT配置
+numba:
+  enable_cache: true  # 是否启用缓存
+  cache_dir: "~/.cache/numba"  # 缓存目录
+  enable_parallel: true  # 是否启用并行计算
+  fastmath: true  # 是否启用快速数学优化
+  debug: false  # 是否启用调试模式
+
+# JIT预热配置
+warmup:
+  strategy: "hybrid"  # 预热策略：eager, lazy, background, hybrid
+  enable_background_warmup: true  # 是否启用后台预热
+  background_threads: 2  # 后台预热线程数
+  warmup_data_size: 100  # 预热数据样本大小
+  timeout: 30.0  # 预热超时时间（秒）
+
+# JIT监控配置
+jit_monitor:
+  enable_phase_tracking: false  # 是否启用编译阶段跟踪
+  max_history_size: 1000  # 最大历史记录数
+  alert_thresholds:
+    compile_time_ms: 500.0  # 编译时间阈值（毫秒）
+    memory_mb: 100.0  # 内存使用阈值（MB）
+    error_rate: 0.1  # 错误率阈值
+    consecutive_failures: 3  # 连续失败次数
+    cache_miss_rate: 0.5  # 缓存未命中率阈值
+
+# 序列化配置
+serialization:
+  enable_compression: true  # 是否启用压缩
+  compression_level: 6  # 压缩级别（1-9）
+  pickle_protocol: 4  # Pickle协议版本
+  max_buffer_size: 10485760  # 最大缓冲区大小（10MB）
+
+# IPC通信配置
+ipc:
+  connect_timeout: 5.0  # 连接超时时间（秒）
+  read_timeout: 10.0  # 读取超时时间（秒）
+  write_timeout: 10.0  # 写入超时时间（秒）
+  max_message_size: 5242880  # 最大消息大小（5MB）
+  heartbeat_interval: 3.0  # 心跳间隔（秒）
+
+# 性能监控配置
+performance:
+  enable_monitoring: true  # 是否启用性能监控
+  sampling_interval: 1.0  # 采样间隔（秒）
+  metrics_retention: 3600  # 指标保留时间（秒）
+  enable_alerts: true  # 是否启用性能告警
+
+# 日志配置
+logging:
+  level: "INFO"  # 日志级别：DEBUG, INFO, WARNING, ERROR, CRITICAL
+  enable_file_logging: true  # 是否启用文件日志
+  max_file_size: 10485760  # 最大日志文件大小（10MB）
+  backup_count: 5  # 备份文件数量
+  log_format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # 日志格式

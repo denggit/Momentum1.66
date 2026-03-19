@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import logging
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +11,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
 import warnings
+
+# 导入现有日志模块
+from src.utils.log import get_logger
 
 import numpy as np
 
@@ -131,7 +133,7 @@ class NumbaWarmupManager:
         enable_background_warmup: bool = True,
         background_threads: int = 2,
         warmup_data_size: int = 100,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[Any] = None
     ):
         """
         初始化预热管理器
@@ -148,7 +150,7 @@ class NumbaWarmupManager:
         self.background_threads = background_threads
         self.warmup_data_size = warmup_data_size
 
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or get_logger(__name__)
         self._functions: Dict[str, JITFunctionInfo] = {}
         self._stats = WarmupStats()
         self._background_executor: Optional[ThreadPoolExecutor] = None

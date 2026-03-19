@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import logging
 import multiprocessing
 import os
 import queue
@@ -17,6 +16,12 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, TypeVar
 
 import psutil
+
+# 导入现有日志模块
+from src.utils.log import get_logger
+
+# 导入配置加载器
+from config.triplea import load_triplea_config
 
 # 类型变量
 T = TypeVar('T')
@@ -74,29 +79,34 @@ class ProcessPoolManager:
     """高性能进程池管理器"""
 
     def __init__(self,
-                 max_workers: int = 1,
+                 max_workers: Optional[int] = None,
                  cpu_affinity: Optional[List[int]] = None,
-                 task_queue_size: int = 1000,
-                 enable_heartbeat: bool = True,
-                 heartbeat_interval: float = 5.0,
-                 worker_timeout: float = 60.0):
+                 task_queue_size: Optional[int] = None,
+                 enable_heartbeat: Optional[bool] = None,
+                 heartbeat_interval: Optional[float] = None,
+                 worker_timeout: Optional[float] = None):
         """
         初始化进程池管理器
 
         Args:
-            max_workers: 最大Worker数量
-            cpu_affinity: CPU亲和性设置（核心列表）
-            task_queue_size: 任务队列大小
-            enable_heartbeat: 是否启用心跳检测
-            heartbeat_interval: 心跳检测间隔（秒）
-            worker_timeout: Worker超时时间（秒）
+            max_workers: 最大Worker数量，None则从配置读取
+            cpu_affinity: CPU亲和性设置（核心列表），None则从配置读取
+            task_queue_size: 任务队列大小，None则从配置读取
+            enable_heartbeat: 是否启用心跳检测，None则从配置读取
+            heartbeat_interval: 心跳检测间隔（秒），None则从配置读取
+            worker_timeout: Worker超时时间（秒），None则从配置读取
         """
-        self.max_workers = max_workers
+        # 加载配置
+        config = load_triplea_config(config_type="engine")
+        process_pool_config = config.get("process_pool", {})
+
+        # 使用参数值或配置值，如果都没有则使用硬编码默认值
+        self.max_workers = max_workers or process_pool_config.get("max_workers", 1)
         self.cpu_affinity = cpu_affinity or []
-        self.task_queue_size = task_queue_size
-        self.enable_heartbeat = enable_heartbeat
-        self.heartbeat_interval = heartbeat_interval
-        self.worker_timeout = worker_timeout
+        self.task_queue_size = task_queue_size or process_pool_config.get("task_queue_size", 1000)
+        self.enable_heartbeat = enable_heartbeat if enable_heartbeat is not None else process_pool_config.get("enable_heartbeat", True)
+        self.heartbeat_interval = heartbeat_interval or process_pool_config.get("heartbeat_interval", 5.0)
+        self.worker_timeout = worker_timeout or process_pool_config.get("worker_timeout", 60.0)
 
         # 进程池和任务管理
         self.executor: Optional[ProcessPoolExecutor] = None
@@ -130,7 +140,7 @@ class ProcessPoolManager:
         }
 
         # 日志
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         """获取事件循环（延迟初始化）"""
@@ -212,7 +222,8 @@ class ProcessPoolManager:
                           task_type: str,
                           data: Any,
                           priority: int = 0,
-                          timeout_seconds: float = 30.0) -> str:
+                          timeout_seconds: Optional[float] = None,
+                          max_retries: Optional[int] = None) -> str:
         """
         提交任务
 
@@ -220,12 +231,21 @@ class ProcessPoolManager:
             task_type: 任务类型
             data: 任务数据
             priority: 任务优先级（数字越小优先级越高）
-            timeout_seconds: 任务超时时间
+            timeout_seconds: 任务超时时间，None则从配置读取
+            max_retries: 最大重试次数，None则从配置读取
 
         Returns:
             任务ID
         """
         with self._task_lock:
+            # 加载配置获取默认值
+            config = load_triplea_config(config_type="engine")
+            process_pool_config = config.get("process_pool", {})
+
+            # 使用参数值或配置值
+            actual_timeout = timeout_seconds or process_pool_config.get("task_timeout", 30.0)
+            actual_max_retries = max_retries or process_pool_config.get("max_retries", 3)
+
             # 生成任务ID
             self._task_counter += 1
             task_id = f"task_{self._task_counter}_{int(time.time() * 1000)}"
@@ -236,7 +256,8 @@ class ProcessPoolManager:
                 task_type=task_type,
                 data=data,
                 priority=priority,
-                timeout_seconds=timeout_seconds
+                timeout_seconds=actual_timeout,
+                max_retries=actual_max_retries
             )
 
             # 添加到待处理队列
@@ -827,10 +848,22 @@ def get_default_manager() -> ProcessPoolManager:
     """获取默认进程池管理器"""
     global _default_manager
     if _default_manager is None:
+        # 从配置加载CPU亲和性设置
+        config = load_triplea_config(config_type="engine")
+        cpu_affinity_config = config.get("cpu_affinity", {})
+
+        worker_core = cpu_affinity_config.get("worker_process_core", 1)
+        enable_affinity = cpu_affinity_config.get("enable_affinity", True)
+
+        # 设置CPU亲和性
+        cpu_affinity = [worker_core] if enable_affinity else None
+
         _default_manager = ProcessPoolManager(
-            max_workers=1,  # 默认1个Worker（核心1）
-            cpu_affinity=[1],  # 绑定到核心1
-            task_queue_size=1000,
-            enable_heartbeat=True
+            max_workers=None,  # None表示从配置读取
+            cpu_affinity=cpu_affinity,
+            task_queue_size=None,
+            enable_heartbeat=None,
+            heartbeat_interval=None,
+            worker_timeout=None
         )
     return _default_manager

@@ -8,7 +8,8 @@ import shutil
 import hashlib
 import json
 import time
-import logging
+# 导入现有日志模块
+from src.utils.log import get_logger
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -112,7 +113,7 @@ class NumbaCacheManager:
         max_size_mb: int = 500,
         cleanup_strategy: CacheCleanupStrategy = CacheCleanupStrategy.HYBRID,
         enable_file_locking: bool = True,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[Any] = None
     ):
         """
         初始化缓存管理器
@@ -129,7 +130,7 @@ class NumbaCacheManager:
         self.cleanup_strategy = cleanup_strategy
         self.enable_file_locking = enable_file_locking
 
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or get_logger(__name__)
         self._cache_dir_path = Path(self.cache_dir).expanduser().resolve()
         self._meta_file_path = self._cache_dir_path / self.META_FILENAME
         self._lock_file_path = self._cache_dir_path / self.LOCK_FILENAME

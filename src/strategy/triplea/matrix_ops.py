@@ -9,6 +9,8 @@ from numba import njit, jit, vectorize, guvectorize
 from typing import Any, Tuple, Optional, Union, List, Callable, Dict
 import warnings
 
+from src.utils.log import get_logger
+
 # 类型别名
 ArrayLike = Union[np.ndarray, List[float], List[int]]
 Shape = Tuple[int, ...]
@@ -588,6 +590,7 @@ def measure_performance(func: Callable) -> Callable:
     """
     import time
     from functools import wraps
+    logger = get_logger(__name__)
 
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -601,8 +604,8 @@ def measure_performance(func: Callable) -> Callable:
         else:
             wrapper._performance_stats = [elapsed]
 
-        # 可选：打印性能信息
-        print(f"⏱️  {func.__name__}: {elapsed*1000:.1f}ms")
+        # 记录性能信息到日志
+        logger.debug(f"{func.__name__}: {elapsed*1000:.1f}ms")
 
         return result
 
@@ -643,8 +646,11 @@ def get_performance_stats(func: Callable) -> Dict[str, float]:
 
 # 示例使用
 if __name__ == "__main__":
+    # 设置日志记录器
+    logger = get_logger(__name__)
+
     # 示例1：矩阵广播KDE
-    print("示例1: 矩阵广播KDE")
+    logger.info("示例1: 矩阵广播KDE")
     prices = np.random.randn(1000) * 50 + 3000
     grid = np.linspace(2800, 3200, 200)
 
@@ -659,12 +665,12 @@ if __name__ == "__main__":
     kde_numba = numba_broadcast_kde(prices, grid, 0.5)
     numba_time = time.perf_counter() - start
 
-    print(f"Python: {python_time*1000:.1f}ms")
-    print(f"Numba: {numba_time*1000:.1f}ms")
-    print(f"加速比: {python_time/numba_time:.1f}x")
+    logger.info(f"Python: {python_time*1000:.1f}ms")
+    logger.info(f"Numba: {numba_time*1000:.1f}ms")
+    logger.info(f"加速比: {python_time/numba_time:.1f}x")
 
     # 示例2：滑动窗口计算
-    print("\n示例2: 滑动窗口计算")
+    logger.info("示例2: 滑动窗口计算")
     data = np.random.randn(10000)
     window = 100
 
@@ -672,15 +678,15 @@ if __name__ == "__main__":
     means = rolling_mean(data, window)
     rolling_time = time.perf_counter() - start
 
-    print(f"滚动均值计算: {rolling_time*1000:.1f}ms")
-    print(f"结果形状: {means.shape}")
-    print(f"均值: {np.nanmean(means):.4f}")
+    logger.info(f"滚动均值计算: {rolling_time*1000:.1f}ms")
+    logger.info(f"结果形状: {means.shape}")
+    logger.info(f"均值: {np.nanmean(means):.4f}")
 
     # 示例3：分位数计算
-    print("\n示例3: 分位数计算")
+    logger.info("示例3: 分位数计算")
     test_data = np.random.randn(10000)
     quantiles = [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
 
     for q in quantiles:
         result = fast_quantile(test_data, q)
-        print(f"Q{q*100:.0f}: {result:.4f}")
+        logger.info(f"Q{q*100:.0f}: {result:.4f}")

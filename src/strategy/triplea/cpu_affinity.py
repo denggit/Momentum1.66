@@ -3,14 +3,16 @@
 精准CPU核心绑定，支持双核隔离架构
 """
 
-import logging
 import os
 import platform
 import threading
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 import psutil
+
+# 导入现有日志模块
+from src.utils.log import get_logger
 
 
 class CPUAffinityError(Exception):
@@ -28,14 +30,14 @@ class PlatformSupport(Enum):
 class CPUAffinityManager:
     """CPU亲和性管理器"""
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[Any] = None):
         """
         初始化CPU亲和性管理器
 
         Args:
             logger: 日志记录器
         """
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or get_logger(__name__)
         self.platform_info = self._detect_platform()
         self.process = psutil.Process(os.getpid())
 

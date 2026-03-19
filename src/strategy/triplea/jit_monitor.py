@@ -4,7 +4,6 @@
 """
 
 import time
-import logging
 import threading
 import statistics
 from dataclasses import dataclass, field
@@ -13,6 +12,9 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Callable
 from collections import deque, defaultdict
 import warnings
+
+# 导入现有日志模块
+from src.utils.log import get_logger
 
 # 尝试导入numba相关模块
 try:
@@ -129,7 +131,7 @@ class JITMonitor:
         enable_phase_tracking: bool = False,
         alert_threshold: Optional[AlertThreshold] = None,
         max_history_size: int = 1000,
-        logger: Optional[logging.Logger] = None
+        logger: Optional[Any] = None
     ):
         """
         初始化JIT监控器
@@ -144,7 +146,7 @@ class JITMonitor:
         self.alert_threshold = alert_threshold or AlertThreshold()
         self.max_history_size = max_history_size
 
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or get_logger(__name__)
         self._is_monitoring = False
         self._is_shutdown = False
         self._lock = threading.RLock()
