@@ -19,6 +19,7 @@ from src.strategy.triplea.data_structures import (
 from src.strategy.triplea.lvn_manager import LVNManager
 from src.strategy.triplea.cvd_calculator import CVDCalculator
 from src.strategy.triplea.range_bar_generator import RangeBarGenerator
+from src.strategy.triplea.risk_manager import RiskManager, PositionSizingResult
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -168,6 +169,7 @@ class TripleAStateMachine:
             window_sizes=[10, 30, 60, 120, 240]  # 多时间窗口分析
         )
         self.range_bar_generator = RangeBarGenerator(config.range_bar)
+        self.risk_manager = RiskManager(config.risk_manager)
 
         # 状态机上下文
         self.context = StateContext()
@@ -451,17 +453,24 @@ class TripleAStateMachine:
             # 生成交易信号
             signal = self._generate_trade_signal(tick)
 
-            # 进入POSITION状态
+            # 检查是否被风控拦截
+            if signal is None:
+                # 风控拦截，返回IDLE状态
+                self.context.update_state(
+                    TripleAState.IDLE,
+                    "风控拦截：交易被拒绝"
+                )
+                logger.info("🔙 返回IDLE状态: 交易被风控拦截")
+                return None
 
+            # 进入POSITION状态
             self.context.update_state(
                 TripleAState.POSITION,
-
                 f"攻击信号触发 ({self.context.trade_direction})"
             )
 
             # 记录事件
             self.context.record_event(
-
                 StateTransitionEvent.AGGRESSION_SIGNAL,
                 {
                     'trade_direction': self.context.trade_direction,
@@ -858,131 +867,183 @@ class TripleAStateMachine:
 
 
 
-    def _generate_trade_signal(self, tick: NormalizedTick) -> Dict[str, Any]:
+    def _calculate_structural_levels(self, entry_price: float, direction: str) -> tuple[float, float]:
+        """计算结构性止损止盈价格
 
-        """生成交易信号（包含开仓方向、价格、止损止盈）"""
+        根据用户要求：
+        1. 止损放在吸收点下方2ticks（做多）或上方2ticks（做空）
+        2. 止盈放在VAH下方一点点（做多）或VAL上方一点点（做空）
+        3. 使用LVN区域边界作为吸收点和VAH/VAL的近似
 
+        Args:
+            entry_price: 入场价格
+            direction: 交易方向 ("LONG" 或 "SHORT")
 
+        Returns:
+            tuple: (structural_stop_loss_price, structural_take_profit_price)
+        """
+        if not self.context.active_lvn_region:
+            # 如果没有LVN区域，使用默认的tick数计算
+            print("⚠️ 警告：无LVN区域数据，使用默认止损止盈计算")
+            return self.risk_manager.calculate_stop_loss_take_profit(
+                entry_price, direction, self.config.market.tick_size
+            )
 
+        # 获取LVN区域边界
+        lvn_start = self.context.active_lvn_region['start_price']
+        lvn_end = self.context.active_lvn_region['end_price']
+        tick_size = self.config.market.tick_size
+
+        if direction == "LONG":
+            # 做多：吸收点 = LVN低点 (start_price)
+            absorption_point = lvn_start
+            # 止损 = 吸收点下方2ticks
+            structural_sl = absorption_point - (2 * tick_size)
+
+            # VAH近似 = LVN高点 (end_price)
+            vah_approx = lvn_end
+            # 止盈 = VAH下方一点点（1-2ticks）
+            structural_tp = vah_approx - (2 * tick_size)
+
+            # 确保止盈高于入场价（至少0.2%距离）
+            min_tp_distance_pct = 0.002  # 0.2%
+            min_tp_distance = entry_price * min_tp_distance_pct
+            if structural_tp - entry_price < min_tp_distance:
+                # 调整止盈以满足最小距离
+                structural_tp = entry_price + min_tp_distance
+                print(f"⚠️ 调整止盈以满足最小0.2%距离: {structural_tp:.2f}")
+
+            # 确保止损低于入场价
+            if structural_sl >= entry_price:
+                structural_sl = entry_price - (2 * tick_size)
+                print(f"⚠️ 调整止损以确保低于入场价: {structural_sl:.2f}")
+
+        else:  # SHORT
+            # 做空：吸收点 = LVN高点 (end_price)
+            absorption_point = lvn_end
+            # 止损 = 吸收点上方2ticks
+            structural_sl = absorption_point + (2 * tick_size)
+
+            # VAL近似 = LVN低点 (start_price)
+            val_approx = lvn_start
+            # 止盈 = VAL上方一点点（1-2ticks）
+            structural_tp = val_approx + (2 * tick_size)
+
+            # 确保止盈低于入场价（至少0.2%距离）
+            min_tp_distance_pct = 0.002  # 0.2%
+            min_tp_distance = entry_price * min_tp_distance_pct
+            if entry_price - structural_tp < min_tp_distance:
+                # 调整止盈以满足最小距离
+                structural_tp = entry_price - min_tp_distance
+                print(f"⚠️ 调整止盈以满足最小0.2%距离: {structural_tp:.2f}")
+
+            # 确保止损高于入场价
+            if structural_sl <= entry_price:
+                structural_sl = entry_price + (2 * tick_size)
+                print(f"⚠️ 调整止损以确保高于入场价: {structural_sl:.2f}")
+
+        print(f"✅ 结构性水平计算:")
+        print(f"  方向: {direction}")
+        print(f"  LVN区间: [{lvn_start:.2f}, {lvn_end:.2f}]")
+        print(f"  入场价: {entry_price:.2f}")
+        print(f"  结构性止损: {structural_sl:.2f}")
+        print(f"  结构性止盈: {structural_tp:.2f}")
+
+        return structural_sl, structural_tp
+
+    def _generate_trade_signal(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
+        """生成交易信号（包含开仓方向、价格、结构性止损止盈）
+
+        根据用户要求：
+        1. 止损放在吸收点下方2ticks（做多）或上方2ticks（做空）
+        2. 止盈放在VAH下方一点点（做多）或VAL上方一点点（做空）
+        3. 止盈距离至少0.2%（覆盖手续费）
+        4. 盈亏比至少2:1
+
+        Args:
+            tick: 当前Tick数据
+
+        Returns:
+            交易信号字典，如果被风控拦截则返回None
+        """
         # 确定交易方向（基于CVD背离方向）
-
         direction = self.context.cvd_divergence_direction
 
-
-
+        # 处理方向映射
         if direction == "BULLISH":
-
             trade_direction = "LONG"
-
-            entry_price = tick.px
-
-            stop_loss_ticks = self.config.risk_manager.stop_loss_ticks
-
-            take_profit_ticks = self.config.risk_manager.take_profit_ticks
-
-
-
-            stop_loss_price = entry_price - (stop_loss_ticks * self.config.market.tick_size)
-
-            take_profit_price = entry_price + (take_profit_ticks * self.config.market.tick_size)
-
-
-
         elif direction == "BEARISH":
-
             trade_direction = "SHORT"
-
-            entry_price = tick.px
-
-            stop_loss_ticks = self.config.risk_manager.stop_loss_ticks
-
-            take_profit_ticks = self.config.risk_manager.take_profit_ticks
-
-
-
-            stop_loss_price = entry_price + (stop_loss_ticks * self.config.market.tick_size)
-
-            take_profit_price = entry_price - (take_profit_ticks * self.config.market.tick_size)
-
-
-
         else:
-
             # 默认方向（基于价格相对于LVN中心的位置）
-
             if tick.px < self.context.lvn_center_price:
-
                 trade_direction = "LONG"
-
-                entry_price = tick.px
-
-                stop_loss_ticks = self.config.risk_manager.stop_loss_ticks
-
-                take_profit_ticks = self.config.risk_manager.take_profit_ticks
-
-
-
-                stop_loss_price = entry_price - (stop_loss_ticks * self.config.market.tick_size)
-
-                take_profit_price = entry_price + (take_profit_ticks * self.config.market.tick_size)
-
             else:
-
                 trade_direction = "SHORT"
 
-                entry_price = tick.px
+        entry_price = tick.px
 
-                stop_loss_ticks = self.config.risk_manager.stop_loss_ticks
+        # 计算结构性止损止盈价格
+        structural_sl, structural_tp = self._calculate_structural_levels(
+            entry_price, trade_direction
+        )
 
-                take_profit_ticks = self.config.risk_manager.take_profit_ticks
+        # 验证结构性水平的有效性
+        if trade_direction == "LONG":
+            if structural_sl >= entry_price or structural_tp <= entry_price:
+                print(f"⚠️ 风控拦截：无效的结构性水平 (SL={structural_sl:.2f}, TP={structural_tp:.2f})")
+                return None
+        else:  # SHORT
+            if structural_sl <= entry_price or structural_tp >= entry_price:
+                print(f"⚠️ 风控拦截：无效的结构性水平 (SL={structural_sl:.2f}, TP={structural_tp:.2f})")
+                return None
 
+        # 使用风险管理器的结构性仓位计算方法
+        position_result = self.risk_manager.calculate_position_size_with_structure(
+            entry_price=entry_price,
+            structure_sl_price=structural_sl,
+            structure_tp_price=structural_tp,
+            direction=trade_direction,
+            tick_size=self.config.market.tick_size
+        )
 
-
-                stop_loss_price = entry_price + (stop_loss_ticks * self.config.market.tick_size)
-
-                take_profit_price = entry_price - (take_profit_ticks * self.config.market.tick_size)
-
-
+        # 如果仓位被风控拦截（数量为0），返回None
+        if position_result.qty <= 0:
+            print(f"⚠️ 风控拦截：仓位计算返回零数量，交易被拒绝")
+            return None
 
         # 更新上下文
-
         self.context.trade_direction = trade_direction
-
         self.context.entry_price = entry_price
-
-        self.context.stop_loss_price = stop_loss_price
-
-        self.context.take_profit_price = take_profit_price
-
-
+        self.context.stop_loss_price = structural_sl
+        self.context.take_profit_price = structural_tp
+        self.context.position_quantity = position_result.qty
+        self.context.breakeven_price = position_result.breakeven_px
 
         # 生成信号
-
         signal = {
-
             'action': f'OPEN_{trade_direction}',
-
             'reason': 'AGGRESSION_SIGNAL',
-
             'price': entry_price,
-
-            'stop_loss': stop_loss_price,
-
-            'take_profit': take_profit_price,
-
+            'stop_loss': structural_sl,
+            'take_profit': structural_tp,
+            'quantity': position_result.qty,
+            'breakeven_price': position_result.breakeven_px,
+            'risk_amount_usd': self.config.risk_manager.account_size_usdt * (self.config.risk_manager.max_risk_per_trade_pct / 100.0),
             'timestamp': time.time(),
-
             'state_transition': {
-
                 'from': TripleAState.ACCUMULATING,
-
                 'to': TripleAState.POSITION
-
+            },
+            'structural_levels': {
+                'absorption_point': self.context.active_lvn_region['start_price'] if trade_direction == "LONG" else self.context.active_lvn_region['end_price'],
+                'vah_val_approx': self.context.active_lvn_region['end_price'] if trade_direction == "LONG" else self.context.active_lvn_region['start_price']
             }
-
         }
 
-
+        logger.info(f"✅ 生成交易信号: {signal['action']} @ {signal['price']:.2f}")
+        logger.info(f"   结构性止损: {signal['stop_loss']:.2f}, 止盈: {signal['take_profit']:.2f}")
+        logger.info(f"   合约数量: {signal['quantity']:.3f}, 风险金额: {signal['risk_amount_usd']:.2f} USD")
 
         return signal
 
