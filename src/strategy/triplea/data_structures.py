@@ -206,3 +206,80 @@ def encode_dataclass(obj) -> Dict[str, Any]:
 def decode_dataclass(data: Dict[str, Any], cls) -> Any:
     """从字典解码为dataclass对象"""
     return cls(**data)
+
+
+# 仓位状态数据结构
+@dataclass
+class PositionState:
+    """仓位状态信息"""
+    position_id: str  # 仓位ID
+    symbol: str  # 交易对标识符，如 "ETH-USDT-SWAP"
+    direction: str  # 仓位方向 "LONG" 或 "SHORT"
+    entry_price: float  # 入场价格
+    current_price: float  # 当前市场价格
+    position_size: float  # 仓位大小（币数）
+    entry_time: float  # 入场时间戳（秒）
+    stop_loss_price: float  # 止损价格
+    take_profit_price: float  # 止盈价格
+    unrealized_pnl: float  # 未实现盈亏（USDT）
+    realized_pnl: float  # 已实现盈亏（USDT）
+
+    def __post_init__(self):
+        """后初始化处理，确保数据一致性"""
+        # 确保止损和止盈价格合理
+        if self.direction.upper() == "LONG":
+            if self.stop_loss_price > self.entry_price:
+                self.stop_loss_price = self.entry_price * 0.99  # 默认1%止损
+            if self.take_profit_price < self.entry_price:
+                self.take_profit_price = self.entry_price * 1.02  # 默认2%止盈
+        elif self.direction.upper() == "SHORT":
+            if self.stop_loss_price < self.entry_price:
+                self.stop_loss_price = self.entry_price * 1.01  # 默认1%止损
+            if self.take_profit_price > self.entry_price:
+                self.take_profit_price = self.entry_price * 0.98  # 默认2%止盈
+
+    def get_pnl_percentage(self) -> float:
+        """获取盈亏百分比"""
+        if self.direction.upper() == "LONG":
+            return ((self.current_price - self.entry_price) / self.entry_price) * 100.0
+        else:  # SHORT
+            return ((self.entry_price - self.current_price) / self.entry_price) * 100.0
+
+    def get_pnl_usdt(self) -> float:
+        """获取盈亏金额（USDT）"""
+        if self.direction.upper() == "LONG":
+            return (self.current_price - self.entry_price) * self.position_size
+        else:  # SHORT
+            return (self.entry_price - self.current_price) * self.position_size
+
+    def is_stop_loss_triggered(self) -> bool:
+        """检查止损是否触发"""
+        if self.direction.upper() == "LONG":
+            return self.current_price <= self.stop_loss_price
+        else:  # SHORT
+            return self.current_price >= self.stop_loss_price
+
+    def is_take_profit_triggered(self) -> bool:
+        """检查止盈是否触发"""
+        if self.direction.upper() == "LONG":
+            return self.current_price >= self.take_profit_price
+        else:  # SHORT
+            return self.current_price <= self.take_profit_price
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式，便于序列化"""
+        return {
+            'position_id': self.position_id,
+            'symbol': self.symbol,
+            'direction': self.direction,
+            'entry_price': self.entry_price,
+            'current_price': self.current_price,
+            'position_size': self.position_size,
+            'entry_time': self.entry_time,
+            'stop_loss_price': self.stop_loss_price,
+            'take_profit_price': self.take_profit_price,
+            'unrealized_pnl': self.unrealized_pnl,
+            'realized_pnl': self.realized_pnl,
+            'pnl_percentage': self.get_pnl_percentage(),
+            'pnl_usdt': self.get_pnl_usdt()
+        }

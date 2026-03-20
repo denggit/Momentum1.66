@@ -1,0 +1,230 @@
+# 四号引擎科考船实盘测试环境配置
+# 版本: v1.0
+# 创建时间: 2026-03-20
+
+# ==================== 环境配置 ====================
+environment:
+  # 测试环境类型
+  type: "science_vessel"  # 科考船（模拟真实交易条件的测试环境）
+  mode: "simulation"      # simulation（模拟盘）, paper_trading（模拟交易）, live（实盘）
+
+  # 服务器配置
+  server:
+    region: "tokyo"       # 阿里云东京区域
+    instance_type: "2c2g" # 2核2G配置
+    os: "ubuntu_22.04"    # 操作系统
+
+  # 网络配置
+  network:
+    okx_api_endpoint: "https://www.okx.com"  # OKX API端点
+    websocket_endpoint: "wss://ws.okx.com:8443/ws/v5/public"  # WebSocket公共频道
+    private_websocket_endpoint: "wss://ws.okx.com:8443/ws/v5/private"  # WebSocket私有频道
+    timeout_seconds: 30    # API超时时间
+    retry_attempts: 3      # 重试次数
+
+# ==================== 交易对配置 ====================
+trading:
+  # 主交易对（科考船测试专用）
+  symbol: "ETH-USDT-SWAP"
+  contract_type: "SWAP"    # 永续合约
+
+  # 备用交易对（用于多币种测试）
+  backup_symbols:
+    - "BTC-USDT-SWAP"
+    - "SOL-USDT-SWAP"
+
+  # 交易参数
+  leverage: 3              # 杠杆倍数（科考船保守测试）
+  margin_mode: "cross"     # 保证金模式: cross（全仓）, isolated（逐仓）
+  position_mode: "long_short"  # 持仓模式: long_short（双向持仓）
+
+  # 订单参数
+  order_type: "market"     # 订单类型: market（市价）, limit（限价）
+  time_in_force: "ioc"     # 订单有效时间: ioc（立即成交或取消）, fok（全部成交或取消）
+  post_only: false         # 只做maker单（避免吃单手续费）
+
+# ==================== 四号引擎配置 ====================
+triplea_engine:
+  # 状态机配置
+  state_machine:
+    monitoring_timeout: 120    # MONITORING状态超时（秒）
+    confirmed_timeout: 300     # CONFIRMED状态超时（秒）
+    accumulating_timeout: 120  # ACCUMULATING状态超时（秒）
+    max_position_duration: 3600  # 最大持仓时间（秒）
+
+  # 算法参数
+  algorithm:
+    range_bar_size: 0.2        # Range Bar大小（百分比）
+    lvn_confidence_threshold: 0.7  # LVN置信度阈值
+    cvd_zscore_threshold: 2.0  # CVD Z-score阈值
+    volatility_compression_threshold: 0.01  # 波动率压缩阈值
+
+  # 小资金优化参数（300U账户）
+  risk_management:
+    account_size_usdt: 300.0   # 账户规模
+    max_risk_per_trade_pct: 5.0  # 单笔最大风险（百分比）
+    daily_loss_limit_pct: 5.0  # 日损失限制（百分比）
+    stop_loss_ticks: 2         # 止损Tick数
+    take_profit_ticks: 6       # 止盈Tick数
+    min_rr_ratio: 2.0          # 最小盈亏比
+    fee_rate_taker: 0.0005     # Taker手续费率（双边0.1%）
+
+# ==================== 数据采集配置 ====================
+data_collection:
+  # Tick数据采集
+  tick_data:
+    enabled: true
+    save_to_file: true
+    file_format: "parquet"     # parquet, csv, feather
+    compression: "snappy"      # 压缩算法
+    max_file_size_mb: 100      # 最大文件大小
+    retention_days: 7          # 数据保留天数
+
+  # 订单数据采集
+  order_data:
+    enabled: true
+    save_to_file: true
+    include_fills: true        # 包含成交详情
+    include_cancels: true      # 包含取消订单
+
+  # 性能指标采集
+  performance_metrics:
+    enabled: true
+    collection_interval_seconds: 1  # 采集间隔
+    metrics:
+      - "tick_processing_latency"
+      - "order_execution_latency"
+      - "memory_usage"
+      - "cpu_usage"
+      - "network_latency"
+
+# ==================== 监控告警配置 ====================
+monitoring:
+  # 健康检查
+  health_check:
+    enabled: true
+    interval_seconds: 10       # 检查间隔
+    timeout_seconds: 5         # 检查超时
+
+  # 性能告警
+  performance_alerts:
+    enabled: true
+    thresholds:
+      tick_processing_latency_ms: 10.0  # Tick处理延迟告警阈值
+      order_execution_latency_ms: 1000.0  # 订单执行延迟告警阈值
+      memory_usage_mb: 500.0   # 内存使用告警阈值
+      cpu_usage_pct: 80.0      # CPU使用率告警阈值
+
+  # 风险告警
+  risk_alerts:
+    enabled: true
+    thresholds:
+      daily_loss_pct: 3.0      # 日损失告警阈值
+      position_size_pct: 50.0  # 仓位大小告警阈值
+      unrealized_pnl_pct: 10.0 # 未实现盈亏告警阈值
+
+  # 通知方式
+  notifications:
+    enabled: true
+    methods:
+      - "log"                  # 日志记录
+      - "console"              # 控制台输出
+    # 未来可扩展: email, slack, webhook
+
+# ==================== 日志配置 ====================
+logging:
+  # 日志级别
+  level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+
+  # 日志输出
+  handlers:
+    - type: "file"
+      filename: "logs/science_vessel.log"
+      max_size_mb: 10
+      backup_count: 5
+
+    - type: "console"
+      format: "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
+
+  # 日志格式
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
+
+  # 性能日志
+  performance_logging:
+    enabled: true
+    interval_seconds: 60       # 性能日志输出间隔
+
+# ==================== 紧急处理配置 ====================
+emergency:
+  # 自动平仓
+  auto_liquidation:
+    enabled: true
+    trigger_conditions:
+      - daily_loss_pct >= 4.5  # 日损失接近限制
+      - connection_lost_seconds >= 30  # 连接丢失30秒
+      - system_error_count >= 10  # 系统错误次数过多
+
+  # 紧急通知
+  emergency_notifications:
+    enabled: true
+    immediate_actions:
+      - "close_all_positions"  # 平掉所有仓位
+      - "cancel_all_orders"    # 取消所有订单
+      - "stop_trading"         # 停止交易
+
+  # 恢复策略
+  recovery:
+    enabled: true
+    strategies:
+      - "restart_engine"       # 重启引擎
+      - "reset_state_machine"  # 重置状态机
+      - "reconnect_api"        # 重新连接API
+
+# ==================== 测试计划配置 ====================
+testing:
+  # 测试阶段
+  phases:
+    - phase: "smoke_test"
+      duration_hours: 1
+      description: "冒烟测试 - 验证基本功能"
+
+    - phase: "integration_test"
+      duration_hours: 24
+      description: "集成测试 - 验证系统稳定性"
+
+    - phase: "performance_test"
+      duration_hours: 72
+      description: "性能测试 - 验证性能指标"
+
+    - phase: "stress_test"
+      duration_hours: 168  # 7天
+      description: "压力测试 - 验证长时间运行稳定性"
+
+  # 测试指标
+  metrics:
+    - name: "tick_processing_success_rate"
+      target: 99.9%
+      description: "Tick处理成功率"
+
+    - name: "order_execution_success_rate"
+      target: 99.0%
+      description: "订单执行成功率"
+
+    - name: "system_availability"
+      target: 99.5%
+      description: "系统可用性"
+
+    - name: "average_tick_latency"
+      target: "<1ms"
+      description: "平均Tick处理延迟"
+
+# ==================== 版本信息 ====================
+version:
+  config_version: "1.0"
+  engine_version: "v3.0"
+  last_updated: "2026-03-20"
+  compatible_versions:
+    - "v3.0"
+    - "v2.0"
+    - "v1.0"
