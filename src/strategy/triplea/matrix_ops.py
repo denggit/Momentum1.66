@@ -3,11 +3,11 @@
 提供高性能矩阵广播、向量化计算和数值优化工具
 """
 
-import numpy as np
+from typing import Tuple, Optional, Union, List, Callable, Dict
+
 import numba
-from numba import njit, jit, vectorize, guvectorize
-from typing import Any, Tuple, Optional, Union, List, Callable, Dict
-import warnings
+import numpy as np
+from numba import njit
 
 from src.utils.log import get_logger
 
@@ -17,9 +17,9 @@ Shape = Tuple[int, ...]
 
 
 def broadcast_to_match(
-    a: np.ndarray,
-    b: np.ndarray,
-    axis: Optional[int] = None
+        a: np.ndarray,
+        b: np.ndarray,
+        axis: Optional[int] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     广播两个数组以匹配形状
@@ -81,10 +81,10 @@ def broadcast_to_match(
 
 
 def sliding_window_view(
-    x: np.ndarray,
-    window_size: int,
-    step: int = 1,
-    axis: int = -1
+        x: np.ndarray,
+        window_size: int,
+        step: int = 1,
+        axis: int = -1
 ) -> np.ndarray:
     """
     创建滑动窗口视图（无数据复制）
@@ -199,9 +199,9 @@ def nanstd_axis0(x: np.ndarray) -> np.ndarray:
 
 @njit(cache=True, parallel=True)
 def rolling_mean(
-    x: np.ndarray,
-    window: int,
-    min_periods: int = 1
+        x: np.ndarray,
+        window: int,
+        min_periods: int = 1
 ) -> np.ndarray:
     """
     滚动均值计算，Numba并行加速
@@ -240,9 +240,9 @@ def rolling_mean(
 
 @njit(cache=True, parallel=True)
 def rolling_std(
-    x: np.ndarray,
-    window: int,
-    min_periods: int = 2
+        x: np.ndarray,
+        window: int,
+        min_periods: int = 2
 ) -> np.ndarray:
     """
     滚动标准差计算，Numba并行加速
@@ -287,9 +287,9 @@ def rolling_std(
 
 
 def matrix_broadcast_kde(
-    prices: np.ndarray,
-    grid_points: np.ndarray,
-    bandwidth: float = 0.5
+        prices: np.ndarray,
+        grid_points: np.ndarray,
+        bandwidth: float = 0.5
 ) -> np.ndarray:
     """
     使用矩阵广播计算KDE（核密度估计）
@@ -316,9 +316,9 @@ def matrix_broadcast_kde(
 
 @njit(cache=True, parallel=True)
 def numba_broadcast_kde(
-    prices: np.ndarray,
-    grid_points: np.ndarray,
-    bandwidth: float = 0.5
+        prices: np.ndarray,
+        grid_points: np.ndarray,
+        bandwidth: float = 0.5
 ) -> np.ndarray:
     """
     Numba加速的矩阵广播KDE计算
@@ -354,8 +354,8 @@ def numba_broadcast_kde(
 
 
 def compute_cvd_matrix(
-    trades: np.ndarray,
-    window_sizes: List[int] = None
+        trades: np.ndarray,
+        window_sizes: List[int] = None
 ) -> Dict[int, np.ndarray]:
     """
     计算多时间窗口的CVD（累积成交量差值）矩阵
@@ -498,9 +498,9 @@ def compute_correlation_matrix(data: np.ndarray) -> np.ndarray:
 
 
 def normalize_matrix(
-    matrix: np.ndarray,
-    method: str = 'zscore',
-    axis: int = 0
+        matrix: np.ndarray,
+        method: str = 'zscore',
+        axis: int = 0
 ) -> np.ndarray:
     """
     矩阵归一化
@@ -542,9 +542,9 @@ def normalize_matrix(
 
 @njit(cache=True)
 def fast_quantile(
-    data: np.ndarray,
-    q: float,
-    axis: int = 0
+        data: np.ndarray,
+        q: float,
+        axis: int = 0
 ) -> Union[float, np.ndarray]:
     """
     快速分位数计算，Numba加速
@@ -605,7 +605,7 @@ def measure_performance(func: Callable) -> Callable:
             wrapper._performance_stats = [elapsed]
 
         # 记录性能信息到日志
-        logger.debug(f"{func.__name__}: {elapsed*1000:.1f}ms")
+        logger.debug(f"{func.__name__}: {elapsed * 1000:.1f}ms")
 
         return result
 
@@ -656,6 +656,7 @@ if __name__ == "__main__":
 
     # 纯Python版本
     import time
+
     start = time.perf_counter()
     kde_python = matrix_broadcast_kde(prices, grid, 0.5)
     python_time = time.perf_counter() - start
@@ -665,9 +666,9 @@ if __name__ == "__main__":
     kde_numba = numba_broadcast_kde(prices, grid, 0.5)
     numba_time = time.perf_counter() - start
 
-    logger.info(f"Python: {python_time*1000:.1f}ms")
-    logger.info(f"Numba: {numba_time*1000:.1f}ms")
-    logger.info(f"加速比: {python_time/numba_time:.1f}x")
+    logger.info(f"Python: {python_time * 1000:.1f}ms")
+    logger.info(f"Numba: {numba_time * 1000:.1f}ms")
+    logger.info(f"加速比: {python_time / numba_time:.1f}x")
 
     # 示例2：滑动窗口计算
     logger.info("示例2: 滑动窗口计算")
@@ -678,7 +679,7 @@ if __name__ == "__main__":
     means = rolling_mean(data, window)
     rolling_time = time.perf_counter() - start
 
-    logger.info(f"滚动均值计算: {rolling_time*1000:.1f}ms")
+    logger.info(f"滚动均值计算: {rolling_time * 1000:.1f}ms")
     logger.info(f"结果形状: {means.shape}")
     logger.info(f"均值: {np.nanmean(means):.4f}")
 
@@ -689,4 +690,4 @@ if __name__ == "__main__":
 
     for q in quantiles:
         result = fast_quantile(test_data, q)
-        logger.info(f"Q{q*100:.0f}: {result:.4f}")
+        logger.info(f"Q{q * 100:.0f}: {result:.4f}")

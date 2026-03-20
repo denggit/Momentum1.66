@@ -3,13 +3,14 @@
 负责LVN区域的合并、冲突解决和生命周期管理
 """
 
-import numpy as np
-from typing import List, Dict, Optional, Tuple, Set
-from dataclasses import dataclass, field
 import time
 from collections import deque
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional
 
-from src.strategy.triplea.data_structures import KDEEngineConfig, RangeBar
+import numpy as np
+
+from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.strategy.triplea.lvn_extractor import LVNRegion, LVNExtractor
 from src.utils.log import get_logger
 
@@ -182,10 +183,10 @@ class LVNManager:
         logger.info(f"LVNManager初始化完成")
 
     def process_kde_result(
-        self,
-        grid: np.ndarray,
-        densities: np.ndarray,
-        timestamp: float = None
+            self,
+            grid: np.ndarray,
+            densities: np.ndarray,
+            timestamp: float = None
     ) -> List[LVNCluster]:
         """
         处理KDE计算结果，提取并管理LVN区域
@@ -244,7 +245,7 @@ class LVNManager:
         active_clusters = [c for c in self.clusters.values() if c.is_active]
 
         logger.debug(f"处理KDE结果: 检测到{len(detected_regions)}区域, "
-                    f"活跃簇{len(active_clusters)}个")
+                     f"活跃簇{len(active_clusters)}个")
 
         return active_clusters
 
@@ -270,9 +271,9 @@ class LVNManager:
         return self.clusters.get(cluster_id)
 
     def find_closest_cluster(
-        self,
-        price: float,
-        max_distance: float = 10.0
+            self,
+            price: float,
+            max_distance: float = 10.0
     ) -> Optional[LVNCluster]:
         """
         查找距离给定价格最近的LVN簇
@@ -309,9 +310,9 @@ class LVNManager:
         return closest_cluster
 
     def update_cluster_confidence(
-        self,
-        cluster_id: int,
-        price_action_data: Dict[str, any]
+            self,
+            cluster_id: int,
+            price_action_data: Dict[str, any]
     ) -> float:
         """
         根据价格行为更新簇的置信度
@@ -364,7 +365,7 @@ class LVNManager:
             # 1. 年龄超过最大寿命
             if age_seconds > self.max_cluster_age_hours * 3600:
                 cluster_expired = True
-                logger.debug(f"簇 {cluster_id} 因年龄过期 ({age_seconds/3600:.1f}小时)")
+                logger.debug(f"簇 {cluster_id} 因年龄过期 ({age_seconds / 3600:.1f}小时)")
 
             # 2. 置信度过低
             elif cluster.confidence < self.min_cluster_confidence:
@@ -374,7 +375,7 @@ class LVNManager:
             # 3. 长时间不活跃
             elif (current_time - cluster.last_updated_time) > self.cluster_inactive_threshold:
                 cluster_expired = True
-                logger.debug(f"簇 {cluster_id} 因不活跃过期 ({current_time-cluster.last_updated_time:.0f}秒)")
+                logger.debug(f"簇 {cluster_id} 因不活跃过期 ({current_time - cluster.last_updated_time:.0f}秒)")
 
             # 4. 簇内区域数量过少且年龄较大
             elif len(cluster.regions) < 3 and age_seconds > 3600:

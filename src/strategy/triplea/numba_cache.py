@@ -3,25 +3,25 @@
 管理Numba JIT编译缓存，支持多进程缓存共享和清理策略
 """
 
-import os
-import shutil
 import hashlib
 import json
-import time
-# 导入现有日志模块
-from src.utils.log import get_logger
+import os
+import shutil
 import threading
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
-import warnings
+from typing import Any, Dict, List, Optional, Tuple
+
+# 导入现有日志模块
+from src.utils.log import get_logger
 
 # 尝试导入numba缓存模块
 try:
     from numba.core.caching import Cache
     from numba.core.compiler_lock import global_compiler_lock
+
     NUMBA_CACHE_AVAILABLE = True
 except ImportError:
     NUMBA_CACHE_AVAILABLE = False
@@ -29,10 +29,10 @@ except ImportError:
 
 class CacheCleanupStrategy(Enum):
     """缓存清理策略枚举"""
-    AGE_BASED = "age_based"      # 基于文件年龄清理
-    SIZE_BASED = "size_based"    # 基于总大小清理
+    AGE_BASED = "age_based"  # 基于文件年龄清理
+    SIZE_BASED = "size_based"  # 基于总大小清理
     FREQUENCY_BASED = "frequency_based"  # 基于使用频率清理
-    HYBRID = "hybrid"            # 混合策略
+    HYBRID = "hybrid"  # 混合策略
 
 
 @dataclass
@@ -108,12 +108,12 @@ class NumbaCacheManager:
     LOCK_FILENAME = "cache.lock"
 
     def __init__(
-        self,
-        cache_dir: Optional[str] = None,
-        max_size_mb: int = 500,
-        cleanup_strategy: CacheCleanupStrategy = CacheCleanupStrategy.HYBRID,
-        enable_file_locking: bool = True,
-        logger: Optional[Any] = None
+            self,
+            cache_dir: Optional[str] = None,
+            max_size_mb: int = 500,
+            cleanup_strategy: CacheCleanupStrategy = CacheCleanupStrategy.HYBRID,
+            enable_file_locking: bool = True,
+            logger: Optional[Any] = None
     ):
         """
         初始化缓存管理器
@@ -183,7 +183,7 @@ class NumbaCacheManager:
                 )
                 self.logger.info(
                     f"缓存统计: {self._stats.total_files} 个文件, "
-                    f"{self._stats.total_size_bytes / (1024*1024):.1f} MB"
+                    f"{self._stats.total_size_bytes / (1024 * 1024):.1f} MB"
                 )
 
                 return True
@@ -378,10 +378,10 @@ class NumbaCacheManager:
             )
 
     def cleanup(
-        self,
-        max_age_days: int = 30,
-        max_size_mb: Optional[int] = None,
-        dry_run: bool = False
+            self,
+            max_age_days: int = 30,
+            max_size_mb: Optional[int] = None,
+            dry_run: bool = False
     ) -> Tuple[int, int]:
         """
         清理缓存文件
@@ -409,7 +409,7 @@ class NumbaCacheManager:
             # 计算清理阈值
             current_time = time.time()
             max_age_seconds = max_age_days * 24 * 60 * 60
-            max_size = (max_size_mb or (self.max_size_bytes // (1024*1024))) * 1024 * 1024
+            max_size = (max_size_mb or (self.max_size_bytes // (1024 * 1024))) * 1024 * 1024
 
             # 收集需要清理的文件
             files_to_clean: List[Tuple[str, CacheFileInfo]] = []
@@ -497,7 +497,7 @@ class NumbaCacheManager:
                     # 重新计算平均值
                     if self._stats.total_files > 0:
                         self._stats.avg_file_size_bytes = (
-                            self._stats.total_size_bytes // self._stats.total_files
+                                self._stats.total_size_bytes // self._stats.total_files
                         )
                     else:
                         self._stats.avg_file_size_bytes = 0
@@ -507,7 +507,7 @@ class NumbaCacheManager:
 
                     self.logger.info(
                         f"缓存清理完成: 删除 {deleted_count} 个文件, "
-                        f"回收 {reclaimed_bytes / (1024*1024):.1f} MB"
+                        f"回收 {reclaimed_bytes / (1024 * 1024):.1f} MB"
                     )
             else:
                 # 模拟运行
@@ -516,7 +516,7 @@ class NumbaCacheManager:
 
                 self.logger.info(
                     f"模拟清理: 将删除 {len(unique_files)} 个文件, "
-                    f"回收 {reclaimed_bytes / (1024*1024):.1f} MB"
+                    f"回收 {reclaimed_bytes / (1024 * 1024):.1f} MB"
                 )
 
             return deleted_count, reclaimed_bytes
@@ -560,7 +560,7 @@ class NumbaCacheManager:
 
                     self.logger.info(
                         f"缓存已清空: 删除 {total_files} 个文件, "
-                        f"回收 {total_size / (1024*1024):.1f} MB"
+                        f"回收 {total_size / (1024 * 1024):.1f} MB"
                     )
 
                 except Exception as e:
@@ -569,7 +569,7 @@ class NumbaCacheManager:
             else:
                 self.logger.info(
                     f"模拟清空: 将删除 {total_files} 个文件, "
-                    f"回收 {total_size / (1024*1024):.1f} MB"
+                    f"回收 {total_size / (1024 * 1024):.1f} MB"
                 )
 
             return total_files, total_size
@@ -765,9 +765,9 @@ def get_default_cache_manager() -> NumbaCacheManager:
 
 
 def cleanup_cache(
-    max_age_days: int = 30,
-    max_size_mb: Optional[int] = None,
-    dry_run: bool = False
+        max_age_days: int = 30,
+        max_size_mb: Optional[int] = None,
+        dry_run: bool = False
 ) -> Tuple[int, int]:
     """
     清理缓存（使用默认管理器）
@@ -807,9 +807,9 @@ class CacheManagerContext:
     """缓存管理器上下文"""
 
     def __init__(
-        self,
-        cache_dir: Optional[str] = None,
-        max_size_mb: int = 500
+            self,
+            cache_dir: Optional[str] = None,
+            max_size_mb: int = 500
     ):
         self.cache_dir = cache_dir
         self.max_size_mb = max_size_mb

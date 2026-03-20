@@ -5,29 +5,28 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, List, Dict, Any
-from collections import deque
-import numpy as np
+from typing import Dict, Any
+
 
 # 原始输入数据结构
 @dataclass
 class OKXRawTick:
     """原始Tick输入（来自OKX WebSocket）"""
-    instId: str           # 交易对标识符，如 "ETH-USDT-SWAP"
-    tradeId: str          # 撮合ID（交易所唯一标识）
-    ts: int               # 纳秒级时间戳 (unix epoch nanoseconds)
-    px: float             # 成交价格
-    sz: float             # 成交数量 (币数)
-    side: str             # 主动方向 "buy" 或 "sell" (主动发起方)
+    instId: str  # 交易对标识符，如 "ETH-USDT-SWAP"
+    tradeId: str  # 撮合ID（交易所唯一标识）
+    ts: int  # 纳秒级时间戳 (unix epoch nanoseconds)
+    px: float  # 成交价格
+    sz: float  # 成交数量 (币数)
+    side: str  # 主动方向 "buy" 或 "sell" (主动发起方)
 
 
 @dataclass
 class NormalizedTick:
     """内部标准化Tick（进入处理流水线）"""
-    ts: int               # 纳秒时间戳
-    px: float             # 价格
-    sz: float             # 数量
-    side: int             # +1 (buy主动吃单), -1 (sell主动吃单)
+    ts: int  # 纳秒时间戳
+    px: float  # 价格
+    sz: float  # 数量
+    side: int  # +1 (buy主动吃单), -1 (sell主动吃单)
 
     @classmethod
     def from_raw_tick(cls, raw_tick: OKXRawTick) -> 'NormalizedTick':
@@ -53,15 +52,15 @@ class NormalizedTick:
 @dataclass
 class RangeBar:
     """Range Bar（无时间维度容器）"""
-    open_ts: int          # 首笔Tick时间戳
-    open_px: float        # 开盘价
-    high_px: float        # 最高价
-    low_px: float         # 最低价
-    close_px: float       # 收盘价（触发下根Bar的价格）
+    open_ts: int  # 首笔Tick时间戳
+    open_px: float  # 开盘价
+    high_px: float  # 最高价
+    low_px: float  # 最低价
+    close_px: float  # 收盘价（触发下根Bar的价格）
     total_buy_vol: float  # 区间内主动买量 (side=+1)
-    total_sell_vol: float # 区间内主动卖量 (side=-1)
-    delta: float          # total_buy_vol - total_sell_vol
-    tick_count: int       # 包含的原始Tick数
+    total_sell_vol: float  # 区间内主动卖量 (side=-1)
+    delta: float  # total_buy_vol - total_sell_vol
+    tick_count: int  # 包含的原始Tick数
 
     def __post_init__(self):
         """后初始化处理，确保数据一致性"""
@@ -113,8 +112,8 @@ class RangeBar:
 class MarketConfig:
     """市场配置（合约规格）"""
     instId: str = "ETH-USDT-SWAP"  # 交易对标识符
-    tick_size: float = 0.01        # ETH永续合约最小变动价位
-    price_precision: int = 2       # 价格精度小数位
+    tick_size: float = 0.01  # ETH永续合约最小变动价位
+    price_precision: int = 2  # 价格精度小数位
 
 
 @dataclass
@@ -127,33 +126,33 @@ class DataPipelineConfig:
 @dataclass
 class RangeBarConfig:
     """Range Bar配置"""
-    tick_range: int = 20           # 20个Tick构成一根Range Bar
-    tick_size: float = 0.01        # 最小价格变动单位（ETH永续合约）
-    max_bar_history: int = 1440    # 保留最近1440根Bar
+    tick_range: int = 20  # 20个Tick构成一根Range Bar
+    tick_size: float = 0.01  # 最小价格变动单位（ETH永续合约）
+    max_bar_history: int = 1440  # 保留最近1440根Bar
 
 
 @dataclass
 class KDEEngineConfig:
     """KDE引擎配置"""
     bandwidth_method: str = "silverman_robust"  # 稳健Silverman法则
-    lvn_density_percentile: float = 30.0   # 密度低于30%分位认定为LVN
-    min_slice_ticks: int = 100      # 脉冲波最少包含100笔Tick才计算KDE
+    lvn_density_percentile: float = 30.0  # 密度低于30%分位认定为LVN
+    min_slice_ticks: int = 100  # 脉冲波最少包含100笔Tick才计算KDE
 
     # 自适应网格配置（实盘保命核心）
-    adaptive_grid: bool = True       # 强烈建议默认开启自适应！实盘保命的核心。
-    target_grid_step: float = 0.2    # 目标步长：0.20 USDT (过滤微观噪音的甜点区)
-    min_grid_size: int = 30          # 下限：防止大瀑布时点数过少，曲线变成多边形
-    max_grid_size: int = 80          # 上限：熔断机制，死保 0.2ms 以内的极速延迟
+    adaptive_grid: bool = True  # 强烈建议默认开启自适应！实盘保命的核心。
+    target_grid_step: float = 0.2  # 目标步长：0.20 USDT (过滤微观噪音的甜点区)
+    min_grid_size: int = 30  # 下限：防止大瀑布时点数过少，曲线变成多边形
+    max_grid_size: int = 80  # 上限：熔断机制，死保 0.2ms 以内的极速延迟
 
 
 @dataclass
 class RiskManagerConfig:
     """风险管理器配置（小资金优化版）"""
-    account_size_usdt: float = 300.0      # 账户规模（USDT）
-    max_risk_per_trade_pct: float = 5.0   # 单笔交易最大风险百分比 (5%)
-    stop_loss_ticks: int = 2              # 止损距离 (2 Tick)
-    take_profit_ticks: int = 6            # 止盈距离 (6 Tick)
-    max_daily_loss_pct: float = 5.0       # 单日最大损失百分比 (5%)
+    account_size_usdt: float = 300.0  # 账户规模（USDT）
+    max_risk_per_trade_pct: float = 5.0  # 单笔交易最大风险百分比 (5%)
+    stop_loss_ticks: int = 2  # 止损距离 (2 Tick)
+    take_profit_ticks: int = 6  # 止盈距离 (6 Tick)
+    max_daily_loss_pct: float = 5.0  # 单日最大损失百分比 (5%)
 
 
 @dataclass
@@ -174,10 +173,13 @@ class TripleAEngineConfig:
         """转换为字典格式，便于序列化"""
         return {
             'market': self.market.to_dict() if hasattr(self.market, 'to_dict') else self.market.__dict__,
-            'data_pipeline': self.data_pipeline.to_dict() if hasattr(self.data_pipeline, 'to_dict') else self.data_pipeline.__dict__,
+            'data_pipeline': self.data_pipeline.to_dict() if hasattr(self.data_pipeline,
+                                                                     'to_dict') else self.data_pipeline.__dict__,
             'range_bar': self.range_bar.to_dict() if hasattr(self.range_bar, 'to_dict') else self.range_bar.__dict__,
-            'kde_engine': self.kde_engine.to_dict() if hasattr(self.kde_engine, 'to_dict') else self.kde_engine.__dict__,
-            'risk_manager': self.risk_manager.to_dict() if hasattr(self.risk_manager, 'to_dict') else self.risk_manager.__dict__,
+            'kde_engine': self.kde_engine.to_dict() if hasattr(self.kde_engine,
+                                                               'to_dict') else self.kde_engine.__dict__,
+            'risk_manager': self.risk_manager.to_dict() if hasattr(self.risk_manager,
+                                                                   'to_dict') else self.risk_manager.__dict__,
             'enable_numba_cache': self.enable_numba_cache,
             'enable_background_warmup': self.enable_background_warmup,
             'enable_cpu_affinity': self.enable_cpu_affinity

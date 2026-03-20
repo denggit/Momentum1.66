@@ -5,8 +5,9 @@
 专为实时Tick流处理优化，毫秒级延迟
 """
 
-from typing import List, Dict, Optional, Tuple, Deque
 from collections import deque
+from typing import List, Dict, Optional, Deque
+
 import numpy as np
 from numba import njit
 
@@ -393,9 +394,9 @@ class BatchCVDCalculator:
 # Numba加速函数
 @njit(cache=True)
 def calculate_cvd_numba(
-    sizes: np.ndarray,
-    sides: np.ndarray,
-    window: int
+        sizes: np.ndarray,
+        sides: np.ndarray,
+        window: int
 ) -> np.ndarray:
     """
     Numba加速的CVD计算
@@ -477,13 +478,14 @@ if __name__ == "__main__":
     calculator = CVDCalculator(window_sizes=[10, 30, 60])
 
     import time
+
     start_time = time.perf_counter()
 
     for tick in test_ticks[:100]:
         cvd_values = calculator.on_tick(tick)
 
     elapsed = time.perf_counter() - start_time
-    logger.info(f"CVDCalculator处理100个Tick耗时: {elapsed*1000:.1f}ms")
+    logger.info(f"CVDCalculator处理100个Tick耗时: {elapsed * 1000:.1f}ms")
     logger.info(f"当前CVD值: {calculator.get_current_cvd()}")
     logger.info(f"CVD统计: {calculator.get_statistics()}")
 
@@ -494,6 +496,6 @@ if __name__ == "__main__":
     batch_results = batch_calculator.add_ticks(test_ticks[:500])
     elapsed = time.perf_counter() - start_time
 
-    logger.info(f"BatchCVDCalculator处理500个Tick耗时: {elapsed*1000:.1f}ms")
+    logger.info(f"BatchCVDCalculator处理500个Tick耗时: {elapsed * 1000:.1f}ms")
     for window, cvd_array in batch_results.items():
         logger.info(f"窗口 {window}: CVD数组长度 {len(cvd_array)}, 均值 {np.mean(cvd_array):.2f}")

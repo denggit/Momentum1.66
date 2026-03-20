@@ -7,13 +7,11 @@
 import asyncio
 import time
 from typing import Dict, List, Optional, Tuple, Any, Callable
-from concurrent.futures import ProcessPoolExecutor
+
 import numpy as np
-import multiprocessing as mp
-from dataclasses import asdict
 
 from src.strategy.triplea.data_structures import (
-    NormalizedTick, RangeBar, KDEEngineConfig, TripleAEngineConfig
+    NormalizedTick, TripleAEngineConfig
 )
 from src.strategy.triplea.kde_core import KDECore
 from src.strategy.triplea.kde_matrix import KDEMatrixEngine
@@ -139,8 +137,8 @@ class KDEEngine:
 
             # 判断是否使用进程池
             if (self.process_pool_manager and
-                self.config.enable_numba_cache and
-                self.enable_cpu_affinity):
+                    self.config.enable_numba_cache and
+                    self.enable_cpu_affinity):
 
                 # 使用进程池异步计算KDE
                 grid, densities = await self._compute_kde_async(prices)
@@ -237,9 +235,9 @@ class KDEEngine:
             return np.array([]), np.array([])
 
     async def _extract_lvn_async(
-        self,
-        grid: np.ndarray,
-        densities: np.ndarray
+            self,
+            grid: np.ndarray,
+            densities: np.ndarray
     ) -> List[LVNRegion]:
         """
         异步提取LVN区域
@@ -334,9 +332,9 @@ class KDEEngine:
         return self.active_lvn_regions.copy()
 
     def get_lvn_regions_near_price(
-        self,
-        price: float,
-        max_distance: float = 10.0
+            self,
+            price: float,
+            max_distance: float = 10.0
     ) -> List[LVNRegion]:
         """
         获取指定价格附近的LVN区域
@@ -415,7 +413,6 @@ async def test_kde_engine_performance():
     """
     测试KDE引擎性能
     """
-    import asyncio
 
     logger = get_logger(__name__)
 
@@ -448,7 +445,6 @@ async def test_kde_engine_performance():
     volatility = 50.0
 
     for i in range(n_ticks):
-
         price = base_price + np.random.randn() * volatility
         size = np.random.uniform(0.1, 5.0)
         side = 1 if np.random.rand() > 0.5 else -1
@@ -506,7 +502,6 @@ async def test_kde_engine_performance():
             logger.info(f"  已处理 {i + 1} 个Tick, 平均延迟: {avg_time:.2f}ms")
 
             if lvn_regions:
-
                 logger.info(f"    检测到 {len(lvn_regions)} 个LVN区域")
 
     total_time = time.perf_counter() - start_total_time
@@ -568,7 +563,6 @@ async def test_kde_engine_performance():
 
 
 if __name__ == "__main__":
-
     # 运行性能测试
 
     asyncio.run(test_kde_engine_performance())

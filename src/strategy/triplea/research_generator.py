@@ -1,183 +1,213 @@
+import time
 from typing import Dict, Optional
 
 from src.strategy.triplea.signal_generator import TripleASignalGenerator
+from src.strategy.triplea.state_machine import TripleAState
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class ResearchTripleASignalGenerator(TripleASignalGenerator):
-    """影子引擎专用信号生成器，添加完整的时间戳记录功能"""
+    """影子引擎专用信号生成器（适配v3.0状态机）
+
+    继承自新的TripleASignalGenerator，添加完整的研究数据记录功能：
+    1. 状态转换时间戳记录
+    2. 阶段指标收集（A1/A2/A3对应状态机状态）
+    3. MFE/MAE追踪
+    4. 增强信号数据（供orchestrator写入CSV）
+    """
 
     def __init__(self, symbol: str = "ETH-USDT-SWAP"):
         super().__init__(symbol, is_shadow=True)
-        # 添加时间戳跟踪字段 (精简版，只记录开始时间和持续时间)
-        self.timestamp_tracker = {
-            "a1_start_time": 0.0,  # A1开始时间
-            "a2_start_time": 0.0,  # A2开始时间
-            "entry_time": 0.0  # 入场时间
+
+        # 状态转换时间戳跟踪（适配v3.0 5状态模型）
+        self.state_timestamps = {
+            TripleAState.IDLE: 0.0,
+            TripleAState.MONITORING: 0.0,
+            TripleAState.CONFIRMED: 0.0,
+            TripleAState.ACCUMULATING: 0.0,
+            TripleAState.POSITION: 0.0
         }
-        # 🆕 阶段指标跟踪 (精简版)
+
+        # 阶段指标跟踪（映射到状态机状态）
         self.stage_metrics = {
-            "a1": {},  # A1阶段指标
-            "a2": {},  # A2阶段指标
-            "a3": {}  # A3阶段指标 (只记录触发时的状态)
+            "monitoring": {},  # 对应MONITORING状态（原A1类似）
+            "confirmed": {},  # 对应CONFIRMED状态（原A2类似）
+            "accumulating": {},  # 对应ACCUMULATING状态（原A3类似）
+            "position": {}  # 对应POSITION状态
         }
-        self._current_tick_time = 0.0  # 当前tick的时间戳
 
-    def process_tick(self, tick: Dict) -> Optional[Dict]:
-        """重写：在调用父类前记录当前时间，用于时间戳记录"""
-        self._current_tick_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
-        return super().process_tick(tick)
+        # 当前状态历史（用于计算持续时间）
+        self.current_state_start_time = 0.0
+        self.previous_state = TripleAState.IDLE
 
-    def _handle_idle(self, price: float) -> Optional[Dict]:
-        """重写：进入A1时记录开始时间"""
-        result = super()._handle_idle(price)
-        if self.status == "A1_WAIT_ABSORPTION":
-            self.timestamp_tracker["a1_start_time"] = self._current_tick_time
-        return result
+        # MFE/MAE追踪
+        self.mfe_price = 0.0
+        self.mae_price = 0.0
+        self.entry_price = 0.0
 
-    def _handle_absorption(self, price: float, current_time: float) -> Optional[Dict]:
-        """重写：进入A2时记录A2开始时间，并保存A1阶段指标（包括持续时间）"""
-        result = super()._handle_absorption(price, current_time)
-        if self.status == "A2_WAIT_ACCUMULATION":
-            # 计算A1持续时间
-            a1_start_time = self.timestamp_tracker.get("a1_start_time", 0.0)
-            a1_duration = current_time - a1_start_time if a1_start_time > 0 else 0.0
-
-            self.timestamp_tracker["a2_start_time"] = current_time
-
-            # 🆕 保存A1阶段指标（简化版，不依赖网格系统）
-            # 新算法实现后将填充具体指标
-            self.stage_metrics["a1"] = {
-                "duration_sec": a1_duration,
-                "current_cvd_15s": self.current_cvd_15s,
-                "cvd_hourly_avg": self.cvd_hourly_avg
-            }
-            # 同时记录A2开始时的基准值（用于计算A2阶段变化）
-            self.stage_metrics["a2_start"] = {
-                "timestamp": current_time
-            }
-        return result
-
-    def _handle_accumulation(self, price: float, current_time: float) -> Optional[Dict]:
-        """重写：进入A3时记录A2持续时间，并保存A2阶段指标"""
-        result = super()._handle_accumulation(price, current_time)
-        if self.status == "A3_WAIT_AGGRESSION":
-            # 计算A2持续时间
-            a2_start_time = self.timestamp_tracker.get("a2_start_time", 0.0)
-            a2_duration = current_time - a2_start_time if a2_start_time > 0 else 0.0
-
-            # 🆕 保存A2阶段指标（精简版，只记录持续时间）
-            # 新算法实现后将填充具体指标
-            self.stage_metrics["a2"] = {
-                "duration_sec": a2_duration
-            }
-        return result
-
-    def _handle_aggression(self, tick: Dict) -> Optional[Dict]:
-        """重写：生成信号时记录入场时间，并返回精简版增强数据"""
-        result = super()._handle_aggression(tick)
-        if result and result.get('reason') == "TRIPLE_A_COMPLETE":
-            current_time = int(tick.get('ts', tick.get('timestamp'))) / 1000.0
-            self.timestamp_tracker["entry_time"] = current_time
-
-            # 获取父类计算的数据
-            price = tick['price']
-            # rolling_ticks已移除，近期成交量数据暂不可用
-            recent_vol = 0.0
-            recent_cvd = 0.0
-            recent_delta_ratio = 0.0
-
-            # 🆕 获取目标区域信息和POC价格
-            target_zone_high = 0.0
-            target_zone_low = 0.0
-            macro_poc_price = 0.0
-            distance_to_poc = 0.0
-
-            if self.target_zone:
-                target_zone_high = self.target_zone.get('zone_high', 0.0)
-                target_zone_low = self.target_zone.get('zone_low', 0.0)
-
-            if self.profile and 'POC' in self.profile:
-                macro_poc_price = self.profile['POC'].get('center', 0.0)
-                distance_to_poc = abs(price - macro_poc_price)
-
-            # 保存A3阶段指标（精简版：只记录触发时的状态）
-            self.stage_metrics["a3"] = {
-                "current_cvd_15s": self.current_cvd_15s,
-                "recent_vol": recent_vol,
-                "recent_cvd": recent_cvd,
-                "recent_delta_ratio": recent_delta_ratio
-            }
-
-            # 扩展信号字典（精简版）
-            result.update({
-                "entry_time_unix": current_time,
-                "a1_duration_sec": self.stage_metrics.get("a1", {}).get("duration_sec", 0.0),
-                "a2_duration_sec": self.stage_metrics.get("a2", {}).get("duration_sec", 0.0),
-                "target_zone_high": target_zone_high,
-                "target_zone_low": target_zone_low,
-                "macro_poc_price": macro_poc_price,
-                "distance_to_poc": distance_to_poc,
-                # 🆕 添加阶段指标（精简版）
-                "stage_metrics": {
-                    "a1": self.stage_metrics.get("a1", {}),
-                    "a2": self.stage_metrics.get("a2", {}),
-                    "a3": self.stage_metrics.get("a3", {})
-                }
-            })
-        return result
-
-    def _reset_to_idle(self):
-        """重写：重置时清空时间戳记录和阶段指标"""
-        super()._reset_to_idle()
-        self.timestamp_tracker = {
-            "a1_start_time": 0.0,
-            "a2_start_time": 0.0,
-            "entry_time": 0.0
-        }
-        self.stage_metrics = {
-            "a1": {},
-            "a2": {},
-            "a3": {}
-        }
+        # 当前tick时间戳
         self._current_tick_time = 0.0
 
-    def _manage_position_by_tick(self, tick: Dict) -> Optional[Dict]:
-        """重写：在飞行期间，持续追踪 MFE 和 MAE"""
+        logger.info(f"ResearchTripleASignalGenerator 初始化完成 (symbol={symbol})")
+
+    def process_tick(self, tick: Dict) -> Optional[Dict]:
+        """重写：记录时间戳并跟踪状态转换"""
+        # 记录当前tick时间戳
+        self._current_tick_time = int(tick.get('ts', tick.get('timestamp', time.time() * 1000))) / 1000.0
+
+        # 调用父类处理tick
+        signal = super().process_tick(tick)
+
+        # 跟踪状态转换和记录指标
+        self._track_state_transitions()
+        self._update_mfe_mae(tick)
+
+        # 如果父类生成信号，增强信号数据
+        if signal:
+            signal = self._enhance_signal_data(signal, tick)
+
+        return signal
+
+    def _track_state_transitions(self):
+        """跟踪状态机状态转换并记录时间戳"""
+        current_state = self.state_machine.context.current_state
+        current_time = self._current_tick_time
+
+        # 如果状态发生变化
+        if current_state != self.previous_state:
+            # 记录新状态的开始时间
+            self.state_timestamps[current_state] = current_time
+            self.current_state_start_time = current_time
+
+            # 计算前一个状态的持续时间
+            if self.previous_state != TripleAState.IDLE:
+                duration = current_time - self.state_timestamps.get(self.previous_state, current_time)
+                self._record_stage_metrics(self.previous_state, duration)
+
+            # 更新前一个状态
+            self.previous_state = current_state
+
+            logger.debug(f"状态转换: {self.previous_state} -> {current_state} @ {current_time}")
+
+    def _record_stage_metrics(self, state: TripleAState, duration: float):
+        """记录阶段指标"""
+        if state == TripleAState.MONITORING:
+            self.stage_metrics["monitoring"] = {
+                "duration_sec": duration,
+                "lvn_center_price": self.state_machine.context.lvn_center_price,
+                "lvn_width": self.state_machine.context.lvn_width
+            }
+        elif state == TripleAState.CONFIRMED:
+            self.stage_metrics["confirmed"] = {
+                "duration_sec": duration,
+                "cvd_divergence_direction": self.state_machine.context.cvd_divergence_direction,
+                "cvd_zscore": self.state_machine.context.cvd_statistics.get(60, {}).get('z_score', 0.0)
+            }
+        elif state == TripleAState.ACCUMULATING:
+            self.stage_metrics["accumulating"] = {
+                "duration_sec": duration,
+                "volatility_compression": self.state_machine.context.volatility_compression_detected,
+                "tick_density": self.state_machine.context.ticks_per_second,
+                "ticks_in_compression": self.state_machine.context.ticks_in_compression
+            }
+        elif state == TripleAState.POSITION:
+            # 持仓状态指标在开仓时记录
+            pass
+
+    def _update_mfe_mae(self, tick: Dict):
+        """更新MFE/MAE追踪"""
         price = tick['price']
 
-        # 初始化 MFE/MAE 追踪器
-        if 'mfe_price' not in self.timestamp_tracker:
-            self.timestamp_tracker['mfe_price'] = price
-            self.timestamp_tracker['mae_price'] = price
+        # 如果处于持仓状态，初始化或更新MFE/MAE
+        if self.state_machine.context.current_state == TripleAState.POSITION:
+            if self.entry_price == 0.0:
+                # 首次进入持仓状态，记录入场价
+                self.entry_price = self.state_machine.context.entry_price
+                self.mfe_price = price
+                self.mae_price = price
+            else:
+                # 更新MFE/MAE
+                if self.state_machine.context.trade_direction == "LONG":
+                    self.mfe_price = max(self.mfe_price, price)
+                    self.mae_price = min(self.mae_price, price)
+                else:  # SHORT
+                    self.mfe_price = min(self.mfe_price, price)
+                    self.mae_price = max(self.mae_price, price)
 
-        if self.status == "LONG":
-            self.timestamp_tracker['mfe_price'] = max(self.timestamp_tracker['mfe_price'], price)
-            self.timestamp_tracker['mae_price'] = min(self.timestamp_tracker['mae_price'], price)
-        elif self.status == "SHORT":
-            self.timestamp_tracker['mfe_price'] = min(self.timestamp_tracker['mfe_price'], price)
-            self.timestamp_tracker['mae_price'] = max(self.timestamp_tracker['mae_price'], price)
+    def _enhance_signal_data(self, signal: Dict, tick: Dict) -> Dict:
+        """增强信号数据，添加研究指标"""
+        enhanced_signal = signal.copy()
 
-        # 🚀 核心修复：在调用父类之前，先把当前状态和极值"快照"保存到局部变量中！
-        # 因为一旦调用 super() 触发撞线，父类会调用 _reset_to_idle，提前把 self.timestamp_tracker 清空。
-        current_status = self.status
-        current_mfe = self.timestamp_tracker['mfe_price']
-        current_mae = self.timestamp_tracker['mae_price']
+        # 添加时间戳
+        enhanced_signal["entry_time_unix"] = self._current_tick_time
 
-        # 调用父类逻辑
-        result = super()._manage_position_by_tick(tick)
+        # 添加阶段持续时间
+        enhanced_signal.update({
+            "monitoring_duration_sec": self.stage_metrics.get("monitoring", {}).get("duration_sec", 0.0),
+            "confirmed_duration_sec": self.stage_metrics.get("confirmed", {}).get("duration_sec", 0.0),
+            "accumulating_duration_sec": self.stage_metrics.get("accumulating", {}).get("duration_sec", 0.0)
+        })
 
-        # 如果订单结束，使用提前保存的快照变量计算距离
-        if result and result.get('action') in ["CLOSE_LONG", "CLOSE_SHORT"]:
-            entry_price = self.micro_tracker.get('entry_price', price)  # 近似入场价
+        # 添加阶段指标
+        enhanced_signal["stage_metrics"] = self.stage_metrics.copy()
 
-            if current_status == "LONG":
-                mfe_dist = current_mfe - entry_price
-                mae_dist = entry_price - current_mae
-            else:  # SHORT
-                mfe_dist = entry_price - current_mfe
-                mae_dist = current_mae - entry_price
+        # 添加MFE/MAE数据（如果处于持仓状态）
+        if self.state_machine.context.current_state == TripleAState.POSITION:
+            if self.entry_price > 0:
+                if self.state_machine.context.trade_direction == "LONG":
+                    mfe_dist = self.mfe_price - self.entry_price
+                    mae_dist = self.entry_price - self.mae_price
+                else:  # SHORT
+                    mfe_dist = self.entry_price - self.mfe_price
+                    mae_dist = self.mae_price - self.entry_price
 
-            result['mfe_distance'] = round(mfe_dist, 4)
-            result['mae_distance'] = round(mae_dist, 4)
+                enhanced_signal.update({
+                    "mfe_distance": round(mfe_dist, 4),
+                    "mae_distance": round(mae_dist, 4),
+                    "mfe_price": self.mfe_price,
+                    "mae_price": self.mae_price
+                })
 
-        return result
+        # 添加目标区域信息（如果可用）
+        if self.tradable_zones:
+            # 使用第一个战术区域作为目标区域
+            target_zone = self.tradable_zones[0] if self.tradable_zones else {}
+            enhanced_signal.update({
+                "target_zone_high": target_zone.get('zone_high', 0.0),
+                "target_zone_low": target_zone.get('zone_low', 0.0)
+            })
+
+        # 添加POC信息（如果可用）
+        if self.profile and 'POC' in self.profile:
+            macro_poc_price = self.profile['POC'].get('center', 0.0)
+            price = tick['price']
+            enhanced_signal.update({
+                "macro_poc_price": macro_poc_price,
+                "distance_to_poc": abs(price - macro_poc_price)
+            })
+
+        return enhanced_signal
+
+    def _reset_to_idle(self):
+        """重写：重置研究数据"""
+        super()._reset_to_idle()
+
+        # 重置研究数据
+        self.state_timestamps = {state: 0.0 for state in TripleAState}
+        self.stage_metrics = {
+            "monitoring": {},
+            "confirmed": {},
+            "accumulating": {},
+            "position": {}
+        }
+        self.previous_state = TripleAState.IDLE
+        self.current_state_start_time = 0.0
+
+        # 重置MFE/MAE追踪
+        self.mfe_price = 0.0
+        self.mae_price = 0.0
+        self.entry_price = 0.0
+
+        logger.debug("研究数据已重置")

@@ -3,15 +3,13 @@
 监控Numba JIT编译性能，提供统计、告警和优化建议
 """
 
-import time
-import threading
 import statistics
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Callable
+import threading
+import time
 from collections import deque, defaultdict
-import warnings
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Callable
 
 # 导入现有日志模块
 from src.utils.log import get_logger
@@ -19,6 +17,7 @@ from src.utils.log import get_logger
 # 尝试导入numba相关模块
 try:
     from numba.core.dispatcher import Dispatcher
+
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
@@ -35,11 +34,11 @@ class CompilePhase(Enum):
 
 class PerformanceLevel(Enum):
     """性能级别枚举"""
-    EXCELLENT = "excellent"      # < 10ms
-    GOOD = "good"                # 10-50ms
-    ACCEPTABLE = "acceptable"    # 50-200ms
-    SLOW = "slow"                # 200-500ms
-    CRITICAL = "critical"        # > 500ms
+    EXCELLENT = "excellent"  # < 10ms
+    GOOD = "good"  # 10-50ms
+    ACCEPTABLE = "acceptable"  # 50-200ms
+    SLOW = "slow"  # 200-500ms
+    CRITICAL = "critical"  # > 500ms
 
 
 @dataclass
@@ -127,11 +126,11 @@ class JITMonitor:
     """
 
     def __init__(
-        self,
-        enable_phase_tracking: bool = False,
-        alert_threshold: Optional[AlertThreshold] = None,
-        max_history_size: int = 1000,
-        logger: Optional[Any] = None
+            self,
+            enable_phase_tracking: bool = False,
+            alert_threshold: Optional[AlertThreshold] = None,
+            max_history_size: int = 1000,
+            logger: Optional[Any] = None
     ):
         """
         初始化JIT监控器
@@ -255,15 +254,15 @@ class JITMonitor:
         )
 
     def record_compile_event(
-        self,
-        function_name: str,
-        compile_time: float,
-        cache_hit: bool = False,
-        cache_source: Optional[str] = None,
-        phase_times: Optional[Dict[CompilePhase, float]] = None,
-        memory_usage_bytes: Optional[int] = None,
-        success: bool = True,
-        error_message: Optional[str] = None
+            self,
+            function_name: str,
+            compile_time: float,
+            cache_hit: bool = False,
+            cache_source: Optional[str] = None,
+            phase_times: Optional[Dict[CompilePhase, float]] = None,
+            memory_usage_bytes: Optional[int] = None,
+            success: bool = True,
+            error_message: Optional[str] = None
     ) -> str:
         """
         记录编译事件
@@ -314,13 +313,13 @@ class JITMonitor:
             self._check_alert_conditions(metrics)
 
             # 生成事件ID
-            event_id = f"{function_name}_{int(time.time()*1000)}"
+            event_id = f"{function_name}_{int(time.time() * 1000)}"
             return event_id
 
     def _update_function_stats(
-        self,
-        function_name: str,
-        metrics: CompileMetrics
+            self,
+            function_name: str,
+            metrics: CompileMetrics
     ) -> None:
         """更新函数统计信息"""
         if function_name not in self._function_stats:
@@ -346,7 +345,7 @@ class JITMonitor:
         # 更新平均值
         if stats.total_compilations > 0:
             stats.avg_compile_time = (
-                stats.total_compile_time / stats.total_compilations
+                    stats.total_compile_time / stats.total_compilations
             )
 
         # 更新标准差（使用最近数据）
@@ -391,7 +390,7 @@ class JITMonitor:
                 level="warning",
                 type="compile_time_exceeded",
                 message=f"编译时间过长: {compile_time_ms:.1f}ms > "
-                       f"{self.alert_threshold.compile_time_ms:.1f}ms",
+                        f"{self.alert_threshold.compile_time_ms:.1f}ms",
                 function_name=metrics.function_name,
                 value=compile_time_ms,
                 threshold=self.alert_threshold.compile_time_ms
@@ -405,7 +404,7 @@ class JITMonitor:
                     level="warning",
                     type="memory_usage_exceeded",
                     message=f"内存使用过高: {memory_mb:.1f}MB > "
-                           f"{self.alert_threshold.memory_mb:.1f}MB",
+                            f"{self.alert_threshold.memory_mb:.1f}MB",
                     function_name=metrics.function_name,
                     value=memory_mb,
                     threshold=self.alert_threshold.memory_mb
@@ -424,24 +423,24 @@ class JITMonitor:
                         level="error",
                         type="high_error_rate",
                         message=f"错误率过高: {error_rate:.1%} > "
-                               f"{self.alert_threshold.error_rate:.1%}",
+                                f"{self.alert_threshold.error_rate:.1%}",
                         function_name=metrics.function_name,
                         value=error_rate,
                         threshold=self.alert_threshold.error_rate
                     )
 
     def _trigger_alert(
-        self,
-        level: str,
-        type: str,
-        message: str,
-        function_name: str,
-        value: float,
-        threshold: float
+            self,
+            level: str,
+            type: str,
+            message: str,
+            function_name: str,
+            value: float,
+            threshold: float
     ) -> None:
         """触发告警"""
         alert = {
-            'id': f"{type}_{int(time.time()*1000)}",
+            'id': f"{type}_{int(time.time() * 1000)}",
             'timestamp': time.time(),
             'level': level,
             'type': type,
@@ -490,9 +489,9 @@ class JITMonitor:
             return self._function_stats.copy()
 
     def get_recent_metrics(
-        self,
-        function_name: str,
-        n: int = 10
+            self,
+            function_name: str,
+            n: int = 10
     ) -> List[CompileMetrics]:
         """
         获取最近编译指标
@@ -570,22 +569,22 @@ class JITMonitor:
                 'recent_alerts': recent_alerts[:5],
                 'performance_summary': {
                     'excellent': sum(1 for f in function_performance
-                                   if f['performance_level'] == 'excellent'),
+                                     if f['performance_level'] == 'excellent'),
                     'good': sum(1 for f in function_performance
-                               if f['performance_level'] == 'good'),
+                                if f['performance_level'] == 'good'),
                     'acceptable': sum(1 for f in function_performance
-                                     if f['performance_level'] == 'acceptable'),
+                                      if f['performance_level'] == 'acceptable'),
                     'slow': sum(1 for f in function_performance
-                               if f['performance_level'] == 'slow'),
+                                if f['performance_level'] == 'slow'),
                     'critical': sum(1 for f in function_performance
-                                   if f['performance_level'] == 'critical')
+                                    if f['performance_level'] == 'critical')
                 }
             }
 
     def get_trend_analysis(
-        self,
-        function_name: str,
-        window_size: int = 100
+            self,
+            function_name: str,
+            window_size: int = 100
     ) -> Dict[str, Any]:
         """
         获取性能趋势分析
@@ -675,11 +674,11 @@ class JITMonitor:
             }
 
     def _generate_trend_recommendation(
-        self,
-        trend: str,
-        slope: float,
-        cv: float,
-        avg_time: float
+            self,
+            trend: str,
+            slope: float,
+            cv: float,
+            avg_time: float
     ) -> str:
         """生成趋势推荐"""
         if trend == 'degrading' and slope > 0.3:
@@ -725,9 +724,9 @@ class JITMonitor:
 
 # 装饰器工具函数
 def track_function(
-    monitor: Optional[JITMonitor] = None,
-    critical: bool = False,
-    enable_phase_tracking: bool = False
+        monitor: Optional[JITMonitor] = None,
+        critical: bool = False,
+        enable_phase_tracking: bool = False
 ) -> Callable:
     """
     跟踪函数编译性能的装饰器
@@ -821,8 +820,8 @@ def get_performance_summary() -> Dict[str, Any]:
 
 
 def analyze_function_trend(
-    function_name: str,
-    window_size: int = 100
+        function_name: str,
+        window_size: int = 100
 ) -> Dict[str, Any]:
     """分析函数性能趋势（使用默认监控器）"""
     monitor = get_default_monitor()
@@ -834,9 +833,9 @@ class MonitorContext:
     """监控器上下文管理器"""
 
     def __init__(
-        self,
-        enable_phase_tracking: bool = False,
-        alert_threshold: Optional[AlertThreshold] = None
+            self,
+            enable_phase_tracking: bool = False,
+            alert_threshold: Optional[AlertThreshold] = None
     ):
         self.enable_phase_tracking = enable_phase_tracking
         self.alert_threshold = alert_threshold

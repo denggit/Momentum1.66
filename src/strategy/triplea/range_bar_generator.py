@@ -4,8 +4,9 @@
 专为毫秒级延迟优化，集成Numba JIT编译
 """
 
-from typing import Optional, List, Tuple, Deque
 from collections import deque
+from typing import Optional, List, Tuple, Deque
+
 import numpy as np
 from numba import njit
 
@@ -364,9 +365,9 @@ class BatchRangeBarGenerator:
 # Numba加速函数
 @njit(cache=True)
 def compute_displacement_batch(
-    prices: np.ndarray,
-    open_price: float,
-    tick_range: float
+        prices: np.ndarray,
+        open_price: float,
+        tick_range: float
 ) -> np.ndarray:
     """
     批量计算价格位移
@@ -385,9 +386,9 @@ def compute_displacement_batch(
 
 @njit(cache=True)
 def update_bar_stats_batch(
-    high_px: float,
-    low_px: float,
-    prices: np.ndarray
+        high_px: float,
+        low_px: float,
+        prices: np.ndarray
 ) -> Tuple[float, float]:
     """
     批量更新Bar统计
@@ -411,10 +412,10 @@ def update_bar_stats_batch(
 
 @njit(cache=True)
 def accumulate_volume_batch(
-    total_buy_vol: float,
-    total_sell_vol: float,
-    sizes: np.ndarray,
-    sides: np.ndarray
+        total_buy_vol: float,
+        total_sell_vol: float,
+        sizes: np.ndarray,
+        sides: np.ndarray
 ) -> Tuple[float, float]:
     """
     批量累积成交量

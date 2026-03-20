@@ -4,12 +4,12 @@
 使用局部极小值搜索和密度阈值过滤
 """
 
+from typing import List, Tuple, Dict, Optional
+
 import numpy as np
 from numba import njit, prange
-from typing import List, Tuple, Dict, Optional, Set
-import math
 
-from src.strategy.triplea.data_structures import KDEEngineConfig, RangeBar
+from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -17,10 +17,10 @@ logger = get_logger(__name__)
 
 @njit(cache=True, fastmath=True)
 def find_valleys(
-    grid: np.ndarray,
-    densities: np.ndarray,
-    min_depth: float = 0.1,
-    min_width: float = 0.0
+        grid: np.ndarray,
+        densities: np.ndarray,
+        min_depth: float = 0.1,
+        min_width: float = 0.0
 ):
     """
     寻找山谷区域（连续低密度区域）
@@ -64,7 +64,7 @@ def find_valleys(
 
         # 检查是否为局部极小值
         is_minimum = (densities[i] < densities[i - 1] and
-                     densities[i] < densities[i + 1])
+                      densities[i] < densities[i + 1])
 
         # 检查是否低于相邻点
         is_low = (densities[i] < 0.5 * (densities[i - 1] + densities[i + 1]))
@@ -113,10 +113,10 @@ def find_valleys(
 
 @njit(cache=True, fastmath=True)
 def compute_valley_metrics(
-    grid: np.ndarray,
-    densities: np.ndarray,
-    valley_start: int,
-    valley_end: int
+        grid: np.ndarray,
+        densities: np.ndarray,
+        valley_start: int,
+        valley_end: int
 ) -> Dict[str, float]:
     """
     计算山谷区域度量指标
@@ -173,10 +173,10 @@ def compute_valley_metrics(
 
 @njit(cache=True, fastmath=True, parallel=True)
 def extract_all_valleys_parallel(
-    grid: np.ndarray,
-    densities: np.ndarray,
-    min_depth: float = 0.1,
-    min_width: int = 3
+        grid: np.ndarray,
+        densities: np.ndarray,
+        min_depth: float = 0.1,
+        min_width: int = 3
 ) -> List[Dict[str, float]]:
     """
     并行提取所有山谷区域
@@ -221,12 +221,12 @@ class LVNRegion:
     """
 
     def __init__(
-        self,
-        region_id: int,
-        price_range: Tuple[float, float],
-        min_price: float,
-        min_density: float,
-        metrics: Dict[str, float]
+            self,
+            region_id: int,
+            price_range: Tuple[float, float],
+            min_price: float,
+            min_density: float,
+            metrics: Dict[str, float]
     ):
         """
         初始化LVN区域
@@ -301,7 +301,7 @@ class LVNExtractor:
 
         # 提取参数
         self.min_valley_depth = 0.15  # 最小山谷深度（相对）
-        self.min_valley_width = 2.0   # 最小山谷宽度（价格单位）
+        self.min_valley_width = 2.0  # 最小山谷宽度（价格单位）
         self.density_percentile_threshold = config.lvn_density_percentile
 
         # 状态跟踪
@@ -311,9 +311,9 @@ class LVNExtractor:
         logger.info(f"LVNExtractor初始化完成")
 
     def extract_from_kde(
-        self,
-        grid: np.ndarray,
-        densities: np.ndarray
+            self,
+            grid: np.ndarray,
+            densities: np.ndarray
     ) -> List[LVNRegion]:
         """
         从KDE结果中提取LVN区域
@@ -379,9 +379,9 @@ class LVNExtractor:
         return lvn_regions
 
     def filter_and_merge_regions(
-        self,
-        regions: List[LVNRegion],
-        price_tolerance: float = 0.5
+            self,
+            regions: List[LVNRegion],
+            price_tolerance: float = 0.5
     ) -> List[LVNRegion]:
         """
         过滤和合并重叠的LVN区域
@@ -424,10 +424,10 @@ class LVNExtractor:
         return merged_regions
 
     def find_closest_lvn(
-        self,
-        price: float,
-        regions: List[LVNRegion],
-        max_distance: float = 10.0
+            self,
+            price: float,
+            regions: List[LVNRegion],
+            max_distance: float = 10.0
     ) -> Optional[LVNRegion]:
         """
         查找距离给定价格最近的LVN区域
@@ -466,11 +466,11 @@ class LVNExtractor:
         return closest_region
 
     def update_regions_with_price_action(
-        self,
-        regions: List[LVNRegion],
-        current_price: float,
-        price_history: List[float],
-        window_size: int = 20
+            self,
+            regions: List[LVNRegion],
+            current_price: float,
+            price_history: List[float],
+            window_size: int = 20
     ) -> List[LVNRegion]:
         """
         根据价格行为更新LVN区域状态
@@ -548,7 +548,7 @@ def test_lvn_extraction():
     grid, densities = kde_core.compute_kde(all_prices)
     kde_time = time.perf_counter() - start_time
 
-    logger.info(f"  KDE计算时间: {kde_time*1000:.1f}ms")
+    logger.info(f"  KDE计算时间: {kde_time * 1000:.1f}ms")
     logger.info(f"  网格大小: {len(grid)}")
 
     # 提取LVN区域
@@ -558,12 +558,12 @@ def test_lvn_extraction():
     lvn_regions = extractor.extract_from_kde(grid, densities)
     extraction_time = time.perf_counter() - start_time
 
-    logger.info(f"  LVN提取时间: {extraction_time*1000:.1f}ms")
+    logger.info(f"  LVN提取时间: {extraction_time * 1000:.1f}ms")
     logger.info(f"  检测到LVN区域数: {len(lvn_regions)}")
 
     # 输出LVN区域详情
     for i, region in enumerate(lvn_regions):
-        logger.info(f"  LVN {i+1}:")
+        logger.info(f"  LVN {i + 1}:")
         logger.info(f"    价格范围: {region.start_price:.2f} - {region.end_price:.2f}")
         logger.info(f"    中心价格: {region.center_price:.2f}")
         logger.info(f"    宽度: {region.metrics['width']:.2f}")

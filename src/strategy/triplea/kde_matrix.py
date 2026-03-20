@@ -4,10 +4,11 @@
 支持批量处理和实时分析
 """
 
+import math
+from typing import Tuple, List
+
 import numpy as np
 from numba import njit, prange
-from typing import Tuple, Optional, List, Dict
-import math
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
@@ -17,9 +18,9 @@ logger = get_logger(__name__)
 
 @njit(cache=True, fastmath=True, parallel=True)
 def matrix_broadcast_kde_numba(
-    prices: np.ndarray,
-    grid: np.ndarray,
-    bandwidth: float = 0.5
+        prices: np.ndarray,
+        grid: np.ndarray,
+        bandwidth: float = 0.5
 ) -> np.ndarray:
     """
     Numba加速的矩阵广播KDE计算（并行版本）
@@ -62,9 +63,9 @@ def matrix_broadcast_kde_numba(
 
 
 def matrix_broadcast_kde_python(
-    prices: np.ndarray,
-    grid: np.ndarray,
-    bandwidth: float = 0.5
+        prices: np.ndarray,
+        grid: np.ndarray,
+        bandwidth: float = 0.5
 ) -> np.ndarray:
     """
     Python版本矩阵广播KDE计算（用于调试和验证）
@@ -98,10 +99,10 @@ def matrix_broadcast_kde_python(
 
 
 def kde_batch_matrix(
-    price_batches: List[np.ndarray],
-    grid: np.ndarray,
-    bandwidth: float = 0.5,
-    use_numba: bool = True
+        price_batches: List[np.ndarray],
+        grid: np.ndarray,
+        bandwidth: float = 0.5,
+        use_numba: bool = True
 ) -> List[np.ndarray]:
     """
     批量计算KDE（支持多个价格序列）
@@ -135,10 +136,10 @@ def kde_batch_matrix(
 
 @njit(cache=True, fastmath=True)
 def adaptive_bandwidth_matrix(
-    prices: np.ndarray,
-    grid: np.ndarray,
-    base_bandwidth: float,
-    sensitivity: float = 0.5
+        prices: np.ndarray,
+        grid: np.ndarray,
+        base_bandwidth: float,
+        sensitivity: float = 0.5
 ) -> np.ndarray:
     """
     自适应带宽计算（根据局部密度调整带宽）
@@ -176,9 +177,9 @@ def adaptive_bandwidth_matrix(
 
 @njit(cache=True, fastmath=True, parallel=True)
 def compute_multiple_kde_parallel(
-    price_matrices: List[np.ndarray],
-    grids: List[np.ndarray],
-    bandwidths: np.ndarray
+        price_matrices: List[np.ndarray],
+        grids: List[np.ndarray],
+        bandwidths: np.ndarray
 ) -> List[np.ndarray]:
     """
     并行计算多个KDE估计
@@ -246,9 +247,9 @@ class KDEMatrixEngine:
         logger.info(f"KDEMatrixEngine初始化完成")
 
     def create_unified_grid(
-        self,
-        all_prices: List[np.ndarray],
-        margin_pct: float = 0.1
+            self,
+            all_prices: List[np.ndarray],
+            margin_pct: float = 0.1
     ) -> np.ndarray:
         """
         创建统一的评估网格（覆盖所有价格范围）
@@ -280,9 +281,9 @@ class KDEMatrixEngine:
         return np.linspace(grid_min, grid_max, n_points)
 
     def compute_batch_kde(
-        self,
-        price_batches: List[np.ndarray],
-        use_adaptive_bandwidth: bool = False
+            self,
+            price_batches: List[np.ndarray],
+            use_adaptive_bandwidth: bool = False
     ) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
         批量计算KDE（多序列并行处理）
@@ -326,10 +327,10 @@ class KDEMatrixEngine:
         return results
 
     def compute_density_heatmap(
-        self,
-        price_batches: List[np.ndarray],
-        grid_points: int = 100,
-        time_points: int = 50
+            self,
+            price_batches: List[np.ndarray],
+            grid_points: int = 100,
+            time_points: int = 50
     ) -> np.ndarray:
         """
         计算密度热图（时间-价格密度分布）
@@ -402,15 +403,15 @@ def test_kde_matrix_performance():
     results = engine.compute_batch_kde(price_batches)
     batch_time = time.perf_counter() - start_time
 
-    logger.info(f"  批量计算时间: {batch_time*1000:.1f}ms")
-    logger.info(f"  平均单序列时间: {batch_time/n_batches*1000:.1f}ms")
+    logger.info(f"  批量计算时间: {batch_time * 1000:.1f}ms")
+    logger.info(f"  平均单序列时间: {batch_time / n_batches * 1000:.1f}ms")
 
     # 测试热图计算
     start_time = time.perf_counter()
     heatmap = engine.compute_density_heatmap(price_batches[:5])  # 只使用前5个
     heatmap_time = time.perf_counter() - start_time
 
-    logger.info(f"  热图计算时间: {heatmap_time*1000:.1f}ms")
+    logger.info(f"  热图计算时间: {heatmap_time * 1000:.1f}ms")
     logger.info(f"  热图形状: {heatmap.shape}")
 
     return batch_time, heatmap_time

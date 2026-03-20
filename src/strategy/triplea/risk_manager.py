@@ -5,19 +5,17 @@
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import time
 from datetime import datetime, date
-import numpy as np
+from typing import Optional, Dict, Any
 
-from src.strategy.triplea.data_structures import RiskManagerConfig, TripleAEngineConfig
+from src.strategy.triplea.data_structures import RiskManagerConfig
 
 
 @dataclass
 class PositionSizingResult:
     """仓位计算结果"""
-    qty: float           # 合约数量
-    stop_px: float       # 止损价格（物理锚点）
+    qty: float  # 合约数量
+    stop_px: float  # 止损价格（物理锚点）
     take_profit_px: float  # 止盈价格
     breakeven_px: float  # 保本价格
 
@@ -51,9 +49,9 @@ class RiskManager:
 
         # 每日状态跟踪
         self.daily_pnl: float = 0.0  # 当日盈亏（USD）
-        self.daily_trades: int = 0    # 当日交易次数
-        self.daily_losses: int = 0    # 当日亏损次数
-        self.daily_wins: int = 0      # 当日盈利次数
+        self.daily_trades: int = 0  # 当日交易次数
+        self.daily_losses: int = 0  # 当日亏损次数
+        self.daily_wins: int = 0  # 当日盈利次数
         self.last_trade_date: Optional[date] = None  # 最后交易日期
 
         # 交易记录
@@ -84,12 +82,12 @@ class RiskManager:
             print(f"📅 风险管理器：新的一天 ({today})，日状态已重置")
 
     def calculate_position_size_with_structure(
-        self,
-        entry_price: float,
-        structure_sl_price: float,  # 结构性止损价格（吸收点下方2ticks）
-        structure_tp_price: float,  # 结构性止盈价格（VAH/VAL附近）
-        direction: str,
-        tick_size: float = 0.01
+            self,
+            entry_price: float,
+            structure_sl_price: float,  # 结构性止损价格（吸收点下方2ticks）
+            structure_tp_price: float,  # 结构性止盈价格（VAH/VAL附近）
+            direction: str,
+            tick_size: float = 0.01
     ) -> PositionSizingResult:
         """基于结构性止损止盈计算仓位大小
 
@@ -147,7 +145,8 @@ class RiskManager:
         min_tp_distance = entry_price * min_tp_distance_pct
 
         if tp_distance < min_tp_distance:
-            print(f"⚠️ 风控拦截：止盈距离过小 ({tp_distance:.2f} < {min_tp_distance:.2f}, 需要至少{min_tp_distance_pct*100:.1f}%)")
+            print(
+                f"⚠️ 风控拦截：止盈距离过小 ({tp_distance:.2f} < {min_tp_distance:.2f}, 需要至少{min_tp_distance_pct * 100:.1f}%)")
             return PositionSizingResult(0.0, 0.0, 0.0, 0.0)
 
         # 4. 计算风险金额（5%风险模型）
@@ -205,12 +204,12 @@ class RiskManager:
         return PositionSizingResult(qty, structure_sl_price, structure_tp_price, breakeven_px)
 
     def calculate_position_size(
-        self,
-        entry_price: float,
-        stop_loss_price: float,
-        take_profit_price: float,
-        direction: str,
-        tick_size: float = 0.01
+            self,
+            entry_price: float,
+            stop_loss_price: float,
+            take_profit_price: float,
+            direction: str,
+            tick_size: float = 0.01
     ) -> PositionSizingResult:
         """计算基于风险的仓位大小
 
@@ -306,10 +305,10 @@ class RiskManager:
         return PositionSizingResult(qty, stop_loss_price, take_profit_price, breakeven_px)
 
     def calculate_stop_loss_take_profit(
-        self,
-        entry_price: float,
-        direction: str,
-        tick_size: float = 0.01
+            self,
+            entry_price: float,
+            direction: str,
+            tick_size: float = 0.01
     ) -> tuple[float, float]:
         """计算标准的止损止盈价格（基于配置的Tick数）
 
@@ -349,16 +348,16 @@ class RiskManager:
         return False
 
     def record_trade_result(
-        self,
-        trade_id: str,
-        direction: str,
-        entry_price: float,
-        exit_price: float,
-        quantity: float,
-        stop_loss_price: float,
-        take_profit_price: float,
-        pnl_usd: float,
-        exit_reason: str
+            self,
+            trade_id: str,
+            direction: str,
+            entry_price: float,
+            exit_price: float,
+            quantity: float,
+            stop_loss_price: float,
+            take_profit_price: float,
+            pnl_usd: float,
+            exit_reason: str
     ):
         """记录交易结果并更新日统计
 
@@ -492,10 +491,10 @@ class SimpleRiskManager:
         self.config = config
 
     def calculate_stop_tp_prices(
-        self,
-        entry_price: float,
-        direction: str,
-        tick_size: float = 0.01
+            self,
+            entry_price: float,
+            direction: str,
+            tick_size: float = 0.01
     ) -> tuple[float, float]:
         """计算止损止盈价格
 

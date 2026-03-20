@@ -4,10 +4,11 @@
 支持实时脉冲波分析和LVN检测
 """
 
+import math
+from typing import Tuple, Optional, List, Dict
+
 import numpy as np
 from numba import njit, prange
-from typing import Tuple, Optional, List, Dict
-import math
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
@@ -43,11 +44,12 @@ def epanechnikov_kernel(x: float, bandwidth: float) -> float:
         return 0.75 * (1 - u * u) / bandwidth
     return 0.0
 
+
 @njit(cache=True, fastmath=True)
 def fast_kde_epanechnikov(
-    points: np.ndarray,
-    grid: np.ndarray,
-    bandwidth: float
+        points: np.ndarray,
+        grid: np.ndarray,
+        bandwidth: float
 ) -> np.ndarray:
     """
     使用Epanechnikov核的快速KDE计算
@@ -83,11 +85,12 @@ def fast_kde_epanechnikov(
 
     return kde_values
 
+
 @njit(cache=True, fastmath=True)
 def fast_kde_vectorized(
-    points: np.ndarray,
-    grid: np.ndarray,
-    bandwidth: float
+        points: np.ndarray,
+        grid: np.ndarray,
+        bandwidth: float
 ) -> np.ndarray:
     """
     向量化KDE计算（使用numpy广播）
@@ -120,11 +123,12 @@ def fast_kde_vectorized(
 
     return kde_values
 
+
 @njit(cache=True, fastmath=True, parallel=True)
 def kde_density_1d(
-    points: np.ndarray,
-    grid: np.ndarray,
-    bandwidth: float
+        points: np.ndarray,
+        grid: np.ndarray,
+        bandwidth: float
 ) -> np.ndarray:
     """
     一维KDE密度估计（Numba加速，并行计算）
@@ -225,8 +229,8 @@ def silverman_bandwidth(data: np.ndarray) -> float:
 
 @njit(cache=True, fastmath=True)
 def compute_density_percentiles(
-    densities: np.ndarray,
-    percentiles: np.ndarray
+        densities: np.ndarray,
+        percentiles: np.ndarray
 ) -> np.ndarray:
     """
     计算密度分位数（Numba加速）
@@ -258,16 +262,16 @@ def compute_density_percentiles(
         else:
             weight = idx - idx_floor
             results[i] = (sorted_densities[idx_floor] * (1 - weight) +
-                         sorted_densities[idx_ceil] * weight)
+                          sorted_densities[idx_ceil] * weight)
 
     return results
 
 
 @njit(cache=True, fastmath=True)
 def find_local_minima(
-    grid: np.ndarray,
-    densities: np.ndarray,
-    window: int = 3
+        grid: np.ndarray,
+        densities: np.ndarray,
+        window: int = 3
 ) -> np.ndarray:
     """
     寻找局部极小值点（谷底）
@@ -292,7 +296,7 @@ def find_local_minima(
         # 检查当前点是否比左右邻居都小
         for j in range(1, window + 1):
             if (densities[i] >= densities[i - j] or
-                densities[i] >= densities[i + j]):
+                    densities[i] >= densities[i + j]):
                 is_minimum = False
                 break
 
@@ -304,9 +308,9 @@ def find_local_minima(
 
 @njit(cache=True, fastmath=True)
 def find_local_maxima(
-    grid: np.ndarray,
-    densities: np.ndarray,
-    window: int = 3
+        grid: np.ndarray,
+        densities: np.ndarray,
+        window: int = 3
 ) -> np.ndarray:
     """
     寻找局部极大值点（峰值）
@@ -331,7 +335,7 @@ def find_local_maxima(
         # 检查当前点是否比左右邻居都大
         for j in range(1, window + 1):
             if (densities[i] <= densities[i - j] or
-                densities[i] <= densities[i + j]):
+                    densities[i] <= densities[i + j]):
                 is_maximum = False
                 break
 
@@ -343,8 +347,8 @@ def find_local_maxima(
 
 @njit(cache=True, fastmath=True)
 def compute_density_gradient(
-    densities: np.ndarray,
-    grid_spacing: float
+        densities: np.ndarray,
+        grid_spacing: float
 ) -> np.ndarray:
     """
     计算密度梯度（一阶导数）
@@ -376,8 +380,8 @@ def compute_density_gradient(
 
 @njit(cache=True, fastmath=True)
 def compute_density_curvature(
-    densities: np.ndarray,
-    grid_spacing: float
+        densities: np.ndarray,
+        grid_spacing: float
 ) -> np.ndarray:
     """
     计算密度曲率（二阶导数）
@@ -430,7 +434,7 @@ class KDECore:
 
         logger.info(f"KDECore初始化完成，配置: {config}")
         logger.info(f"  自适应网格: {config.adaptive_grid}, 目标步长: {config.target_grid_step}, "
-                   f"网格范围: [{config.min_grid_size}, {config.max_grid_size}]")
+                    f"网格范围: [{config.min_grid_size}, {config.max_grid_size}]")
 
     def compute_kde(self, prices: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -543,9 +547,9 @@ class KDECore:
             logger.warning(f"Numba预热异常: {e}")
 
     def compute_density_percentile_threshold(
-        self,
-        densities: np.ndarray,
-        percentile: float = None
+            self,
+            densities: np.ndarray,
+            percentile: float = None
     ) -> float:
         """
         计算密度分位数阈值
@@ -569,9 +573,9 @@ class KDECore:
         return threshold
 
     def find_lvn_candidates(
-        self,
-        grid: np.ndarray,
-        densities: np.ndarray
+            self,
+            grid: np.ndarray,
+            densities: np.ndarray
     ) -> List[Dict[str, float]]:
         """
         查找LVN候选区域
@@ -631,7 +635,7 @@ def test_kde_core_performance():
     grid, densities = kde_core.compute_kde(prices)
     kde_time = time.perf_counter() - start_time
 
-    logger.info(f"  KDE计算时间: {kde_time*1000:.1f}ms")
+    logger.info(f"  KDE计算时间: {kde_time * 1000:.1f}ms")
     logger.info(f"  网格大小: {len(grid)}")
     logger.info(f"  密度范围: {np.min(densities):.2e} - {np.max(densities):.2e}")
 
@@ -641,14 +645,14 @@ def test_kde_core_performance():
         minima = find_local_minima(grid, densities)
         minima_time = time.perf_counter() - start_time
 
-        logger.info(f"  局部极小值检测: {len(minima)} 个，时间: {minima_time*1000:.1f}ms")
+        logger.info(f"  局部极小值检测: {len(minima)} 个，时间: {minima_time * 1000:.1f}ms")
 
         # 测试3: LVN候选检测
         start_time = time.perf_counter()
         lvn_candidates = kde_core.find_lvn_candidates(grid, densities)
         lvn_time = time.perf_counter() - start_time
 
-        logger.info(f"  LVN候选检测: {len(lvn_candidates)} 个，时间: {lvn_time*1000:.1f}ms")
+        logger.info(f"  LVN候选检测: {len(lvn_candidates)} 个，时间: {lvn_time * 1000:.1f}ms")
 
     return kde_time
 

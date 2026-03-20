@@ -4,56 +4,67 @@
 """
 
 import asyncio
-import time
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
-import warnings
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 # 导入现有日志模块
 from src.utils.log import get_logger
-
-import numpy as np
 
 # 尝试导入numba，如果不可用则提供降级方案
 try:
     from numba import njit, jit, vectorize, guvectorize
     from numba.core.dispatcher import Dispatcher
     from numba.core.caching import Cache
+
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
+
+
     # 创建虚拟装饰器用于降级模式
     class Dispatcher:
         """Numba不可用时的虚拟分发器"""
         pass
 
+
     def njit(*args, **kwargs):
         """虚拟njit装饰器"""
+
         def decorator(func):
             return func
+
         return decorator
+
 
     def jit(*args, **kwargs):
         """虚拟jit装饰器"""
+
         def decorator(func):
             return func
+
         return decorator
+
 
     def vectorize(*args, **kwargs):
         """虚拟vectorize装饰器"""
+
         def decorator(func):
             return func
+
         return decorator
+
 
     def guvectorize(*args, **kwargs):
         """虚拟guvectorize装饰器"""
+
         def decorator(func):
             return func
-        return decorator
 
+        return decorator
 
 # 类型变量
 F = TypeVar('F', bound=Callable)
@@ -61,10 +72,10 @@ F = TypeVar('F', bound=Callable)
 
 class WarmupStrategy(Enum):
     """预热策略枚举"""
-    EAGER = "eager"      # 急切预热：启动时立即编译所有函数
-    LAZY = "lazy"        # 懒预热：首次使用时编译
+    EAGER = "eager"  # 急切预热：启动时立即编译所有函数
+    LAZY = "lazy"  # 懒预热：首次使用时编译
     BACKGROUND = "background"  # 后台预热：启动后在后台线程编译
-    HYBRID = "hybrid"    # 混合策略：关键函数急切，其他函数后台预热
+    HYBRID = "hybrid"  # 混合策略：关键函数急切，其他函数后台预热
 
 
 @dataclass
@@ -128,12 +139,12 @@ class NumbaWarmupManager:
     """
 
     def __init__(
-        self,
-        strategy: WarmupStrategy = WarmupStrategy.HYBRID,
-        enable_background_warmup: bool = True,
-        background_threads: int = 2,
-        warmup_data_size: int = 100,
-        logger: Optional[Any] = None
+            self,
+            strategy: WarmupStrategy = WarmupStrategy.HYBRID,
+            enable_background_warmup: bool = True,
+            background_threads: int = 2,
+            warmup_data_size: int = 100,
+            logger: Optional[Any] = None
     ):
         """
         初始化预热管理器
@@ -165,10 +176,10 @@ class NumbaWarmupManager:
             )
 
     def register(
-        self,
-        critical: bool = False,
-        warmup_data_generator: Optional[Callable[[int], Tuple]] = None,
-        signature: Optional[str] = None
+            self,
+            critical: bool = False,
+            warmup_data_generator: Optional[Callable[[int], Tuple]] = None,
+            signature: Optional[str] = None
     ) -> Callable[[F], F]:
         """
         注册JIT函数装饰器
@@ -181,6 +192,7 @@ class NumbaWarmupManager:
         Returns:
             装饰器函数
         """
+
         def decorator(func: F) -> F:
             func_name = func.__name__
 
@@ -206,9 +218,9 @@ class NumbaWarmupManager:
         return decorator
 
     def _generate_warmup_data(
-        self,
-        func: Callable,
-        data_generator: Optional[Callable[[int], Tuple]]
+            self,
+            func: Callable,
+            data_generator: Optional[Callable[[int], Tuple]]
     ) -> Optional[List[Tuple]]:
         """
         生成预热数据样本
@@ -352,7 +364,7 @@ class NumbaWarmupManager:
         # 等待关键函数编译完成
         if critical_tasks:
             try:
-                await asyncio.wait_for(asyncio.gather(*critical_tasks), timeout=timeout/2)
+                await asyncio.wait_for(asyncio.gather(*critical_tasks), timeout=timeout / 2)
             except asyncio.TimeoutError:
                 self.logger.warning("关键函数编译超时")
             except Exception as e:
@@ -431,7 +443,7 @@ class NumbaWarmupManager:
                 self._stats.compiled_functions += 1
                 self._stats.total_compile_time += compile_time
                 self._stats.avg_compile_time = (
-                    self._stats.total_compile_time / self._stats.compiled_functions
+                        self._stats.total_compile_time / self._stats.compiled_functions
                 )
                 self._stats.max_compile_time = max(
                     self._stats.max_compile_time, compile_time
@@ -441,7 +453,7 @@ class NumbaWarmupManager:
                 )
 
             self.logger.debug(
-                f"函数 {func_info.name} 编译完成, 耗时 {compile_time*1000:.1f}ms"
+                f"函数 {func_info.name} 编译完成, 耗时 {compile_time * 1000:.1f}ms"
             )
             return True
 
@@ -525,9 +537,9 @@ def get_default_warmup_manager() -> NumbaWarmupManager:
 
 
 def register_jit_function(
-    critical: bool = False,
-    warmup_data_generator: Optional[Callable[[int], Tuple]] = None,
-    signature: Optional[str] = None
+        critical: bool = False,
+        warmup_data_generator: Optional[Callable[[int], Tuple]] = None,
+        signature: Optional[str] = None
 ) -> Callable[[F], F]:
     """
     注册JIT函数的便捷装饰器（使用默认管理器）
@@ -576,6 +588,7 @@ def critical_jit(*args, **kwargs):
         # 然后注册到管理器
         registered_func = register_jit_function(critical=True)(jitted_func)
         return registered_func
+
     return decorator
 
 
@@ -590,4 +603,5 @@ def background_jit(*args, **kwargs):
         # 然后注册到管理器
         registered_func = register_jit_function(critical=False)(jitted_func)
         return registered_func
+
     return decorator

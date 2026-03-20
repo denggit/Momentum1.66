@@ -10,18 +10,17 @@ import queue
 import threading
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, Future
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypeVar
 
 import psutil
 
-# 导入现有日志模块
-from src.utils.log import get_logger
-
 # 导入配置加载器
 from config.triplea import load_triplea_config
+# 导入现有日志模块
+from src.utils.log import get_logger
 
 # 类型变量
 T = TypeVar('T')
@@ -104,7 +103,8 @@ class ProcessPoolManager:
         self.max_workers = max_workers or process_pool_config.get("max_workers", 1)
         self.cpu_affinity = cpu_affinity or []
         self.task_queue_size = task_queue_size or process_pool_config.get("task_queue_size", 1000)
-        self.enable_heartbeat = enable_heartbeat if enable_heartbeat is not None else process_pool_config.get("enable_heartbeat", True)
+        self.enable_heartbeat = enable_heartbeat if enable_heartbeat is not None else process_pool_config.get(
+            "enable_heartbeat", True)
         self.heartbeat_interval = heartbeat_interval or process_pool_config.get("heartbeat_interval", 5.0)
         self.worker_timeout = worker_timeout or process_pool_config.get("worker_timeout", 60.0)
 
@@ -566,7 +566,7 @@ class ProcessPoolManager:
                 self.stats['total_processing_time'] += processing_time
                 if self.stats['tasks_completed'] > 0:
                     self.stats['avg_processing_time'] = (
-                        self.stats['total_processing_time'] / self.stats['tasks_completed']
+                            self.stats['total_processing_time'] / self.stats['tasks_completed']
                     )
 
                 # 清理待处理任务
@@ -742,7 +742,7 @@ class ProcessPoolManager:
             'buy_volume': buy_volume,
             'sell_volume': sell_volume,
             'delta_ratio': (buy_volume - sell_volume) / (buy_volume + sell_volume) if (
-                                                                                                  buy_volume + sell_volume) > 0 else 0.0
+                                                                                              buy_volume + sell_volume) > 0 else 0.0
         }
 
         return result
