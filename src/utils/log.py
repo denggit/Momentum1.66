@@ -86,7 +86,7 @@ def get_logger(name, log_level=logging.DEBUG):
 
 
 # 导入此模块时自动初始化日志系统
-setup_logging()
+setup_logging(log_level=logging.DEBUG)
 
 # 提供便捷的全局日志记录器
 logger = get_logger(__name__)
