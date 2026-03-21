@@ -269,9 +269,9 @@ class OrderFlowMath:
         """波段结束时，统一把这波的最大数据结算进大脑，并存档"""
         if self.round_max_effort_m > self.config.memory_update_threshold_m:
             self.avg_wave_effort_m = (self.avg_wave_effort_m * self.config.memory_decay_factor) + (
-                        self.round_max_effort_m * self.config.memory_update_factor)
+                    self.round_max_effort_m * self.config.memory_update_factor)
             self.avg_resistance_bps = (self.avg_resistance_bps * self.config.memory_decay_factor) + (
-                        self.round_max_resistance * self.config.memory_update_factor)
+                    self.round_max_resistance * self.config.memory_update_factor)
 
             # 🌟 每次更新完，立刻写入本地 JSON 文件
             try:

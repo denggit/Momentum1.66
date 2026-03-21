@@ -3,15 +3,18 @@
 目标：内存使用稳定，无内存泄漏
 """
 
-import time
-import psutil
-import os
 import gc
-import numpy as np
-from typing import Dict, List
+import os
+import time
+from typing import Dict
+
 import matplotlib
+import numpy as np
+import psutil
+
 matplotlib.use('Agg')  # 非交互式后端
 import matplotlib.pyplot as plt
+
 
 class MemoryUsageBenchmark:
     """内存使用基准测试类"""
@@ -206,7 +209,7 @@ class MemoryUsageBenchmark:
 
         elif max(rss_array) - min(rss_array) > 50:  # 总体增长超过50MB
             leak_detected = True
-            leak_reason = f"内存波动过大: {max(rss_array)-min(rss_array):.1f} MB"
+            leak_reason = f"内存波动过大: {max(rss_array) - min(rss_array):.1f} MB"
 
         # 计算统计信息
         stats = {
@@ -228,9 +231,9 @@ class MemoryUsageBenchmark:
 
     def generate_report(self, analysis: Dict):
         """生成内存使用报告和图表"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("🧠 四号引擎v3.0内存使用基准测试报告")
-        print("="*60)
+        print("=" * 60)
 
         print(f"\n📊 测试概况:")
         print(f"  测试持续时间: {analysis.get('duration_seconds', 0):.1f} 秒")
@@ -263,7 +266,7 @@ class MemoryUsageBenchmark:
         else:
             print(f"  ✅ 内存波动随机，无明显增长趋势")
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
 
         # 生成内存使用图表
         self._plot_memory_usage(analysis)
@@ -285,7 +288,7 @@ class MemoryUsageBenchmark:
             z = np.polyfit(self.timestamps, self.memory_rss, 1)
             p = np.poly1d(z)
             plt.plot(self.timestamps, p(self.timestamps), "r--", alpha=0.5,
-                    label=f'趋势: {z[0]*60:.2f} MB/分钟')
+                     label=f'趋势: {z[0] * 60:.2f} MB/分钟')
             plt.legend()
 
         # 子图2：虚拟内存使用
@@ -318,14 +321,15 @@ class MemoryUsageBenchmark:
 
         print(f"📊 图表已保存到: tests/performance/memory_usage_report.png")
 
+
 def main():
     """主函数：运行内存基准测试"""
     print("🔧 四号引擎v3.0内存使用基准测试启动...")
 
     # 创建基准测试实例
     benchmark = MemoryUsageBenchmark(
-        duration_seconds=30,      # 30秒测试
-        sampling_interval=0.1     # 100ms采样间隔
+        duration_seconds=30,  # 30秒测试
+        sampling_interval=0.1  # 100ms采样间隔
     )
 
     # 运行基准测试
@@ -346,6 +350,7 @@ def main():
         return 1  # 检测到内存泄漏
     else:
         return 0  # 无内存泄漏
+
 
 if __name__ == "__main__":
     exit_code = main()

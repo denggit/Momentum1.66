@@ -4,13 +4,12 @@ CVD计算器性能测试
 """
 
 import time
+
 import numpy as np
 import pytest
-from typing import List
-from collections import deque
 
-from src.strategy.triplea.data_structures import NormalizedTick
 from src.strategy.triplea.cvd_calculator import CVDCalculator, BatchCVDCalculator
+from src.strategy.triplea.data_structures import NormalizedTick
 
 
 class TestCVDPerformance:
@@ -257,13 +256,15 @@ class TestCVDPerformance:
             print(f"  差异: {abs(manual_cvd - current_cvd):.6f}")
 
             # 验证一致性（允许浮点误差）
-            assert abs(manual_cvd - current_cvd) < 1e-10, f"CVD计算不一致: 手动={manual_cvd:.4f}, 计算器={current_cvd:.4f}"
+            assert abs(
+                manual_cvd - current_cvd) < 1e-10, f"CVD计算不一致: 手动={manual_cvd:.4f}, 计算器={current_cvd:.4f}"
             print(f"✅ CVD计算正确性验证通过 (窗口10)")
 
         # 验证统计特征
         stats = calculator.get_statistics()
         for window, window_stats in stats.items():
-            print(f"  窗口 {window}: 均值={window_stats['mean']:.4f}, 标准差={window_stats['std']:.4f}, Z-score={window_stats['z_score']:.4f}")
+            print(
+                f"  窗口 {window}: 均值={window_stats['mean']:.4f}, 标准差={window_stats['std']:.4f}, Z-score={window_stats['z_score']:.4f}")
 
         print(f"✅ CVD统计计算验证通过")
 
@@ -299,12 +300,16 @@ class TestCVDPerformance:
             print(f"\n📊 统计特征验证(窗口 {window}):")
             print(f"  历史数据长度: {len(history)}")
             print(f"  手动计算 - 均值: {manual_mean:.4f}, 标准差: {manual_std:.4f}, Z-score: {manual_z_score:.4f}")
-            print(f"  计算器结果 - 均值: {window_stats['mean']:.4f}, 标准差: {window_stats['std']:.4f}, Z-score: {window_stats['z_score']:.4f}")
+            print(
+                f"  计算器结果 - 均值: {window_stats['mean']:.4f}, 标准差: {window_stats['std']:.4f}, Z-score: {window_stats['z_score']:.4f}")
 
             # 验证一致性（允许浮点误差）
-            assert abs(manual_mean - window_stats['mean']) < 1e-10, f"均值计算不一致: 手动={manual_mean:.4f}, 计算器={window_stats['mean']:.4f}"
-            assert abs(manual_std - window_stats['std']) < 1e-10, f"标准差计算不一致: 手动={manual_std:.4f}, 计算器={window_stats['std']:.4f}"
-            assert abs(manual_z_score - window_stats['z_score']) < 1e-10, f"Z-score计算不一致: 手动={manual_z_score:.4f}, 计算器={window_stats['z_score']:.4f}"
+            assert abs(manual_mean - window_stats[
+                'mean']) < 1e-10, f"均值计算不一致: 手动={manual_mean:.4f}, 计算器={window_stats['mean']:.4f}"
+            assert abs(manual_std - window_stats[
+                'std']) < 1e-10, f"标准差计算不一致: 手动={manual_std:.4f}, 计算器={window_stats['std']:.4f}"
+            assert abs(manual_z_score - window_stats[
+                'z_score']) < 1e-10, f"Z-score计算不一致: 手动={manual_z_score:.4f}, 计算器={window_stats['z_score']:.4f}"
 
             print(f"✅ 窗口 {window} 统计特征计算验证通过")
 
@@ -314,9 +319,9 @@ class TestCVDPerformance:
         """
         CVD计算器性能总结报告
         """
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📈 CVD 计算器性能总结报告")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # 运行所有性能测试并收集结果
         results = {}
@@ -346,7 +351,7 @@ class TestCVDPerformance:
         # 2. 批量吞吐量
         batch_calculator = BatchCVDCalculator(window_sizes=[10, 30, 60])
         batch_size = 100
-        batches = [sample_ticks[i:i+batch_size] for i in range(0, 1000, batch_size)]
+        batches = [sample_ticks[i:i + batch_size] for i in range(0, 1000, batch_size)]
 
         start_time = time.perf_counter_ns()
         for batch in batches:
@@ -405,19 +410,20 @@ class TestCVDPerformance:
 
         print(f"\n🎯 性能目标:")
         print(f"  ✅ 单Tick延迟 < 0.2ms: {'通过' if results['single_tick']['avg_ms'] < 0.2 else '失败'}")
-        print(f"  ✅ 吞吐量 > 50,000 Tick/秒: {'通过' if results['batch_throughput']['tick_per_second'] > 50000 else '失败'}")
+        print(
+            f"  ✅ 吞吐量 > 50,000 Tick/秒: {'通过' if results['batch_throughput']['tick_per_second'] > 50000 else '失败'}")
         print(f"  ✅ 内存增加 < 5MB: {'通过' if results['memory_efficiency']['increase_mb'] < 5.0 else '失败'}")
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📝 性能总结:")
         if (results['single_tick']['avg_ms'] < 0.2 and
-            results['batch_throughput']['tick_per_second'] > 50000 and
-            results['memory_efficiency']['increase_mb'] < 5.0):
+                results['batch_throughput']['tick_per_second'] > 50000 and
+                results['memory_efficiency']['increase_mb'] < 5.0):
             print(f"✅ 所有性能目标达成！")
         else:
             print(f"⚠️  部分性能目标未达成，需要优化")
 
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

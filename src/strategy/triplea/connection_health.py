@@ -6,16 +6,13 @@
 
 import asyncio
 import time
-import json
-import socket
-import ssl
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from collections import deque
+from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, List, Optional
+
 import aiohttp
 import psutil
-from collections import deque
 
 from src.utils.log import get_logger
 
@@ -24,54 +21,54 @@ logger = get_logger(__name__)
 
 class HealthStatus(Enum):
     """健康状态枚举"""
-    HEALTHY = "healthy"          # 健康
-    DEGRADED = "degraded"        # 降级
-    UNHEALTHY = "unhealthy"      # 不健康
-    CRITICAL = "critical"        # 严重
+    HEALTHY = "healthy"  # 健康
+    DEGRADED = "degraded"  # 降级
+    UNHEALTHY = "unhealthy"  # 不健康
+    CRITICAL = "critical"  # 严重
 
 
 class ComponentType(Enum):
     """组件类型枚举"""
-    API_CONNECTION = "api_connection"      # API连接
-    WEBSOCKET = "websocket"                # WebSocket连接
-    DATABASE = "database"                  # 数据库连接
-    NETWORK = "network"                    # 网络连接
-    SYSTEM = "system"                      # 系统资源
-    EXECUTION = "execution"                # 订单执行
+    API_CONNECTION = "api_connection"  # API连接
+    WEBSOCKET = "websocket"  # WebSocket连接
+    DATABASE = "database"  # 数据库连接
+    NETWORK = "network"  # 网络连接
+    SYSTEM = "system"  # 系统资源
+    EXECUTION = "execution"  # 订单执行
 
 
 @dataclass
 class HealthMetric:
     """健康指标数据类"""
-    component: ComponentType      # 组件类型
-    metric_name: str              # 指标名称
-    value: float                  # 指标值
-    unit: str                     # 单位
-    timestamp: float              # 时间戳
-    threshold_warning: float      # 警告阈值
-    threshold_critical: float     # 严重阈值
+    component: ComponentType  # 组件类型
+    metric_name: str  # 指标名称
+    value: float  # 指标值
+    unit: str  # 单位
+    timestamp: float  # 时间戳
+    threshold_warning: float  # 警告阈值
+    threshold_critical: float  # 严重阈值
 
 
 @dataclass
 class ComponentHealth:
     """组件健康状态数据类"""
-    component: ComponentType      # 组件类型
-    status: HealthStatus          # 健康状态
-    score: float                  # 健康分数 (0-100)
-    last_check: float             # 最后检查时间
-    metrics: List[HealthMetric]   # 相关指标
+    component: ComponentType  # 组件类型
+    status: HealthStatus  # 健康状态
+    score: float  # 健康分数 (0-100)
+    last_check: float  # 最后检查时间
+    metrics: List[HealthMetric]  # 相关指标
     error_message: Optional[str] = None  # 错误信息
-    recovery_attempts: int = 0    # 恢复尝试次数
+    recovery_attempts: int = 0  # 恢复尝试次数
 
 
 @dataclass
 class HealthCheckResult:
     """健康检查结果数据类"""
-    timestamp: float              # 检查时间戳
+    timestamp: float  # 检查时间戳
     overall_status: HealthStatus  # 整体状态
-    overall_score: float          # 整体分数
+    overall_score: float  # 整体分数
     components: Dict[ComponentType, ComponentHealth]  # 组件状态
-    recommendations: List[str]    # 改进建议
+    recommendations: List[str]  # 改进建议
 
 
 class HealthCheck:
@@ -115,7 +112,7 @@ class HealthCheck:
             "min": min(values),
             "max": max(values),
             "trend": "stable" if len(values) < 2 else
-                     ("increasing" if values[-1] > values[0] else "decreasing")
+            ("increasing" if values[-1] > values[0] else "decreasing")
         }
 
 
@@ -703,7 +700,7 @@ async def test_health_monitor():
     print("1. 执行健康检查...")
     for i in range(3):
         result = await monitor.perform_health_check()
-        print(f"   检查 {i+1}: {result.overall_status.value} (分数: {result.overall_score:.1f})")
+        print(f"   检查 {i + 1}: {result.overall_status.value} (分数: {result.overall_score:.1f})")
         await asyncio.sleep(5)
 
     # 获取趋势数据

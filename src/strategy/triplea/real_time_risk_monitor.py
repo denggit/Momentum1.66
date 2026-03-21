@@ -6,27 +6,25 @@
 
 import asyncio
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import deque
-import threading
+from typing import Dict, List, Optional, Any
 
-from src.utils.log import get_logger
-from src.strategy.triplea.data_structures import RiskManagerConfig, PositionState
+from src.strategy.triplea.connection_health import HealthMonitor
+from src.strategy.triplea.data_structures import RiskManagerConfig
 from src.strategy.triplea.order_manager import OrderManager
-from src.strategy.triplea.connection_health import HealthMonitor, ComponentType
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
 
 class RiskLevel(Enum):
     """风险级别"""
-    NORMAL = "normal"          # 正常
-    WARNING = "warning"        # 警告
-    HIGH = "high"              # 高风险
-    CRITICAL = "critical"      # 危急
+    NORMAL = "normal"  # 正常
+    WARNING = "warning"  # 警告
+    HIGH = "high"  # 高风险
+    CRITICAL = "critical"  # 危急
 
 
 @dataclass
@@ -46,11 +44,11 @@ class RiskAlert:
 class MarketRiskMetrics:
     """市场风险指标"""
     timestamp: float
-    volatility_24h: float = 0.0          # 24小时波动率
-    volume_ratio: float = 0.0            # 成交量比（当前/平均）
-    bid_ask_spread_pct: float = 0.0      # 买卖价差百分比
-    funding_rate: float = 0.0            # 资金费率
-    liq_cluster_density: float = 0.0     # 流动性集群密度
+    volatility_24h: float = 0.0  # 24小时波动率
+    volume_ratio: float = 0.0  # 成交量比（当前/平均）
+    bid_ask_spread_pct: float = 0.0  # 买卖价差百分比
+    funding_rate: float = 0.0  # 资金费率
+    liq_cluster_density: float = 0.0  # 流动性集群密度
 
 
 @dataclass
@@ -60,10 +58,10 @@ class PositionRiskMetrics:
     position_size: float = 0.0
     unrealized_pnl: float = 0.0
     unrealized_pnl_pct: float = 0.0
-    sl_distance_pct: float = 0.0         # 止损距离百分比
-    tp_distance_pct: float = 0.0         # 止盈距离百分比
+    sl_distance_pct: float = 0.0  # 止损距离百分比
+    tp_distance_pct: float = 0.0  # 止盈距离百分比
     risk_reward_ratio: float = 0.0
-    drawdown_pct: float = 0.0            # 回撤百分比
+    drawdown_pct: float = 0.0  # 回撤百分比
 
 
 class RealTimeRiskMonitor:
@@ -78,10 +76,10 @@ class RealTimeRiskMonitor:
     """
 
     def __init__(
-        self,
-        order_manager: OrderManager,
-        risk_config: RiskManagerConfig,
-        health_monitor: HealthMonitor
+            self,
+            order_manager: OrderManager,
+            risk_config: RiskManagerConfig,
+            health_monitor: HealthMonitor
     ):
         """初始化实时风险监控器
 
@@ -108,15 +106,15 @@ class RealTimeRiskMonitor:
 
         # 阈值配置
         self.thresholds = {
-            "volatility_high": 0.05,      # 5% 24小时波动率
-            "volume_spike": 3.0,          # 3倍平均成交量
-            "spread_wide": 0.002,         # 0.2% 买卖价差
-            "funding_extreme": 0.01,      # 1% 资金费率
-            "pnl_drawdown": 0.03,         # 3% 回撤
-            "sl_distance_close": 0.005,   # 0.5% 止损距离
-            "connection_timeout": 10.0,   # 10秒连接超时
-            "system_cpu_high": 80.0,      # 80% CPU使用率
-            "system_memory_high": 85.0,   # 85% 内存使用率
+            "volatility_high": 0.05,  # 5% 24小时波动率
+            "volume_spike": 3.0,  # 3倍平均成交量
+            "spread_wide": 0.002,  # 0.2% 买卖价差
+            "funding_extreme": 0.01,  # 1% 资金费率
+            "pnl_drawdown": 0.03,  # 3% 回撤
+            "sl_distance_close": 0.005,  # 0.5% 止损距离
+            "connection_timeout": 10.0,  # 10秒连接超时
+            "system_cpu_high": 80.0,  # 80% CPU使用率
+            "system_memory_high": 85.0,  # 85% 内存使用率
         }
 
         # 统计信息
@@ -218,11 +216,11 @@ class RealTimeRiskMonitor:
             # 暂时返回模拟数据
             return MarketRiskMetrics(
                 timestamp=time.time(),
-                volatility_24h=0.03,          # 3%波动率
-                volume_ratio=1.5,             # 1.5倍平均成交量
-                bid_ask_spread_pct=0.001,     # 0.1%价差
-                funding_rate=0.0005,          # 0.05%资金费率
-                liq_cluster_density=0.7       # 流动性密度
+                volatility_24h=0.03,  # 3%波动率
+                volume_ratio=1.5,  # 1.5倍平均成交量
+                bid_ask_spread_pct=0.001,  # 0.1%价差
+                funding_rate=0.0005,  # 0.05%资金费率
+                liq_cluster_density=0.7  # 流动性密度
             )
         except Exception as e:
             logger.error(f"收集市场风险指标失败: {e}")
@@ -428,12 +426,12 @@ class RealTimeRiskMonitor:
             logger.error(f"检查紧急情况失败: {e}")
 
     async def _trigger_alert(
-        self,
-        alert_id: str,
-        component: str,
-        risk_level: RiskLevel,
-        message: str,
-        metadata: Dict[str, Any] = None
+            self,
+            alert_id: str,
+            component: str,
+            risk_level: RiskLevel,
+            message: str,
+            metadata: Dict[str, Any] = None
     ):
         """触发风险告警"""
         # 检查是否已有相同告警
@@ -528,7 +526,7 @@ class RealTimeRiskMonitor:
         for alert_id, alert in self.active_alerts.items():
             # 如果告警已解决且超过5分钟，或未解决但超过1小时
             if (alert.resolved and current_time - alert.timestamp > 300) or \
-               (not alert.resolved and current_time - alert.timestamp > 3600):
+                    (not alert.resolved and current_time - alert.timestamp > 3600):
                 to_remove.append(alert_id)
 
         for alert_id in to_remove:
@@ -613,8 +611,8 @@ class RealTimeRiskMonitor:
             return RiskLevel.NORMAL
 
     def update_market_risk(self, volatility_24h: float, volume_ratio: float,
-                          bid_ask_spread_pct: float, funding_rate: float,
-                          liq_cluster_density: float = 0.7):
+                           bid_ask_spread_pct: float, funding_rate: float,
+                           liq_cluster_density: float = 0.7):
         """更新市场风险指标
 
         Args:

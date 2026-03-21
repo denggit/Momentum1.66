@@ -4,9 +4,10 @@
 验证KDEEngineConfig新增参数和KDECore自适应逻辑
 """
 
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,6 +16,7 @@ sys.path.insert(0, project_root)
 
 from src.strategy.triplea.data_structures import KDEEngineConfig, TripleAEngineConfig
 from src.strategy.triplea.kde_core import KDECore
+
 
 def test_config_defaults():
     """测试配置默认值"""
@@ -40,6 +42,7 @@ def test_config_defaults():
     assert engine_config.kde_engine.adaptive_grid == True
 
     print("✅ 配置默认值测试通过")
+
 
 def test_adaptive_vs_fixed():
     """测试自适应 vs 固定网格策略"""
@@ -81,7 +84,8 @@ def test_adaptive_vs_fixed():
     # 验证自适应策略是否限制了网格大小
     assert len(grid_adaptive_small) <= config_adaptive.max_grid_size
     assert len(grid_adaptive_small) >= config_adaptive.min_grid_size
-    print(f"  自适应网格范围检查通过: [{len(grid_adaptive_small)}] ∈ [{config_adaptive.min_grid_size}, {config_adaptive.max_grid_size}]")
+    print(
+        f"  自适应网格范围检查通过: [{len(grid_adaptive_small)}] ∈ [{config_adaptive.min_grid_size}, {config_adaptive.max_grid_size}]")
 
     # 测试大脉冲
     print("\n📊 大脉冲场景测试:")
@@ -97,7 +101,8 @@ def test_adaptive_vs_fixed():
     # 验证自适应策略是否限制了网格大小
     assert len(grid_adaptive_large) <= config_adaptive.max_grid_size
     assert len(grid_adaptive_large) >= config_adaptive.min_grid_size
-    print(f"  自适应网格范围检查通过: [{len(grid_adaptive_large)}] ∈ [{config_adaptive.min_grid_size}, {config_adaptive.max_grid_size}]")
+    print(
+        f"  自适应网格范围检查通过: [{len(grid_adaptive_large)}] ∈ [{config_adaptive.min_grid_size}, {config_adaptive.max_grid_size}]")
 
     # 验证步长差异
     print(f"\n📈 步长对比:")
@@ -110,6 +115,7 @@ def test_adaptive_vs_fixed():
 
     print(f"  自适应步长偏差: 小脉冲={deviation_small:.4f}, 大脉冲={deviation_large:.4f}")
     print("✅ 自适应 vs 固定网格策略测试通过")
+
 
 def test_config_serialization():
     """测试配置序列化"""
@@ -133,6 +139,7 @@ def test_config_serialization():
 
     print("✅ 配置序列化测试通过")
 
+
 def test_performance_with_adaptive():
     """测试自适应网格的性能"""
     print("\n⚡ 测试自适应网格性能")
@@ -144,7 +151,7 @@ def test_performance_with_adaptive():
 
     # 创建测试数据（典型脉冲范围）
     pulse_range = 15.0  # 15美元范围
-    prices = np.random.randn(1000) * (pulse_range/2) + 3000
+    prices = np.random.randn(1000) * (pulse_range / 2) + 3000
 
     # 测试自适应配置
     config_adaptive = KDEEngineConfig(adaptive_grid=True)
@@ -170,7 +177,7 @@ def test_performance_with_adaptive():
     print(f"  平均延迟: {avg_time:.3f}ms")
     print(f"  最小时延: {min_time:.3f}ms")
     print(f"  网格大小: {grid_size}点")
-    print(f"  网格步长: {(grid[-1] - grid[0])/(grid_size-1):.4f}")
+    print(f"  网格步长: {(grid[-1] - grid[0]) / (grid_size - 1):.4f}")
 
     # 验证性能目标（<0.2ms）
     assert avg_time < 0.2, f"平均延迟 {avg_time:.3f}ms 超过 0.2ms 目标"
@@ -181,6 +188,7 @@ def test_performance_with_adaptive():
     assert step >= 0.1, f"网格步长 {step:.4f} 可能过小，噪点风险"
     assert step <= 1.0, f"网格步长 {step:.4f} 可能过大，模糊风险"
     print(f"✅ 网格步长合理: {step:.4f} ∈ [0.1, 1.0]")
+
 
 def main():
     print("🚀 自适应网格配置功能测试")
@@ -199,6 +207,7 @@ def main():
     print("  3. 网格点数限制在 [30, 80] 范围内")
     print("  4. 性能目标达成 (<0.2ms)")
     print("  5. 实盘保命配置已就绪！")
+
 
 if __name__ == "__main__":
     main()

@@ -6,91 +6,88 @@
 
 import asyncio
 import time
-import json
-from typing import Dict, List, Optional, Any, Set, Callable
+from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from enum import Enum
-import threading
-from collections import defaultdict, deque
+from typing import Dict, List, Optional, Any, Set, Callable
 
-from src.utils.log import get_logger
 from src.strategy.triplea.okx_executor import (
-    OKXOrderExecutor, OrderResponse, OrderStatus, OrderSide, ExecutionReport
+    OKXOrderExecutor, OrderStatus, OrderSide
 )
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
 
 class OrderLifecycle(Enum):
     """订单生命周期阶段"""
-    CREATED = "created"          # 已创建
-    SUBMITTED = "submitted"      # 已提交到交易所
-    PENDING = "pending"          # 等待成交
+    CREATED = "created"  # 已创建
+    SUBMITTED = "submitted"  # 已提交到交易所
+    PENDING = "pending"  # 等待成交
     PARTIALLY_FILLED = "partially_filled"  # 部分成交
-    FILLED = "filled"            # 完全成交
-    CANCELLING = "cancelling"    # 取消中
-    CANCELLED = "cancelled"      # 已取消
-    REJECTED = "rejected"        # 被拒绝
-    EXPIRED = "expired"          # 已过期
-    ERROR = "error"              # 错误状态
+    FILLED = "filled"  # 完全成交
+    CANCELLING = "cancelling"  # 取消中
+    CANCELLED = "cancelled"  # 已取消
+    REJECTED = "rejected"  # 被拒绝
+    EXPIRED = "expired"  # 已过期
+    ERROR = "error"  # 错误状态
 
 
 class OrderErrorType(Enum):
     """订单错误类型"""
-    NETWORK_ERROR = "network_error"          # 网络错误
-    API_ERROR = "api_error"                  # API错误
+    NETWORK_ERROR = "network_error"  # 网络错误
+    API_ERROR = "api_error"  # API错误
     INSUFFICIENT_BALANCE = "insufficient_balance"  # 余额不足
-    POSITION_LIMIT = "position_limit"        # 持仓限制
-    RATE_LIMIT = "rate_limit"                # 频率限制
-    MARKET_CLOSED = "market_closed"          # 市场关闭
+    POSITION_LIMIT = "position_limit"  # 持仓限制
+    RATE_LIMIT = "rate_limit"  # 频率限制
+    MARKET_CLOSED = "market_closed"  # 市场关闭
     INVALID_PARAMETER = "invalid_parameter"  # 参数无效
-    UNKNOWN_ERROR = "unknown_error"          # 未知错误
+    UNKNOWN_ERROR = "unknown_error"  # 未知错误
 
 
 @dataclass
 class ManagedOrder:
     """托管订单数据类"""
     # 基本订单信息
-    order_id: str                      # 订单ID
-    client_oid: str                    # 客户端订单ID
-    symbol: str                        # 交易对
-    side: OrderSide                    # 买卖方向
-    order_type: str                    # 订单类型
-    size: float                        # 委托数量
-    price: Optional[float]             # 委托价格
+    order_id: str  # 订单ID
+    client_oid: str  # 客户端订单ID
+    symbol: str  # 交易对
+    side: OrderSide  # 买卖方向
+    order_type: str  # 订单类型
+    size: float  # 委托数量
+    price: Optional[float]  # 委托价格
 
     # 状态信息
-    lifecycle: OrderLifecycle          # 生命周期阶段
-    current_status: OrderStatus        # 当前订单状态
-    filled_size: float                 # 已成交数量
-    avg_fill_price: float              # 平均成交价格
-    fee: float                         # 手续费
+    lifecycle: OrderLifecycle  # 生命周期阶段
+    current_status: OrderStatus  # 当前订单状态
+    filled_size: float  # 已成交数量
+    avg_fill_price: float  # 平均成交价格
+    fee: float  # 手续费
 
     # 时间戳
-    created_time: float                # 创建时间
-    submitted_time: Optional[float]    # 提交时间
-    filled_time: Optional[float]       # 完全成交时间
-    cancelled_time: Optional[float]    # 取消时间
-    last_update_time: float            # 最后更新时间
+    created_time: float  # 创建时间
+    submitted_time: Optional[float]  # 提交时间
+    filled_time: Optional[float]  # 完全成交时间
+    cancelled_time: Optional[float]  # 取消时间
+    last_update_time: float  # 最后更新时间
 
     # 错误信息
     error_type: Optional[OrderErrorType] = None
     error_message: Optional[str] = None
-    retry_count: int = 0               # 重试次数
+    retry_count: int = 0  # 重试次数
 
     # 附加信息
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
-    tags: Set[str] = field(default_factory=set)             # 标签
+    tags: Set[str] = field(default_factory=set)  # 标签
 
 
 @dataclass
 class OrderEvent:
     """订单事件数据类"""
-    event_type: str                    # 事件类型
-    order_id: str                      # 订单ID
-    timestamp: float                   # 时间戳
-    data: Dict[str, Any]               # 事件数据
+    event_type: str  # 事件类型
+    order_id: str  # 订单ID
+    timestamp: float  # 时间戳
+    data: Dict[str, Any]  # 事件数据
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
 
@@ -186,8 +183,8 @@ class OrderManager:
         logger.info("订单管理器已停止")
 
     async def create_order(self, symbol: str, side: OrderSide, order_type: str,
-                          size: float, price: Optional[float] = None,
-                          tags: Set[str] = None, metadata: Dict = None) -> Optional[ManagedOrder]:
+                           size: float, price: Optional[float] = None,
+                           tags: Set[str] = None, metadata: Dict = None) -> Optional[ManagedOrder]:
         """创建托管订单"""
         # 生成客户端订单ID
         client_oid = self._generate_client_oid(symbol, side)
@@ -381,6 +378,7 @@ class OrderManager:
 
     async def get_active_orders(self, symbol: str = None) -> List[ManagedOrder]:
         """获取活跃订单"""
+
         def is_active(order: ManagedOrder) -> bool:
             if order.lifecycle in [OrderLifecycle.FILLED, OrderLifecycle.CANCELLED,
                                    OrderLifecycle.REJECTED, OrderLifecycle.EXPIRED,
@@ -447,7 +445,7 @@ class OrderManager:
                             self.stats["active_orders"] -= 1
                             if self.stats["filled_orders"] > 0:
                                 self.stats["avg_fill_time_ms"] = (
-                                    self.stats["total_fill_time_ms"] / self.stats["filled_orders"]
+                                        self.stats["total_fill_time_ms"] / self.stats["filled_orders"]
                                 )
 
                     elif new_status == OrderStatus.CANCELLED:

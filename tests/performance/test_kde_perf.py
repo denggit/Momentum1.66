@@ -4,18 +4,17 @@ KDE引擎性能测试
 """
 
 import time
-import asyncio
+
 import numpy as np
 import pytest
-from typing import List
 
 from src.strategy.triplea.data_structures import (
     NormalizedTick, TripleAEngineConfig
 )
 from src.strategy.triplea.kde_core import KDECore
+from src.strategy.triplea.kde_engine import KDEEngine
 from src.strategy.triplea.kde_matrix import KDEMatrixEngine
 from src.strategy.triplea.lvn_extractor import LVNExtractor
-from src.strategy.triplea.kde_engine import KDEEngine
 
 
 class TestKDEPerformance:
@@ -398,9 +397,9 @@ class TestKDEPerformance:
         """
         性能总结报告
         """
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📈 KDE引擎性能总结报告")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # 运行所有性能测试并收集结果
         results = {}
@@ -445,7 +444,7 @@ class TestKDEPerformance:
         kde_matrix = KDEMatrixEngine(kde_config.kde_engine)
         batch_size = 100
         n_batches = 10
-        price_batches = [sample_prices[i*batch_size:(i+1)*batch_size] for i in range(n_batches)]
+        price_batches = [sample_prices[i * batch_size:(i + 1) * batch_size] for i in range(n_batches)]
 
         start_time = time.perf_counter_ns()
         kde_matrix.compute_batch_kde(price_batches)
@@ -516,20 +515,21 @@ class TestKDEPerformance:
         print(f"  ✅ KDE核心延迟 < 0.2ms: {'通过' if results['kde_core']['avg_ms'] < 0.2 else '失败'}")
         if 'lvn_extraction' in results:
             print(f"  ✅ LVN提取延迟 < 0.1ms: {'通过' if results['lvn_extraction']['avg_ms'] < 0.1 else '失败'}")
-        print(f"  ✅ 批量吞吐量 > 10,000 样本/秒: {'通过' if results['batch_throughput']['samples_per_second'] > 10000 else '失败'}")
+        print(
+            f"  ✅ 批量吞吐量 > 10,000 样本/秒: {'通过' if results['batch_throughput']['samples_per_second'] > 10000 else '失败'}")
         print(f"  ✅ 内存增加 < 5MB: {'通过' if results['memory_efficiency']['increase_mb'] < 5 else '失败'}")
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📝 性能总结:")
         if (results['kde_core']['avg_ms'] < 0.2 and
-            ('lvn_extraction' not in results or results['lvn_extraction']['avg_ms'] < 0.1) and
-            results['batch_throughput']['samples_per_second'] > 10000 and
-            results['memory_efficiency']['increase_mb'] < 5):
+                ('lvn_extraction' not in results or results['lvn_extraction']['avg_ms'] < 0.1) and
+                results['batch_throughput']['samples_per_second'] > 10000 and
+                results['memory_efficiency']['increase_mb'] < 5):
             print(f"✅ 所有性能目标达成！")
         else:
             print(f"⚠️  部分性能目标未达成，需要优化")
 
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

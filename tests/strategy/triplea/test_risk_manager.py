@@ -4,18 +4,15 @@
 测试小资金优化参数（5%风险，2 tick止损，6 tick止盈）和日损失限制检查
 """
 
-import sys
 import os
-import time
-import numpy as np
-from datetime import datetime, timedelta, date
+import sys
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 sys.path.insert(0, project_root)
 
-from src.strategy.triplea.data_structures import RiskManagerConfig, TripleAEngineConfig
+from src.strategy.triplea.data_structures import RiskManagerConfig
 from src.strategy.triplea.risk_manager import RiskManager, PositionSizingResult, SimpleRiskManager
 
 

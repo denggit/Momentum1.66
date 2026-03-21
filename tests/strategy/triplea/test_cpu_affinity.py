@@ -3,14 +3,15 @@
 测试CPU核心绑定的功能、性能和跨平台兼容性
 """
 
-import unittest
-import sys
 import os
-import time
-import tempfile
 import subprocess
-import psutil
+import sys
+import tempfile
+import time
+import unittest
 from unittest.mock import patch, MagicMock
+
+import psutil
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
@@ -19,6 +20,7 @@ from src.strategy.triplea.cpu_affinity import (
     CPUAffinityManager, CPUAffinityError, PlatformSupport,
     get_default_manager
 )
+
 
 class TestCPUAffinityManager(unittest.TestCase):
     """测试CPU亲和性管理器"""
@@ -204,7 +206,7 @@ time.sleep(1)
         try:
             # 启动子进程
             result = subprocess.run([sys.executable, script_path],
-                                   capture_output=True, text=True, timeout=2)
+                                    capture_output=True, text=True, timeout=2)
             if result.returncode == 0 and result.stdout.strip():
                 worker_pid = int(result.stdout.strip())
 
@@ -305,6 +307,7 @@ time.sleep(1)
             self.assertIn('sockets', topology)
             self.assertIn('cores_per_socket', topology)
 
+
 class TestPerformance(unittest.TestCase):
     """性能测试"""
 
@@ -330,12 +333,12 @@ class TestPerformance(unittest.TestCase):
 
         print(f"\n📊 CPU亲和性设置性能测试:")
         print(f"  迭代次数: {num_iterations}")
-        print(f"  总时间: {total_time*1000:.2f} ms")
+        print(f"  总时间: {total_time * 1000:.2f} ms")
         print(f"  平均设置时间: {avg_time_per_set:.4f} ms")
 
         # 性能要求：平均设置时间 < 1ms
         self.assertLess(avg_time_per_set, 5.0,
-                       f"平均设置时间 {avg_time_per_set:.4f} ms 超过 5 ms")
+                        f"平均设置时间 {avg_time_per_set:.4f} ms 超过 5 ms")
 
     def test_core_utilization_performance(self):
         """测试核心利用率获取性能"""
@@ -365,7 +368,7 @@ class TestPerformance(unittest.TestCase):
 
         # 性能要求：平均获取时间 < 100ms（包含50ms采样间隔）
         self.assertLess(avg_time_per_iteration, 100.0,
-                       f"平均获取时间 {avg_time_per_iteration:.2f} ms 超过 100 ms")
+                        f"平均获取时间 {avg_time_per_iteration:.2f} ms 超过 100 ms")
 
     def test_topology_detection_performance(self):
         """测试拓扑检测性能"""
@@ -388,16 +391,15 @@ class TestPerformance(unittest.TestCase):
 
         print(f"\n📊 CPU拓扑检测性能测试:")
         print(f"  迭代次数: {num_iterations}")
-        print(f"  总时间: {total_time*1000:.2f} ms")
+        print(f"  总时间: {total_time * 1000:.2f} ms")
         print(f"  平均检测时间: {avg_time_per_detection:.4f} ms")
 
         # 性能要求：平均检测时间 < 10ms（在macOS上，get_cpu_topology可能涉及系统调用）
         self.assertLess(avg_time_per_detection, 10.0,
-                       f"平均检测时间 {avg_time_per_detection:.4f} ms 超过 10 ms")
+                        f"平均检测时间 {avg_time_per_detection:.4f} ms 超过 10 ms")
 
     def test_concurrent_affinity_operations(self):
         """测试并发亲和性操作"""
-        import threading
         import concurrent.futures
 
         manager = CPUAffinityManager()
@@ -438,7 +440,7 @@ class TestPerformance(unittest.TestCase):
         print(f"  线程数: {num_threads}")
         print(f"  操作数/线程: {num_operations}")
         print(f"  总操作数: {total_operations}")
-        print(f"  总时间: {total_time*1000:.2f} ms")
+        print(f"  总时间: {total_time * 1000:.2f} ms")
         print(f"  吞吐量: {throughput:.1f} 操作/秒")
 
         # 恢复原始亲和性
@@ -446,7 +448,8 @@ class TestPerformance(unittest.TestCase):
 
         # 性能要求：吞吐量 > 1000 操作/秒
         self.assertGreater(throughput, 100.0,
-                          f"吞吐量 {throughput:.1f} 操作/秒 低于 100 操作/秒")
+                           f"吞吐量 {throughput:.1f} 操作/秒 低于 100 操作/秒")
+
 
 def run_performance_tests():
     """运行性能测试"""
@@ -464,6 +467,7 @@ def run_performance_tests():
     result = runner.run(suite)
 
     return result.wasSuccessful()
+
 
 if __name__ == "__main__":
     # 运行所有测试

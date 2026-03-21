@@ -329,6 +329,7 @@ if __name__ == "__main__":
                         help="运行模式: 'collect' (只收集数据不发邮件) 或 'live' (发送邮件通知)")
     args = parser.parse_args()
 
+
     # 🌟 新增：信号转换器。当收到 kill -15 (SIGTERM) 时，主动抛出 KeyboardInterrupt
     def handle_sigterm(*args):
         logger.warning("🔔 收到 kill -15 (SIGTERM) 信号！转换为安全迫降指令...")

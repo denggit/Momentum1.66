@@ -4,10 +4,11 @@ KDE优化测试
 分析Numba JIT编译后的KDE计算性能
 """
 
-import time
-import numpy as np
-import sys
 import os
+import sys
+import time
+
+import numpy as np
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,7 @@ sys.path.insert(0, project_root)
 
 from src.strategy.triplea.data_structures import TripleAEngineConfig
 from src.strategy.triplea.kde_core import KDECore, kde_density_1d
+
 
 def test_kde_performance():
     """测试KDE计算性能"""
@@ -27,7 +29,7 @@ def test_kde_performance():
     test_sizes = [100, 500, 1000, 2000, 5000]
 
     print("📊 KDE计算性能分析")
-    print("="*60)
+    print("=" * 60)
 
     for size in test_sizes:
         prices = np.random.randn(size) * 50 + 3000
@@ -61,11 +63,12 @@ def test_kde_performance():
         if avg_time > 0.2:
             print(f"  ⚠️  未达到0.2ms性能目标")
 
+
 def test_numba_warmup():
     """测试Numba预热效果"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🔥 Numba JIT预热效果测试")
-    print("="*60)
+    print("=" * 60)
 
     # 创建测试数据
     np.random.seed(42)
@@ -104,11 +107,12 @@ def test_numba_warmup():
     if min_time > 0.2:
         print(f"  ⚠️  KDE核心计算延迟过高")
 
+
 def analyze_bottlenecks():
     """分析性能瓶颈"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🔍 性能瓶颈分析")
-    print("="*60)
+    print("=" * 60)
 
     # 导入所有相关函数
     from src.strategy.triplea.kde_core import silverman_bandwidth, compute_density_percentiles
@@ -156,7 +160,9 @@ def analyze_bottlenecks():
 
     total_time = bw_time + grid_time + kde_time + perc_time
     print(f"\n💡 总计算时间: {total_time:.3f}ms")
-    print(f"💡 主要瓶颈: {'带宽计算' if bw_time/total_time > 0.5 else 'KDE计算' if kde_time/total_time > 0.5 else '其他'}")
+    print(
+        f"💡 主要瓶颈: {'带宽计算' if bw_time / total_time > 0.5 else 'KDE计算' if kde_time / total_time > 0.5 else '其他'}")
+
 
 if __name__ == "__main__":
     print("🚀 开始KDE性能优化分析")
@@ -165,10 +171,10 @@ if __name__ == "__main__":
     test_numba_warmup()
     analyze_bottlenecks()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("📝 分析总结:")
     print("  1. Numba首次编译开销显著")
     print("  2. 预热后性能可能达到目标")
     print("  3. 需要实现Numba预热策略")
     print("  4. 考虑缓存计算带宽")
-    print("="*60)
+    print("=" * 60)

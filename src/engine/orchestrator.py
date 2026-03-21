@@ -231,7 +231,8 @@ class OrderFlowOrchestrator:
                     await self._execute_live_trade(signal_data)
                 else:
                     # collect模式：只记录信号，不发送邮件
-                    logger.info(f"📝 [收集模式] 记录信号但不发送邮件: 价格={signal_data['price']}, 砸盘=${abs(signal_data['cvd_delta_usdt']):,.0f} USDT")
+                    logger.info(
+                        f"📝 [收集模式] 记录信号但不发送邮件: 价格={signal_data['price']}, 砸盘=${abs(signal_data['cvd_delta_usdt']):,.0f} USDT")
 
                 # 记录成功信号
                 self.tracker.add_tracking(signal_data)

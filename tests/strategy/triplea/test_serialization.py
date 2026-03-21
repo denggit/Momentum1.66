@@ -3,12 +3,12 @@
 测试高性能序列化工具的功能和性能
 """
 
-import unittest
-import sys
-import os
-import time
 import json
-import pickle
+import os
+import sys
+import time
+import unittest
+
 import numpy as np
 
 # 添加项目根目录到Python路径
@@ -18,6 +18,7 @@ from src.strategy.triplea.serialization import (
     SerializationFormat, CompressionMethod, HighPerformanceSerializer,
     NumpySerializer, ZeroCopySerializer, get_default_serializer
 )
+
 
 class TestNumpySerializer(unittest.TestCase):
     """测试Numpy序列化器"""
@@ -116,6 +117,7 @@ class TestNumpySerializer(unittest.TestCase):
             self.assertEqual(deserialized_array.shape, empty_array.shape)
             self.assertEqual(deserialized_array.dtype, empty_array.dtype)
             self.assertEqual(deserialized_array.size, 0)
+
 
 class TestHighPerformanceSerializer(unittest.TestCase):
     """测试高性能序列化器"""
@@ -298,6 +300,7 @@ class TestHighPerformanceSerializer(unittest.TestCase):
         # 应该是同一个实例
         self.assertIs(serializer1, serializer2)
 
+
 class TestZeroCopySerializer(unittest.TestCase):
     """测试零拷贝序列化器"""
 
@@ -335,6 +338,7 @@ class TestZeroCopySerializer(unittest.TestCase):
         self.assertEqual(reconstructed_array.shape, original_array.shape)
         self.assertEqual(reconstructed_array.dtype, original_array.dtype)
         # 注意：实际数据可能不同，因为这里创建的是新数组
+
 
 class TestPerformance(unittest.TestCase):
     """性能测试"""
@@ -428,14 +432,14 @@ class TestPerformance(unittest.TestCase):
 
         print(f"\n📊 高性能序列化器吞吐量测试:")
         print(f"  迭代次数: {num_iterations}")
-        print(f"  总时间: {total_time*1000:.2f} ms")
-        print(f"  总数据量: {total_size/1024:.2f} KB")
+        print(f"  总时间: {total_time * 1000:.2f} ms")
+        print(f"  总数据量: {total_size / 1024:.2f} KB")
         print(f"  吞吐量: {throughput:.1f} 操作/秒")
         print(f"  数据速率: {data_rate:.2f} MB/秒")
 
         # 性能要求：吞吐量 > 1000 操作/秒
         self.assertGreater(throughput, 500.0,
-                          f"吞吐量 {throughput:.1f} 操作/秒 低于 500 操作/秒")
+                           f"吞吐量 {throughput:.1f} 操作/秒 低于 500 操作/秒")
 
     def test_compression_performance(self):
         """测试压缩性能"""
@@ -483,9 +487,9 @@ class TestPerformance(unittest.TestCase):
         print(f"\n📊 压缩性能测试:")
         for result in results:
             print(f"  方法 {result['method']}: "
-                  f"原始 {result['uncompressed_size']/1024:.1f}KB → "
-                  f"压缩 {result['compressed_size']/1024:.1f}KB "
-                  f"({result['compression_ratio']*100:.1f}%), "
+                  f"原始 {result['uncompressed_size'] / 1024:.1f}KB → "
+                  f"压缩 {result['compressed_size'] / 1024:.1f}KB "
+                  f"({result['compression_ratio'] * 100:.1f}%), "
                   f"总时间 {result['total_time_ms']:.2f}ms")
 
         # 性能要求：LZ4应该比ZLIB快
@@ -493,7 +497,7 @@ class TestPerformance(unittest.TestCase):
         zlib_result = next(r for r in results if r['method'] == 'zlib')
 
         self.assertLess(lz4_result['total_time_ms'], zlib_result['total_time_ms'] * 1.5,
-                       f"LZ4时间 {lz4_result['total_time_ms']:.2f}ms 未明显快于 ZLIB {zlib_result['total_time_ms']:.2f}ms")
+                        f"LZ4时间 {lz4_result['total_time_ms']:.2f}ms 未明显快于 ZLIB {zlib_result['total_time_ms']:.2f}ms")
 
     def test_memory_efficiency(self):
         """测试内存效率"""
@@ -531,7 +535,7 @@ class TestPerformance(unittest.TestCase):
         print(f"  当前内存: {current_memory:.1f} MB")
         print(f"  内存增加: {memory_increase:.1f} MB")
         print(f"  数组数量: {len(large_arrays)}")
-        print(f"  总数据量: {sum(a.nbytes for a in large_arrays)/1024/1024:.2f} MB")
+        print(f"  总数据量: {sum(a.nbytes for a in large_arrays) / 1024 / 1024:.2f} MB")
 
         # 内存要求：增加不超过原始数据大小的200%（考虑Python内存管理开销）
         original_data_size = sum(a.nbytes for a in large_arrays) / 1024 / 1024  # MB
@@ -544,12 +548,13 @@ class TestPerformance(unittest.TestCase):
 
         # 检查相对增加和绝对增加
         if memory_efficiency > max_relative_increase and memory_increase > max_absolute_increase:
-            self.fail(f"内存效率 {memory_efficiency*100:.1f}% 超过 {max_relative_increase*100:.0f}% "
-                     f"且绝对增加 {memory_increase:.1f}MB 超过 {max_absolute_increase:.0f}MB")
+            self.fail(f"内存效率 {memory_efficiency * 100:.1f}% 超过 {max_relative_increase * 100:.0f}% "
+                      f"且绝对增加 {memory_increase:.1f}MB 超过 {max_absolute_increase:.0f}MB")
 
         # 清理
         del large_arrays
         del serialized_list
+
 
 def run_performance_tests():
     """运行性能测试"""
@@ -567,6 +572,7 @@ def run_performance_tests():
     result = runner.run(suite)
 
     return result.wasSuccessful()
+
 
 if __name__ == "__main__":
     # 运行所有测试

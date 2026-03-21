@@ -4,14 +4,12 @@ Range Bar生成器性能测试
 """
 
 import time
-import asyncio
+
 import numpy as np
 import pytest
-from collections import deque
-from typing import List
 
 from src.strategy.triplea.data_structures import (
-    NormalizedTick, RangeBar, RangeBarConfig
+    NormalizedTick, RangeBarConfig
 )
 from src.strategy.triplea.range_bar_generator import (
     RangeBarGenerator, BatchRangeBarGenerator
@@ -25,8 +23,8 @@ class TestRangeBarPerformance:
     def range_bar_config(self):
         """创建Range Bar配置"""
         return RangeBarConfig(
-            tick_range=20,      # 20个Tick构成一根Range Bar
-            tick_size=0.01,     # 最小价格变动单位
+            tick_range=20,  # 20个Tick构成一根Range Bar
+            tick_size=0.01,  # 最小价格变动单位
             max_bar_history=1440
         )
 
@@ -332,9 +330,9 @@ class TestRangeBarPerformance:
         """
         性能总结报告
         """
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📈 RANGE BAR 生成器性能总结报告")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # 运行所有性能测试并收集结果
         results = {}
@@ -360,7 +358,7 @@ class TestRangeBarPerformance:
         # 2. 批量吞吐量
         batch_generator = BatchRangeBarGenerator(range_bar_config)
         batch_size = 100
-        batches = [sample_ticks[i:i+batch_size] for i in range(0, 1000, batch_size)]
+        batches = [sample_ticks[i:i + batch_size] for i in range(0, 1000, batch_size)]
 
         start_time = time.perf_counter_ns()
         for batch in batches:
@@ -416,19 +414,20 @@ class TestRangeBarPerformance:
 
         print(f"\n🎯 性能目标:")
         print(f"  ✅ 单Tick延迟 < 0.1ms: {'通过' if results['single_tick']['avg_ms'] < 0.1 else '失败'}")
-        print(f"  ✅ 吞吐量 > 10,000 Tick/秒: {'通过' if results['batch_throughput']['tick_per_second'] > 10000 else '失败'}")
+        print(
+            f"  ✅ 吞吐量 > 10,000 Tick/秒: {'通过' if results['batch_throughput']['tick_per_second'] > 10000 else '失败'}")
         print(f"  ✅ 内存增加 < 10MB: {'通过' if results['memory_efficiency']['increase_mb'] < 10 else '失败'}")
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📝 性能总结:")
         if (results['single_tick']['avg_ms'] < 0.1 and
-            results['batch_throughput']['tick_per_second'] > 10000 and
-            results['memory_efficiency']['increase_mb'] < 10):
+                results['batch_throughput']['tick_per_second'] > 10000 and
+                results['memory_efficiency']['increase_mb'] < 10):
             print(f"✅ 所有性能目标达成！")
         else:
             print(f"⚠️  部分性能目标未达成，需要优化")
 
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

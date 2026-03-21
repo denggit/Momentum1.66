@@ -23,7 +23,6 @@ SMC 二号引擎编排器 (SMCOrchestrator)
 """
 import argparse
 import asyncio
-import math
 import os
 import signal
 import sys
@@ -546,7 +545,7 @@ class SMCOrchestrator:
 
             # 计算盈亏
             pnl_pct = (close_price - entry_price) / entry_price * 100 if side == 'buy' else (
-                                                                                                        entry_price - close_price) / entry_price * 100
+                                                                                                    entry_price - close_price) / entry_price * 100
             logger.info(f"💰 平仓盈亏: {pnl_pct:.2f}%")
 
             # 实盘模式下执行平仓操作
@@ -676,7 +675,7 @@ class SMCOrchestrator:
                         min_restart_interval = 120
                         if current_time - self._last_balance_restart < min_restart_interval:
                             logger.warning(f"💰 [财务官] 任务完成但仍在冷却期内，跳过重启 "
-                                         f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
+                                           f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
                         else:
                             # 重启任务
                             logger.warning("💰 [财务官] 正在重启任务...")
@@ -686,13 +685,14 @@ class SMCOrchestrator:
 
                     # 检查心跳超时（任务仍在运行但很久没更新）
                     elif last_update > 0 and (current_time - last_update) > timeout:
-                        logger.warning(f"💰 [财务官] 心跳超时！最后更新: {current_time - last_update:.1f} 秒前 > {timeout} 秒")
+                        logger.warning(
+                            f"💰 [财务官] 心跳超时！最后更新: {current_time - last_update:.1f} 秒前 > {timeout} 秒")
 
                         # 检查重启冷却时间（最小120秒）
                         min_restart_interval = 120
                         if current_time - self._last_balance_restart < min_restart_interval:
                             logger.warning(f"💰 [财务官] 心跳超时但仍在冷却期内，跳过重启 "
-                                         f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
+                                           f"(冷却剩余 {min_restart_interval - (current_time - self._last_balance_restart):.0f} 秒)")
                         else:
                             logger.warning("💰 [财务官] 任务可能卡住，尝试重启...")
                             self._balance_task.cancel()  # 取消旧任务
@@ -707,7 +707,6 @@ class SMCOrchestrator:
             logger.info("📊 持仓监控任务被取消")
         except Exception as e:
             logger.error(f"❌ 持仓监控异常: {e}")
-
 
 
 def main():

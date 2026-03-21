@@ -4,18 +4,18 @@
 实时监控测试环境状态、性能指标和系统健康度
 """
 
-import sys
+import asyncio
 import os
+import sys
+import threading
 import time
-import json
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Dict
+
 import psutil
 import yaml
-import asyncio
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, field
-from collections import deque
-import threading
 
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
@@ -182,7 +182,8 @@ class MetricsCollector:
             return {}
 
         latencies = [m.tick_processing_latency_ms for m in self.engine_history if m.tick_processing_latency_ms > 0]
-        order_latencies = [m.order_execution_latency_ms for m in self.engine_history if m.order_execution_latency_ms > 0]
+        order_latencies = [m.order_execution_latency_ms for m in self.engine_history if
+                           m.order_execution_latency_ms > 0]
 
         return {
             "total_ticks": self.total_ticks,
@@ -214,7 +215,8 @@ class DashboardRenderer:
 
         print("=" * self.console_width)
         print("🚢 四号引擎科考船监控仪表板".center(self.console_width))
-        print(f"运行时间: {uptime_str} | 更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}".center(self.console_width))
+        print(f"运行时间: {uptime_str} | 更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}".center(
+            self.console_width))
         print("=" * self.console_width)
 
     def render_system_status(self):
@@ -269,7 +271,7 @@ class DashboardRenderer:
             print(f"Tick处理: {perf.get('total_ticks', 0):,} (延迟: {perf.get('avg_tick_latency_ms', 0):.3f}ms)")
             print(f"订单执行: {perf.get('total_orders', 0):,} (延迟: {perf.get('avg_order_latency_ms', 0):.1f}ms)")
             print(f"信号生成: {perf.get('total_signals', 0):,}")
-            print(f"错误次数: {perf.get('total_errors', 0):,} (成功率: {perf.get('success_rate', 1.0)*100:.1f}%)")
+            print(f"错误次数: {perf.get('total_errors', 0):,} (成功率: {perf.get('success_rate', 1.0) * 100:.1f}%)")
 
             # P&L
             print(f"持仓盈亏: {eng.position_pnl:+.2f}U")
@@ -346,7 +348,7 @@ class DashboardRenderer:
             alerts.append(f"Tick处理延迟过高: {perf['avg_tick_latency_ms']:.1f}ms")
 
         if perf.get('success_rate', 1.0) < 0.95:
-            alerts.append(f"成功率过低: {perf['success_rate']*100:.1f}%")
+            alerts.append(f"成功率过低: {perf['success_rate'] * 100:.1f}%")
 
         # 显示告警
         if alerts:
@@ -398,6 +400,7 @@ class MonitoringDashboard:
 
     def start_simulation(self):
         """启动模拟数据生成（用于测试）"""
+
         def simulate_data():
             tick_count = 0
             while self.running:

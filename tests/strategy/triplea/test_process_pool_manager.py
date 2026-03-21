@@ -3,20 +3,21 @@
 测试进程池管理器的功能、性能和稳定性
 """
 
-import unittest
 import asyncio
-import sys
 import os
+import sys
 import time
+import unittest
+
 import numpy as np
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 from src.strategy.triplea.process_pool_manager import (
-    ProcessPoolManager, WorkerStatus, WorkerInfo, TaskInfo,
-    get_default_manager
+    ProcessPoolManager
 )
+
 
 class TestProcessPoolManager(unittest.TestCase):
     """测试进程池管理器"""
@@ -65,6 +66,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_start_stop_manager(self):
         """测试启动和停止管理器"""
+
         async def test():
             # 启动管理器
             await self._start_manager()
@@ -87,6 +89,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_submit_task(self):
         """测试提交任务"""
+
         async def test():
             await self._start_manager()
 
@@ -117,6 +120,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_task_processing(self):
         """测试任务处理"""
+
         async def test():
             await self._start_manager()
 
@@ -158,6 +162,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_task_priority(self):
         """测试任务优先级"""
+
         async def test():
             await self._start_manager()
 
@@ -189,6 +194,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_task_timeout(self):
         """测试任务超时"""
+
         async def test():
             # 创建超时时间很短的测试
             test_manager = ProcessPoolManager(
@@ -220,6 +226,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_worker_status_monitoring(self):
         """测试Worker状态监控"""
+
         async def test():
             await self._start_manager()
 
@@ -261,6 +268,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_statistics_collection(self):
         """测试统计信息收集"""
+
         async def test():
             await self._start_manager()
 
@@ -304,6 +312,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_error_handling(self):
         """测试错误处理"""
+
         async def test():
             await self._start_manager()
 
@@ -338,6 +347,7 @@ class TestProcessPoolManager(unittest.TestCase):
 
     def test_concurrent_task_submission(self):
         """测试并发任务提交"""
+
         async def submit_tasks(manager, num_tasks):
             """并发提交任务的辅助函数"""
             tasks = []
@@ -374,11 +384,13 @@ class TestProcessPoolManager(unittest.TestCase):
 
         asyncio.run(test())
 
+
 class TestPerformance(unittest.TestCase):
     """性能测试"""
 
     def test_task_throughput(self):
         """测试任务吞吐量"""
+
         async def test():
             # 创建性能测试管理器
             perf_manager = ProcessPoolManager(
@@ -433,13 +445,13 @@ class TestPerformance(unittest.TestCase):
 
             print(f"\n📊 任务吞吐量性能测试:")
             print(f"  任务数量: {num_tasks}")
-            print(f"  提交时间: {submission_time*1000:.2f} ms")
-            print(f"  总时间: {total_time*1000:.2f} ms")
+            print(f"  提交时间: {submission_time * 1000:.2f} ms")
+            print(f"  总时间: {total_time * 1000:.2f} ms")
             print(f"  完成数量: {completed_count}")
             print(f"  超时数量: {timeout_count}")
             print(f"  提交速率: {submission_rate:.1f} 任务/秒")
             print(f"  处理速率: {processing_rate:.1f} 任务/秒")
-            print(f"  平均延迟: {total_time/num_tasks*1000:.2f} ms/任务")
+            print(f"  平均延迟: {total_time / num_tasks * 1000:.2f} ms/任务")
 
             # 性能要求：平均延迟 < 10ms（对于简单任务）
             avg_latency = total_time / num_tasks * 1000
@@ -451,6 +463,7 @@ class TestPerformance(unittest.TestCase):
 
     def test_memory_usage(self):
         """测试内存使用"""
+
         async def test():
             import psutil
             import os
@@ -498,7 +511,7 @@ class TestPerformance(unittest.TestCase):
 
             # 内存要求：增加不超过100MB（对于20个任务）
             self.assertLess(memory_increase, 100.0,
-                          f"内存增加 {memory_increase:.1f} MB 超过 100 MB")
+                            f"内存增加 {memory_increase:.1f} MB 超过 100 MB")
 
             await mem_manager.stop()
 
@@ -506,9 +519,9 @@ class TestPerformance(unittest.TestCase):
 
     def test_cpu_utilization(self):
         """测试CPU利用率"""
+
         async def test():
             import psutil
-            import os
 
             # 创建管理器（绑定到特定核心）
             cpu_manager = ProcessPoolManager(
@@ -556,7 +569,7 @@ class TestPerformance(unittest.TestCase):
             # CPU要求：执行期间使用率应该显著增加
             # 使用更宽松的阈值：增长10% 或 绝对使用率 > 10%
             min_relative_increase = 1.1  # 增长10%
-            min_absolute_usage = 10.0    # 绝对使用率10%
+            min_absolute_usage = 10.0  # 绝对使用率10%
 
             # 检查相对增长或绝对使用率
             relative_condition = during_cpu > initial_cpu * min_relative_increase
@@ -565,13 +578,14 @@ class TestPerformance(unittest.TestCase):
             if not (relative_condition or absolute_condition):
                 self.fail(
                     f"CPU使用率没有显著增加: {initial_cpu:.1f}% -> {during_cpu:.1f}%\n"
-                    f"要求: 增长{min_relative_increase*100-100:.0f}% (到{initial_cpu*min_relative_increase:.1f}%) "
+                    f"要求: 增长{min_relative_increase * 100 - 100:.0f}% (到{initial_cpu * min_relative_increase:.1f}%) "
                     f"或 绝对使用率>{min_absolute_usage}%"
                 )
 
             await cpu_manager.stop()
 
         asyncio.run(test())
+
 
 def run_performance_tests():
     """运行性能测试"""
@@ -588,6 +602,7 @@ def run_performance_tests():
     result = runner.run(suite)
 
     return result.wasSuccessful()
+
 
 if __name__ == "__main__":
     # 运行所有测试

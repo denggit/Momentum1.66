@@ -4,8 +4,8 @@
 验证signal_generator与状态机的集成，确保接口兼容性
 """
 
-import sys
 import os
+import sys
 import time
 
 # 添加项目根目录到Python路径
@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.strategy.triplea.signal_generator import TripleASignalGenerator
 from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
-from src.strategy.triplea.data_structures import TripleAEngineConfig
 
 
 def test_signal_generator_initialization():
@@ -162,8 +161,8 @@ def test_compatibility_with_orchestrator():
 
     # orchestrator访问的属性
     required_attrs = ['status', 'tradable_zones', 'macro_zones', 'profile',
-                     'global_cvd', 'global_volume', 'current_sl', 'current_tp',
-                     'micro_tracker']
+                      'global_cvd', 'global_volume', 'current_sl', 'current_tp',
+                      'micro_tracker']
     for attr in required_attrs:
         assert hasattr(generator, attr), f"缺少属性: {attr}"
 

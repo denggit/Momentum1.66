@@ -3,8 +3,8 @@
 测试LVN管理器性能
 """
 
-import sys
 import os
+import sys
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +42,7 @@ def run_performance_test():
         densities = np.random.random(grid_size) * 100
         # 在随机位置创建低密度区域（LVN）
         lvn_pos = np.random.randint(20, 80)
-        densities[lvn_pos:lvn_pos+5] = np.random.random(5) * 10
+        densities[lvn_pos:lvn_pos + 5] = np.random.random(5) * 10
         test_data.append((grid, densities))
 
     print(f"测试配置:")
@@ -65,7 +65,7 @@ def run_performance_test():
         cluster_counts.append(len(clusters))
 
         if i % 20 == 0:
-            print(f"  测试 {i+1}/{n_tests}: {latency_ms:.3f}ms, 检测到 {len(clusters)} 个簇")
+            print(f"  测试 {i + 1}/{n_tests}: {latency_ms:.3f}ms, 检测到 {len(clusters)} 个簇")
 
     # 分析结果
     avg_latency = np.mean(latencies)
@@ -154,7 +154,7 @@ def test_memory_management():
         densities = np.random.random(100) * 100
         # 在随机位置创建低密度区域
         pos = np.random.randint(20, 80)
-        densities[pos:pos+3] = np.random.random(3) * 10
+        densities[pos:pos + 3] = np.random.random(3) * 10
         manager.process_kde_result(grid, densities)
 
     # 获取初始统计

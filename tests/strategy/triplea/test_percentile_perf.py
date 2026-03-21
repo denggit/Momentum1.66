@@ -3,12 +3,15 @@
 测试百分位数计算性能
 """
 
-import time
-import numpy as np
 import sys
+import time
+
+import numpy as np
+
 sys.path.insert(0, '../../..')
 
 from src.strategy.triplea.kde_core import compute_density_percentiles
+
 
 def _test_percentile_performance():
     """测试百分位数计算性能（内部函数，不是pytest测试）"""
@@ -58,6 +61,7 @@ def _test_percentile_performance():
     print(f"  np.percentile平均延迟: {avg_time_np:.3f}ms")
 
     return avg_time
+
 
 if __name__ == "__main__":
     _test_percentile_performance()

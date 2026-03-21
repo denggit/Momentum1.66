@@ -1,5 +1,5 @@
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from src.strategy.triplea.data_structures import (
     TripleAEngineConfig, NormalizedTick
@@ -315,3 +315,70 @@ class TripleASignalGenerator:
     def _log_error(self, msg: str):
         if not self.is_shadow:
             logger.error(msg)
+
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """获取性能统计信息
+
+        收集状态机、CVD计算器、Range Bar生成器、KDE引擎等组件的性能统计
+
+        Returns:
+            Dict[str, Any]: 包含所有组件性能统计的字典
+        """
+
+        # 基础统计
+        stats = {
+            'signal_generator': {
+                'processed_ticks': self.processed_ticks,
+                'last_signal_time': self.last_signal_time,
+                'current_status': self.status,
+                'global_cvd': self.global_cvd,
+                'global_volume': self.global_volume
+            }
+        }
+
+        # 从状态机获取性能统计
+        try:
+            state_machine_stats = self.state_machine.get_performance_stats()
+            stats['state_machine'] = state_machine_stats
+        except Exception as e:
+            logger.warning(f"获取状态机性能统计失败: {e}")
+            stats['state_machine'] = {'error': str(e)}
+
+        # 尝试从状态机获取其他组件的统计
+        try:
+            # 获取CVD计算器统计
+            if hasattr(self.state_machine, 'cvd_calculator'):
+                cvd_stats = self.state_machine.cvd_calculator.get_stats()
+                stats['cvd_calculator'] = cvd_stats
+        except Exception as e:
+            logger.warning(f"获取CVD计算器统计失败: {e}")
+            stats['cvd_calculator'] = {'error': str(e)}
+
+        # 尝试获取Range Bar生成器统计
+        try:
+            if hasattr(self.state_machine, 'range_bar_generator'):
+                range_bar_stats = self.state_machine.range_bar_generator.get_stats()
+                stats['range_bar_generator'] = range_bar_stats
+        except Exception as e:
+            logger.warning(f"获取Range Bar生成器统计失败: {e}")
+            stats['range_bar_generator'] = {'error': str(e)}
+
+        # 尝试获取KDE引擎统计（如果存在）
+        try:
+            if hasattr(self.state_machine, 'kde_engine'):
+                kde_stats = self.state_machine.kde_engine.get_stats()
+                stats['kde_engine'] = kde_stats
+        except Exception as e:
+            # KDE引擎可能不存在，这是正常的
+            pass
+
+        # 尝试获取LVN管理器统计
+        try:
+            if hasattr(self.state_machine, 'lvn_manager'):
+                lvn_stats = self.state_machine.lvn_manager.get_stats()
+                stats['lvn_manager'] = lvn_stats
+        except Exception as e:
+            # 可能没有get_stats方法，这是正常的
+            pass
+
+        return stats

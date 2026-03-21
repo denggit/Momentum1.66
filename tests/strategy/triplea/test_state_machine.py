@@ -4,19 +4,20 @@
 验证状态转换逻辑和核心检测算法
 """
 
-import sys
 import os
+import sys
 import time
+
 import numpy as np
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 from src.strategy.triplea.state_machine import (
-    TripleAStateMachine, TripleAState, StateTransitionEvent, StateContext
+    TripleAStateMachine, TripleAState
 )
 from src.strategy.triplea.data_structures import (
-    TripleAEngineConfig, NormalizedTick, KDEEngineConfig, RangeBarConfig
+    TripleAEngineConfig, NormalizedTick
 )
 
 
@@ -227,7 +228,7 @@ def test_trade_signal_generation():
 
     # 临时修改风险管理器内部参数以便测试通过
     state_machine.risk_manager.fee_rate_taker = 0.00005  # 大幅降低手续费率 (0.005%)
-    state_machine.risk_manager.min_rr_ratio = 0.5       # 大幅降低盈亏比要求
+    state_machine.risk_manager.min_rr_ratio = 0.5  # 大幅降低盈亏比要求
 
     # 设置LVN中心价格和活跃LVN区域
     state_machine.context.lvn_center_price = 3000.0
@@ -237,7 +238,7 @@ def test_trade_signal_generation():
     state_machine.context.active_lvn_region = {
         'cluster_id': 'test_cluster_001',
         'start_price': 2990.0,  # LVN低点
-        'end_price': 3020.0,    # LVN高点
+        'end_price': 3020.0,  # LVN高点
         'center_price': 3005.0,
         'width': 30.0,
         'confidence': 0.85
@@ -319,7 +320,7 @@ def test_performance_benchmark():
 
     print(f"性能测试结果:")
     print(f"  总Tick数: {n_ticks}")
-    print(f"  总处理时间: {total_time_ns/1_000_000:.2f}ms")
+    print(f"  总处理时间: {total_time_ns / 1_000_000:.2f}ms")
     print(f"  平均每Tick处理时间: {avg_time_per_tick_ms:.3f}ms")
     print(f"  触发信号数: {len(signals)}")
 
@@ -334,7 +335,7 @@ def test_performance_benchmark():
 
     # 获取性能统计
     perf_stats = state_machine.get_performance_stats()
-    print(f"  最后处理时间: {perf_stats['last_processing_time_ns']/1_000_000:.3f}ms")
+    print(f"  最后处理时间: {perf_stats['last_processing_time_ns'] / 1_000_000:.3f}ms")
     print(f"  状态转换次数: {perf_stats['state_transitions']}")
 
     print("✅ 性能基准测试完成")

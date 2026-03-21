@@ -5,17 +5,18 @@
 """
 
 import asyncio
-import time
-import threading
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from collections import deque
 import statistics
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Any
 
 from src.utils.log import get_logger
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
@@ -372,7 +373,8 @@ class CoreIsolationTest:
         self.monitor = monitor
         self.test_results: List[CoreIsolationMetrics] = []
 
-    async def run_isolation_test(self, test_name: str = "core_isolation_test", duration_seconds: int = 30) -> CoreIsolationMetrics:
+    async def run_isolation_test(self, test_name: str = "core_isolation_test",
+                                 duration_seconds: int = 30) -> CoreIsolationMetrics:
         """运行核心隔离测试
 
         Args:
@@ -418,10 +420,10 @@ class CoreIsolationTest:
         return metrics
 
     def _analyze_isolation_metrics(
-        self,
-        test_name: str,
-        cpu_usage_history: List[float],
-        duration_seconds: float
+            self,
+            test_name: str,
+            cpu_usage_history: List[float],
+            duration_seconds: float
     ) -> CoreIsolationMetrics:
         """分析隔离指标"""
         if not cpu_usage_history:
@@ -584,10 +586,10 @@ class ProcessPoolTest:
                 self.worker_pids.append(proc.pid)
                 self.monitor.monitor_process(proc.pid)
 
-                logger.info(f"  启动工作者{i+1} PID={proc.pid}")
+                logger.info(f"  启动工作者{i + 1} PID={proc.pid}")
 
             except Exception as e:
-                logger.error(f"启动工作者{i+1}失败: {e}")
+                logger.error(f"启动工作者{i + 1}失败: {e}")
 
         await asyncio.sleep(1)
 

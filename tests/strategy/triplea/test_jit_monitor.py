@@ -3,19 +3,18 @@
 测试编译性能监控、告警和统计功能
 """
 
-import unittest
-import sys
-import os
-import time
 import logging
-import numpy as np
+import os
+import sys
+import time
+import unittest
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 from src.strategy.triplea.jit_monitor import (
     JITMonitor, CompilePhase, PerformanceLevel, AlertThreshold,
-    CompileMetrics, PerformanceStats, track_function,
+    track_function,
     get_default_monitor, get_performance_summary, analyze_function_trend,
     MonitorContext
 )
@@ -237,6 +236,7 @@ class TestJITMonitor(unittest.TestCase):
 
         # 收集告警
         alerts_received = []
+
         def alert_callback(alert):
             alerts_received.append(alert)
 
@@ -263,7 +263,7 @@ class TestJITMonitor(unittest.TestCase):
                 function_name="error_prone_function",
                 compile_time=0.010,
                 success=False,
-                error_message=f"Error {i+1}"
+                error_message=f"Error {i + 1}"
             )
 
         # 检查告警
@@ -516,10 +516,9 @@ class TestMonitorContext(unittest.TestCase):
     def test_context_manager(self):
         """测试上下文管理器"""
         with MonitorContext(
-            enable_phase_tracking=True,
-            alert_threshold=AlertThreshold(compile_time_ms=100.0)
+                enable_phase_tracking=True,
+                alert_threshold=AlertThreshold(compile_time_ms=100.0)
         ) as monitor:
-
             # 检查监控器状态
             self.assertIsInstance(monitor, JITMonitor)
             self.assertTrue(monitor._is_monitoring)
@@ -577,9 +576,9 @@ class TestPerformance(unittest.TestCase):
         elapsed = time.perf_counter() - start_time
 
         print(f"  事件数量: {num_events}")
-        print(f"  记录时间: {elapsed*1000:.1f}ms")
-        print(f"  平均每事件: {elapsed/num_events*1000:.3f}ms")
-        print(f"  事件率: {num_events/elapsed:.0f} 事件/秒")
+        print(f"  记录时间: {elapsed * 1000:.1f}ms")
+        print(f"  平均每事件: {elapsed / num_events * 1000:.3f}ms")
+        print(f"  事件率: {num_events / elapsed:.0f} 事件/秒")
 
         # 检查统计
         report = monitor.get_performance_report()
@@ -589,7 +588,7 @@ class TestPerformance(unittest.TestCase):
         # 性能要求：每秒至少1000个事件
         events_per_second = num_events / elapsed
         self.assertGreater(events_per_second, 1000,
-                          f"事件记录速率过低: {events_per_second:.0f} 事件/秒")
+                           f"事件记录速率过低: {events_per_second:.0f} 事件/秒")
 
         # 停止监控
         monitor.stop_monitoring()
@@ -630,7 +629,7 @@ class TestPerformance(unittest.TestCase):
 
         # 内存要求：增加不超过50MB
         self.assertLess(memory_increase, 50.0,
-                       f"内存使用过高: {memory_increase:.1f} MB")
+                        f"内存使用过高: {memory_increase:.1f} MB")
 
         # 停止监控
         monitor.stop_monitoring()

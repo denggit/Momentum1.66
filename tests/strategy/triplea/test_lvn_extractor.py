@@ -3,8 +3,8 @@
 测试LVN提取器功能
 """
 
-import sys
 import os
+import sys
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,7 +50,7 @@ def run_lvn_extraction_test():
     grid, densities = kde_core.compute_kde(all_prices)
     kde_time = time.perf_counter() - start_time
 
-    print(f"  KDE计算时间: {kde_time*1000:.1f}ms")
+    print(f"  KDE计算时间: {kde_time * 1000:.1f}ms")
     print(f"  网格大小: {len(grid)}")
 
     # 提取LVN区域
@@ -59,12 +59,12 @@ def run_lvn_extraction_test():
     lvn_regions = extractor.extract_from_kde(grid, densities)
     extraction_time = time.perf_counter() - start_time
 
-    print(f"  LVN提取时间: {extraction_time*1000:.1f}ms")
+    print(f"  LVN提取时间: {extraction_time * 1000:.1f}ms")
     print(f"  检测到LVN区域数: {len(lvn_regions)}")
 
     # 输出LVN区域详情
     for i, region in enumerate(lvn_regions):
-        print(f"  LVN {i+1}:")
+        print(f"  LVN {i + 1}:")
         print(f"    价格范围: {region.start_price:.2f} - {region.end_price:.2f}")
         print(f"    中心价格: {region.center_price:.2f}")
         print(f"    宽度: {region.metrics.get('width', 0):.2f}")

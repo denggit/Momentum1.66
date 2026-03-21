@@ -5,14 +5,14 @@
 """
 
 import asyncio
-import time
-import statistics
-import threading
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from collections import deque
-import numpy as np
 import gc
+import statistics
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+
+import numpy as np
 
 from src.utils.log import get_logger
 
@@ -135,7 +135,8 @@ class PerformanceTestRunner:
 
         return metrics
 
-    async def run_sustained_load_test(self, ticks_per_second: int = 1000, duration_seconds: int = 60) -> PerformanceMetrics:
+    async def run_sustained_load_test(self, ticks_per_second: int = 1000,
+                                      duration_seconds: int = 60) -> PerformanceMetrics:
         """运行持续负载测试
 
         Args:
@@ -316,12 +317,12 @@ class PerformanceTestRunner:
         return metrics
 
     def _calculate_metrics(
-        self,
-        test_name: str,
-        latencies: List[float],
-        total_ticks: int,
-        duration_seconds: float,
-        baseline_memory: float
+            self,
+            test_name: str,
+            latencies: List[float],
+            total_ticks: int,
+            duration_seconds: float,
+            baseline_memory: float
     ) -> PerformanceMetrics:
         """计算性能指标"""
         if not latencies:
@@ -396,7 +397,7 @@ class PerformanceTestRunner:
         print(f"   总测试次数: {self.total_tests_run}")
         print(f"   通过次数: {self.tests_passed}")
         print(f"   失败次数: {self.tests_failed}")
-        print(f"   通过率: {self.tests_passed/self.total_tests_run*100:.1f}%")
+        print(f"   通过率: {self.tests_passed / self.total_tests_run * 100:.1f}%")
 
         print(f"\n📈 最新测试指标 ({latest_metrics.test_name}):")
         print(f"   总Tick数: {latest_metrics.total_ticks:,}")
@@ -589,7 +590,6 @@ class TickProcessor:
         else:
             risk_level = 'LOW'
             action = 'ACCEPT'
-
 
         return {
             'risk_level': risk_level,

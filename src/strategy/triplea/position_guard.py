@@ -5,35 +5,35 @@
 """
 
 import asyncio
+import threading
 import time
-from typing import Dict, List, Optional, Any, Tuple
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import deque
-import threading
+from typing import Dict, List, Optional, Any
 
-from src.utils.log import get_logger
 from src.strategy.triplea.data_structures import PositionState
 from src.strategy.triplea.order_manager import OrderManager
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
 
 class GuardType(Enum):
     """保护类型"""
-    BREAKEVEN = "breakeven"          # 保本保护
+    BREAKEVEN = "breakeven"  # 保本保护
     TRAILING_STOP = "trailing_stop"  # 移动止损
-    TIME_BASED = "time_based"        # 时间保护
-    VOLATILITY = "volatility"        # 波动率保护
-    PNL_TARGET = "pnl_target"        # 盈利目标保护
+    TIME_BASED = "time_based"  # 时间保护
+    VOLATILITY = "volatility"  # 波动率保护
+    PNL_TARGET = "pnl_target"  # 盈利目标保护
 
 
 class GuardStatus(Enum):
     """保护状态"""
-    ACTIVE = "active"            # 活跃
-    TRIGGERED = "triggered"      # 已触发
-    CANCELLED = "cancelled"      # 已取消
-    EXPIRED = "expired"          # 已过期
+    ACTIVE = "active"  # 活跃
+    TRIGGERED = "triggered"  # 已触发
+    CANCELLED = "cancelled"  # 已取消
+    EXPIRED = "expired"  # 已过期
 
 
 @dataclass
@@ -118,7 +118,7 @@ class PositionGuard:
                 priority=1,
                 params={
                     "activation_pnl_pct": 0.005,  # 0.5%盈利后激活
-                    "breakeven_buffer": 0.001,     # 0.1%保本缓冲
+                    "breakeven_buffer": 0.001,  # 0.1%保本缓冲
                 }
             ),
 
@@ -127,10 +127,10 @@ class PositionGuard:
                 enabled=True,
                 priority=2,
                 params={
-                    "activation_pnl_pct": 0.01,    # 1%盈利后激活
-                    "trail_distance_pct": 0.005,   # 0.5%跟踪距离
-                    "min_trail_pct": 0.002,        # 最小跟踪距离0.2%
-                    "max_trail_pct": 0.02,         # 最大跟踪距离2%
+                    "activation_pnl_pct": 0.01,  # 1%盈利后激活
+                    "trail_distance_pct": 0.005,  # 0.5%跟踪距离
+                    "min_trail_pct": 0.002,  # 最小跟踪距离0.2%
+                    "max_trail_pct": 0.02,  # 最大跟踪距离2%
                 }
             ),
 
@@ -140,7 +140,7 @@ class PositionGuard:
                 priority=3,
                 params={
                     "max_hold_time_seconds": 3600,  # 最大持仓时间1小时
-                    "warning_time_seconds": 1800,   # 30分钟警告
+                    "warning_time_seconds": 1800,  # 30分钟警告
                 }
             ),
 
@@ -149,8 +149,8 @@ class PositionGuard:
                 enabled=True,
                 priority=4,
                 params={
-                    "volatility_threshold": 0.03,   # 3%波动率阈值
-                    "adjustment_factor": 0.5,       # 调整系数
+                    "volatility_threshold": 0.03,  # 3%波动率阈值
+                    "adjustment_factor": 0.5,  # 调整系数
                 }
             ),
 
@@ -159,8 +159,8 @@ class PositionGuard:
                 enabled=True,
                 priority=5,
                 params={
-                    "target_pnl_pct": 0.02,         # 2%盈利目标
-                    "partial_close_pct": 0.5,       # 达到目标后平仓50%
+                    "target_pnl_pct": 0.02,  # 2%盈利目标
+                    "partial_close_pct": 0.5,  # 达到目标后平仓50%
                 }
             ),
         }
@@ -240,10 +240,10 @@ class PositionGuard:
         self.last_check_time = time.time()
 
     async def _check_guard(
-        self,
-        position: PositionState,
-        guard_type: GuardType,
-        config: GuardConfig
+            self,
+            position: PositionState,
+            guard_type: GuardType,
+            config: GuardConfig
     ):
         """检查单个保护"""
         try:
@@ -415,8 +415,7 @@ class PositionGuard:
 
                 # 检查是否触发止损
                 if (direction == "LONG" and current_price <= guard_event.trigger_price) or \
-                   (direction == "SHORT" and current_price >= guard_event.trigger_price):
-
+                        (direction == "SHORT" and current_price >= guard_event.trigger_price):
                     guard_event.status = GuardStatus.TRIGGERED
                     self.stats["total_guards_triggered"] += 1
                     self.stats["trailing_stop_guards"] += 1
@@ -461,8 +460,8 @@ class PositionGuard:
                     self.active_guards[guard_id] = guard_event
                     self.guard_history.append(guard_event)
 
-                    logger.warning(f"⏰ 时间保护触发: 仓位 {position.position_id} 持仓超过{max_hold_time/60:.0f}分钟")
-                    logger.warning(f"   入场时间: {position.entry_time}, 持仓时间: {position_time/60:.1f}分钟")
+                    logger.warning(f"⏰ 时间保护触发: 仓位 {position.position_id} 持仓超过{max_hold_time / 60:.0f}分钟")
+                    logger.warning(f"   入场时间: {position.entry_time}, 持仓时间: {position_time / 60:.1f}分钟")
 
                     # 这里应该触发平仓或警告
                     # await self._close_position(position.position_id, "持仓时间过长")
@@ -486,7 +485,7 @@ class PositionGuard:
 
                 self.active_guards[guard_id] = guard_event
 
-                logger.info(f"⏰ 时间保护警告: 仓位 {position.position_id} 持仓超过{warning_time/60:.0f}分钟")
+                logger.info(f"⏰ 时间保护警告: 仓位 {position.position_id} 持仓超过{warning_time / 60:.0f}分钟")
 
         except Exception as e:
             logger.error(f"检查时间保护失败: {e}")
@@ -564,7 +563,7 @@ class PositionGuard:
         for guard_id, guard in self.active_guards.items():
             # 如果事件已触发且超过1小时，或已取消/过期
             if (guard.status in [GuardStatus.TRIGGERED, GuardStatus.CANCELLED, GuardStatus.EXPIRED] and
-                current_time - guard.timestamp > 3600):
+                    current_time - guard.timestamp > 3600):
                 to_remove.append(guard_id)
 
         for guard_id in to_remove:

@@ -3,11 +3,12 @@
 测试进程间通信协议的正确性和性能
 """
 
-import unittest
-import sys
-import os
-import time
 import json
+import os
+import sys
+import time
+import unittest
+
 import numpy as np
 
 # 添加项目根目录到Python路径
@@ -15,14 +16,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 
 from src.strategy.triplea.ipc_protocol import (
     MessageType, TaskPriority, MessageHeader, IPCMessage,
-    TaskRequest, TaskResult, TickData, RangeBarData, KDERequest, KDEResult,
-    IPCProtocol, get_default_protocol
+    TaskRequest, TickData, RangeBarData, KDERequest, KDEResult,
+    IPCProtocol
 )
 
 from src.strategy.triplea.serialization import (
     SerializationFormat, CompressionMethod, HighPerformanceSerializer,
-    NumpySerializer, get_default_serializer
+    NumpySerializer
 )
+
 
 class TestMessageHeader(unittest.TestCase):
     """测试消息头部"""
@@ -85,6 +87,7 @@ class TestMessageHeader(unittest.TestCase):
         self.assertEqual(header2.compression, header.compression)
         self.assertEqual(header2.version, header.version)
 
+
 class TestIPCMessage(unittest.TestCase):
     """测试IPC消息"""
 
@@ -143,6 +146,7 @@ class TestIPCMessage(unittest.TestCase):
         # 序列化
         serialized = message.serialize()
         self.assertTrue(len(serialized) < len(json.dumps(data).encode('utf-8')) * 0.9)  # 压缩率应小于90%
+
 
 class TestDataStructures(unittest.TestCase):
     """测试数据结构"""
@@ -244,6 +248,7 @@ class TestDataStructures(unittest.TestCase):
         self.assertEqual(response.request_id, "kde_123")
         self.assertEqual(response.computation_time, 0.123)
         self.assertTrue(response.cache_hit)
+
 
 class TestIPCProtocol(unittest.TestCase):
     """测试IPC协议"""
@@ -349,6 +354,7 @@ class TestIPCProtocol(unittest.TestCase):
         self.assertEqual(stats['messages_received'], 5)
         self.assertGreater(stats['bytes_sent'], 0)
         self.assertGreater(stats['bytes_received'], 0)
+
 
 class TestSerialization(unittest.TestCase):
     """测试序列化"""
@@ -460,6 +466,7 @@ class TestSerialization(unittest.TestCase):
         self.assertGreater(stats['serialization_time'], 0)
         self.assertGreater(stats['deserialization_time'], 0)
 
+
 class TestPerformance(unittest.TestCase):
     """性能测试"""
 
@@ -551,9 +558,9 @@ class TestPerformance(unittest.TestCase):
         print(f"\n📊 序列化性能测试:")
         for result in results:
             print(f"  大小 {result['size']}: "
-                  f"原始 {result['original_size']/1024:.1f}KB → "
-                  f"压缩 {result['compressed_size']/1024:.1f}KB "
-                  f"({result['compression_ratio']*100:.1f}%), "
+                  f"原始 {result['original_size'] / 1024:.1f}KB → "
+                  f"压缩 {result['compressed_size'] / 1024:.1f}KB "
+                  f"({result['compression_ratio'] * 100:.1f}%), "
                   f"序列化 {result['serialize_time_ms']:.2f}ms, "
                   f"反序列化 {result['deserialize_time_ms']:.2f}ms")
 
@@ -562,8 +569,10 @@ class TestPerformance(unittest.TestCase):
         total_time = last_result['serialize_time_ms'] + last_result['deserialize_time_ms']
         self.assertLess(total_time, 5.0, f"总时间 {total_time:.2f} ms 超过 5.0 ms")
 
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
 # 运行性能测试的辅助函数
 def run_performance_tests():
@@ -580,6 +589,7 @@ def run_performance_tests():
     result = runner.run(suite)
 
     return result.wasSuccessful()
+
 
 if __name__ == "__main__":
     # 运行所有测试

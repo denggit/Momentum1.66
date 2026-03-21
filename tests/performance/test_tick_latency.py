@@ -3,13 +3,14 @@
 目标：单Tick处理延迟 < 1ms（平均）
 """
 
-import time
-import statistics
-import numpy as np
-from typing import Dict, List
-import asyncio
-import psutil
 import os
+import statistics
+import time
+from typing import Dict, List
+
+import numpy as np
+import psutil
+
 
 class TickLatencyBenchmark:
     """Tick处理延迟基准测试类"""
@@ -155,9 +156,9 @@ class TickLatencyBenchmark:
 
     def print_report(self, stats: Dict):
         """打印基准测试报告"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("📊 四号引擎v3.0 Tick处理延迟基准测试报告")
-        print("="*60)
+        print("=" * 60)
 
         print(f"\n📈 测试概况:")
         print(f"  测试Tick数量: {stats.get('total_ticks', 0):,}")
@@ -189,7 +190,8 @@ class TickLatencyBenchmark:
             print(f"  ⚠️  警告! 平均延迟 {mean_latency:.4f} ms > 1.0 ms")
             print(f"    需要进一步优化")
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
+
 
 def main():
     """主函数：运行基准测试"""
@@ -197,8 +199,8 @@ def main():
 
     # 创建基准测试实例
     benchmark = TickLatencyBenchmark(
-        num_ticks=10000,      # 测试10000个Tick
-        warmup_ticks=1000     # 预热1000个Tick
+        num_ticks=10000,  # 测试10000个Tick
+        warmup_ticks=1000  # 预热1000个Tick
     )
 
     # 运行基准测试
@@ -219,6 +221,7 @@ def main():
         return 0  # 成功
     else:
         return 1  # 失败
+
 
 if __name__ == "__main__":
     exit_code = main()

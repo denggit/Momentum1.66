@@ -3,21 +3,21 @@
 测试Numba JIT预热功能、性能和降级模式
 """
 
-import unittest
-from unittest.mock import patch, MagicMock
 import asyncio
-import sys
-import os
-import time
 import logging
+import os
+import sys
+import time
+import unittest
+from unittest.mock import patch
+
 import numpy as np
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 from src.strategy.triplea.numba_warmup import (
-    NumbaWarmupManager, WarmupStrategy, JITFunctionInfo,
-    WarmupStats, register_jit_function, warmup_all,
+    NumbaWarmupManager, WarmupStrategy, WarmupStats, register_jit_function, warmup_all,
     get_warmup_stats, critical_jit, background_jit,
     get_default_warmup_manager, NUMBA_AVAILABLE
 )
@@ -176,6 +176,7 @@ class TestNumbaWarmupManager(unittest.TestCase):
     @patch('src.strategy.triplea.numba_warmup.NUMBA_AVAILABLE', True)
     def test_warmup_timeout(self):
         """测试预热超时"""
+
         async def test():
             with patch.object(NumbaWarmupManager, '_should_compile_now', return_value=True):
                 manager = NumbaWarmupManager(strategy=WarmupStrategy.EAGER)
@@ -188,9 +189,11 @@ class TestNumbaWarmupManager(unittest.TestCase):
 
                 # 模拟_compile_function使其睡眠，确保超时
                 original_compile = manager._compile_function
+
                 async def mock_compile(func_info):
                     await asyncio.sleep(2)  # 模拟长时间编译
                     return True
+
                 manager._compile_function = mock_compile
 
                 # 设置很短的超时时间
@@ -224,6 +227,7 @@ class TestNumbaWarmupManager(unittest.TestCase):
 
     def test_shutdown(self):
         """测试关闭管理器"""
+
         async def test():
             manager = NumbaWarmupManager(
                 strategy=WarmupStrategy.BACKGROUND,
@@ -272,6 +276,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
     def test_register_jit_function(self):
         """测试register_jit_function装饰器"""
+
         # 使用默认管理器
         @register_jit_function(critical=True)
         def test_func(x):
@@ -285,6 +290,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
     def test_critical_jit_decorator(self):
         """测试critical_jit装饰器"""
+
         # 这个装饰器组合了register_jit_function和njit
         @critical_jit(cache=True)
         def test_func(x: float) -> float:
@@ -302,6 +308,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
     def test_background_jit_decorator(self):
         """测试background_jit装饰器"""
+
         @background_jit(cache=True)
         def test_func(x: float) -> float:
             return x + 1.0
@@ -318,6 +325,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
     def test_warmup_all(self):
         """测试warmup_all函数"""
+
         # 注册一些函数
         @register_jit_function(critical=True)
         def func1(x):
@@ -380,8 +388,8 @@ class TestPerformance(unittest.TestCase):
 
             print(f"\n⏱️  Numba JIT编译测试:")
             print(f"  函数: compute_kde")
-            print(f"  编译时间: {func_info.compile_time*1000:.1f}ms")
-            print(f"  总预热时间: {elapsed*1000:.1f}ms")
+            print(f"  编译时间: {func_info.compile_time * 1000:.1f}ms")
+            print(f"  总预热时间: {elapsed * 1000:.1f}ms")
 
             # 清理
             await manager.shutdown()
@@ -437,8 +445,8 @@ class TestPerformance(unittest.TestCase):
             self.assertTrue(success2)
 
             print(f"\n💾 Numba缓存性能测试:")
-            print(f"  第一次编译时间: {first_compile_time*1000:.1f}ms")
-            print(f"  第二次编译时间: {second_compile_time*1000:.1f}ms")
+            print(f"  第一次编译时间: {first_compile_time * 1000:.1f}ms")
+            print(f"  第二次编译时间: {second_compile_time * 1000:.1f}ms")
             if first_compile_time > 0:
                 speedup = first_compile_time / second_compile_time
                 print(f"  缓存加速: {speedup:.1f}倍")

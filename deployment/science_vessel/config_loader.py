@@ -6,8 +6,9 @@
 
 import os
 import sys
-import yaml
 from typing import Dict, Any, Optional
+
+import yaml
 
 # 添加项目路径以导入数据类
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -174,6 +175,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ 配置加载失败: {e}")
         import traceback
+
         traceback.print_exc()
 
     print("=" * 60)

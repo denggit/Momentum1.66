@@ -4,8 +4,10 @@
 比较原始循环算法和Numpy广播算法的结果差异
 """
 
-import numpy as np
 import sys
+
+import numpy as np
+
 
 def kde_original(prices, bandwidth=0.5, grid_size=100):
     """原始循环算法"""
@@ -28,6 +30,7 @@ def kde_original(prices, bandwidth=0.5, grid_size=100):
 
     return grid_points, kde_values
 
+
 def kde_vectorized(prices, bandwidth=0.5, grid_size=100):
     """向量化Numpy广播算法"""
     if len(prices) == 0:
@@ -47,6 +50,7 @@ def kde_vectorized(prices, bandwidth=0.5, grid_size=100):
     kde_values = np.sum(kernel, axis=0) / (n * bandwidth * np.sqrt(2 * np.pi))  # 形状 (m,)
 
     return grid_points, kde_values
+
 
 def run_equivalence_test():
     """运行等价性测试并返回结果（用于脚本模式）"""
@@ -115,7 +119,7 @@ def run_equivalence_test():
 
     print(f"  原始算法时间: {orig_time:.3f}s")
     print(f"  向量化算法时间: {vec_time:.3f}s")
-    print(f"  性能提升: {orig_time/vec_time:.1f}倍")
+    print(f"  性能提升: {orig_time / vec_time:.1f}倍")
 
     # 总结
     print("\n" + "=" * 50)
@@ -127,6 +131,7 @@ def run_equivalence_test():
 
     return all_pass
 
+
 def test_equivalence():
     """pytest兼容的等价性测试（不返回任何值，使用assert）"""
     # 运行测试并获取结果
@@ -134,6 +139,7 @@ def test_equivalence():
 
     # 使用assert验证测试结果
     assert all_pass, "KDE算法等价性测试失败：原始算法和向量化算法结果存在显著差异"
+
 
 def run_realistic_scenarios_test():
     """运行实盘场景测试（用于脚本模式）"""
@@ -185,8 +191,8 @@ def run_realistic_scenarios_test():
             min_pos1 = grid1[min_idx1]
             min_pos2 = grid2[min_idx2]
 
-            print(f"  峰值位置: 原始={peak_pos1:.2f}, 向量化={peak_pos2:.2f}, 差异={abs(peak_pos1-peak_pos2):.2f}")
-            print(f"  低点位置: 原始={min_pos1:.2f}, 向量化={min_pos2:.2f}, 差异={abs(min_pos1-min_pos2):.2f}")
+            print(f"  峰值位置: 原始={peak_pos1:.2f}, 向量化={peak_pos2:.2f}, 差异={abs(peak_pos1 - peak_pos2):.2f}")
+            print(f"  低点位置: 原始={min_pos1:.2f}, 向量化={min_pos2:.2f}, 差异={abs(min_pos1 - min_pos2):.2f}")
 
             # 检查是否影响交易决策
             price_tick = 0.1  # 假设最小价格变动单位
@@ -204,6 +210,7 @@ def run_realistic_scenarios_test():
 
     return all_pass
 
+
 def test_realistic_scenarios():
     """pytest兼容的实盘场景测试"""
     # 运行测试并获取结果
@@ -211,6 +218,7 @@ def test_realistic_scenarios():
 
     # 使用assert验证测试结果
     assert all_pass, "实盘场景测试失败：算法差异可能影响交易决策"
+
 
 if __name__ == "__main__":
     print("🚀 KDE算法修改验证工具")

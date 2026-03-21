@@ -3,8 +3,8 @@
 测试LVN管理器基本功能
 """
 
-import sys
 import os
+import sys
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,10 +12,10 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 sys.path.insert(0, project_root)
 
 import numpy as np
-import time
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.strategy.triplea.lvn_manager import LVNManager, LVNCluster
+
 
 def run_basic_functionality_test():
     """运行基本功能测试（脚本模式）"""
@@ -72,6 +72,7 @@ def run_basic_functionality_test():
 
     return manager
 
+
 def test_basic_functionality():
     """pytest测试版本：基本功能测试"""
     config = KDEEngineConfig()
@@ -103,6 +104,7 @@ def test_basic_functionality():
     assert stats['total_regions_detected'] > 0
     assert stats['clusters_created'] > 0
 
+
 def test_cluster_operations():
     """测试簇操作"""
     print("\n🔧 测试簇操作")
@@ -123,6 +125,7 @@ def test_cluster_operations():
     metrics = cluster.get_cluster_metrics()
     print(f"簇度量: {metrics}")
 
+
 def test_closest_cluster():
     """测试最近簇查找"""
     print("\n🎯 测试最近簇查找")
@@ -137,8 +140,8 @@ def test_closest_cluster():
     test_densities = np.random.random(100) * 100
 
     # 在特定位置创建低密度区域
-    test_densities[40:45] = 5   # 2980附近
-    test_densities[70:75] = 8   # 3020附近
+    test_densities[40:45] = 5  # 2980附近
+    test_densities[70:75] = 8  # 3020附近
 
     # 处理检测
     manager.process_kde_result(test_grid, test_densities)
@@ -156,6 +159,7 @@ def test_closest_cluster():
                   f"距离={distance:.2f}")
         else:
             print(f"  价格 {price}: 无最近簇")
+
 
 def test_confidence_update():
     """测试置信度更新"""
@@ -188,6 +192,7 @@ def test_confidence_update():
 
         print(f"置信度更新: {initial_confidence:.3f} -> {new_confidence:.3f}")
 
+
 def main():
     print("🚀 LVN管理器基本功能测试")
     print("=" * 70)
@@ -205,6 +210,7 @@ def main():
     print(f"\n📈 最终统计:")
     for key, value in stats.items():
         print(f"  {key}: {value}")
+
 
 if __name__ == "__main__":
     main()

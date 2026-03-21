@@ -4,10 +4,11 @@
 根据价格范围动态调整grid_size，保持大致固定的步长
 """
 
-import time
-import numpy as np
-import sys
 import os
+import sys
+import time
+
+import numpy as np
 
 # 获取项目根目录并添加到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,7 @@ sys.path.insert(0, project_root)
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.strategy.triplea.kde_core import KDECore, fast_kde_epanechnikov, silverman_bandwidth
+
 
 class AdaptiveKDECore:
     """自适应网格KDE核心"""
@@ -87,6 +89,7 @@ class AdaptiveKDECore:
         n_points = max(self.min_grid, min(required_points, self.max_grid))
 
         return np.linspace(grid_min, grid_max, n_points)
+
 
 def test_adaptive_strategy():
     """测试自适应策略"""
@@ -183,7 +186,7 @@ def test_adaptive_strategy():
         if '自适应' in best_perf['strategy']:
             target_step = float(best_perf['strategy'].split('=')[1])
             step_stability = abs(best_perf['grid_step'] - target_step) / target_step
-            print(f"  步长稳定性: {step_stability*100:.1f}%偏差")
+            print(f"  步长稳定性: {step_stability * 100:.1f}%偏差")
 
         # 与固定策略比较
         fixed_result = next(r for r in scenario_results if '固定' in r['strategy'])
@@ -196,6 +199,7 @@ def test_adaptive_strategy():
     print("  2. 自适应step=0.5: 大脉冲时性能更好，但小脉冲步长较大")
     print("  3. 固定grid_size=50: 性能稳定，简单可靠")
     print("\n  推荐选择: 自适应step=0.2 (min=30, max=100)")
+
 
 def test_realistic_scenario():
     """测试更真实的交易场景"""
@@ -222,7 +226,7 @@ def test_realistic_scenario():
         pulse_range = np.random.uniform(5, 30)
         n_ticks = np.random.randint(800, 2000)
 
-        prices = np.random.randn(n_ticks) * (pulse_range/2) + 3000
+        prices = np.random.randn(n_ticks) * (pulse_range / 2) + 3000
 
         # 固定策略
         start_time = time.perf_counter_ns()
@@ -243,7 +247,8 @@ def test_realistic_scenario():
         results_adaptive.append({
             'range': pulse_range,
             'time': time_adaptive,
-            'grid_step': (grid_adaptive[-1] - grid_adaptive[0]) / (len(grid_adaptive) - 1) if len(grid_adaptive) > 1 else 0
+            'grid_step': (grid_adaptive[-1] - grid_adaptive[0]) / (len(grid_adaptive) - 1) if len(
+                grid_adaptive) > 1 else 0
         })
 
     # 分析结果
@@ -259,16 +264,19 @@ def test_realistic_scenario():
     print(f"固定grid_size=50:")
     print(f"  平均延迟: {avg_time_fixed:.3f}ms")
     print(f"  平均步长: {avg_step_fixed:.3f} (±{step_std_fixed:.3f})")
-    print(f"  步长范围: {min(r['grid_step'] for r in results_fixed):.3f} - {max(r['grid_step'] for r in results_fixed):.3f}")
+    print(
+        f"  步长范围: {min(r['grid_step'] for r in results_fixed):.3f} - {max(r['grid_step'] for r in results_fixed):.3f}")
 
     print(f"\n自适应step=0.2:")
     print(f"  平均延迟: {avg_time_adaptive:.3f}ms")
     print(f"  平均步长: {avg_step_adaptive:.3f} (±{step_std_adaptive:.3f})")
-    print(f"  步长范围: {min(r['grid_step'] for r in results_adaptive):.3f} - {max(r['grid_step'] for r in results_adaptive):.3f}")
+    print(
+        f"  步长范围: {min(r['grid_step'] for r in results_adaptive):.3f} - {max(r['grid_step'] for r in results_adaptive):.3f}")
 
     print(f"\n📊 比较:")
-    print(f"  性能差异: {(avg_time_adaptive/avg_time_fixed-1)*100:.1f}%")
-    print(f"  步长稳定性改善: {(step_std_fixed/step_std_adaptive-1)*100:.1f}%")
+    print(f"  性能差异: {(avg_time_adaptive / avg_time_fixed - 1) * 100:.1f}%")
+    print(f"  步长稳定性改善: {(step_std_fixed / step_std_adaptive - 1) * 100:.1f}%")
+
 
 if __name__ == "__main__":
     test_adaptive_strategy()

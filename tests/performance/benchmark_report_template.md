@@ -92,27 +92,33 @@
 ## 性能图表
 
 ### 延迟分布图
+
 ![延迟分布图]({{latency_distribution_chart}})
 
 ### 内存使用趋势图
+
 ![内存使用趋势图]({{memory_usage_chart}})
 
 ### CPU使用热图
+
 ![CPU使用热图]({{cpu_usage_heatmap}})
 
 ## 关键发现
 
 ### ✅ 优势
+
 1. **{{advantage1}}**
 2. **{{advantage2}}**
 3. **{{advantage3}}**
 
 ### ⚠️ 待优化项
+
 1. **{{optimization1}}**
 2. **{{optimization2}}**
 3. **{{optimization3}}**
 
 ### ❌ 问题
+
 1. **{{issue1}}**
 2. **{{issue2}}**
 3. **{{issue3}}**
@@ -120,6 +126,7 @@
 ## 架构建议
 
 ### 1. CPU亲和性配置
+
 ```
 主进程CPU亲和性: 核心 {{main_process_core}}
 Worker进程CPU亲和性: 核心 {{worker_process_core}}
@@ -127,6 +134,7 @@ Worker进程CPU亲和性: 核心 {{worker_process_core}}
 ```
 
 ### 2. 内存管理策略
+
 ```
 预分配缓冲区大小: {{buffer_size}} MB
 垃圾回收策略: {{gc_strategy}}
@@ -134,6 +142,7 @@ Worker进程CPU亲和性: 核心 {{worker_process_core}}
 ```
 
 ### 3. 性能优化参数
+
 ```
 Numba JIT缓存: {{numba_cache_enabled}}
 矩阵广播优化: {{matrix_broadcasting_enabled}}
@@ -143,6 +152,7 @@ Numba JIT缓存: {{numba_cache_enabled}}
 ## 测试环境验证
 
 ### 阿里云2C2G东京服务器适配性
+
 | 检查项 | 结果 | 说明 |
 |--------|------|------|
 | CPU核心数验证 | `{{aliyun_cpu_check}}` | {{aliyun_cpu_check_desc}} |
@@ -153,16 +163,19 @@ Numba JIT缓存: {{numba_cache_enabled}}
 ## 下一步行动
 
 ### 短期优化（1周内）
+
 1. **{{short_term_action1}}**
 2. **{{short_term_action2}}**
 3. **{{short_term_action3}}**
 
 ### 中期优化（2-4周）
+
 1. **{{mid_term_action1}}**
 2. **{{mid_term_action2}}**
 3. **{{mid_term_action3}}**
 
 ### 长期优化（1-2月）
+
 1. **{{long_term_action1}}**
 2. **{{long_term_action2}}**
 3. **{{long_term_action3}}**
@@ -170,6 +183,7 @@ Numba JIT缓存: {{numba_cache_enabled}}
 ## 测试配置
 
 ### 测试参数
+
 ```yaml
 tick_latency_test:
   num_ticks: {{test_num_ticks}}
@@ -187,6 +201,7 @@ cpu_affinity_test:
 ```
 
 ### 硬件配置
+
 ```yaml
 server:
   type: "{{server_type}}"

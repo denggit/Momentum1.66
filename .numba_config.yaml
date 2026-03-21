@@ -49,9 +49,9 @@ process_pool:
   # 任务队列大小
   task_queue_size: 1000
   # Worker进程CPU亲和性（核心1）
-  cpu_affinity: [1]
+  cpu_affinity: [ 1 ]
   # 主进程CPU亲和性（核心0）
-  main_cpu_affinity: [0]
+  main_cpu_affinity: [ 0 ]
 
 # 性能监控
 monitoring:

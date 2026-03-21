@@ -926,7 +926,7 @@ class TripleAStateMachine:
             'quantity': position_result.qty,
             'breakeven_price': position_result.breakeven_px,
             'risk_amount_usd': self.config.risk_manager.account_size_usdt * (
-                        self.config.risk_manager.max_risk_per_trade_pct / 100.0),
+                    self.config.risk_manager.max_risk_per_trade_pct / 100.0),
             'timestamp': time.time(),
             'state_transition': {
                 'from': TripleAState.ACCUMULATING,

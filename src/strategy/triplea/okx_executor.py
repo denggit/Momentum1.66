@@ -5,17 +5,17 @@
 """
 
 import asyncio
-import time
-import json
-import hmac
-import hashlib
 import base64
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import hashlib
+import hmac
+import json
+import time
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
+from typing import Dict, List, Optional, Any, Tuple
+
 import aiohttp
-import urllib.parse
 
 from src.utils.log import get_logger
 
@@ -25,10 +25,10 @@ logger = get_logger(__name__)
 class OrderType(Enum):
     """订单类型枚举"""
     MARKET = "market"  # 市价单
-    LIMIT = "limit"    # 限价单
+    LIMIT = "limit"  # 限价单
     POST_ONLY = "post_only"  # 只做maker单
-    FOK = "fok"        # 全部成交或取消
-    IOC = "ioc"        # 立即成交或取消
+    FOK = "fok"  # 全部成交或取消
+    IOC = "ioc"  # 立即成交或取消
 
 
 class OrderSide(Enum):
@@ -39,21 +39,21 @@ class OrderSide(Enum):
 
 class OrderStatus(Enum):
     """订单状态枚举"""
-    LIVE = "live"              # 等待成交
+    LIVE = "live"  # 等待成交
     PARTIALLY_FILLED = "partially_filled"  # 部分成交
-    FILLED = "filled"          # 完全成交
-    CANCELLED = "canceled"     # 已取消
-    REJECTED = "rejected"      # 被拒绝
-    EXPIRED = "expired"        # 已过期
+    FILLED = "filled"  # 完全成交
+    CANCELLED = "canceled"  # 已取消
+    REJECTED = "rejected"  # 被拒绝
+    EXPIRED = "expired"  # 已过期
 
 
 @dataclass
 class OrderRequest:
     """订单请求数据类"""
-    symbol: str                # 交易对，如 "ETH-USDT-SWAP"
-    side: OrderSide            # 买卖方向
-    order_type: OrderType      # 订单类型
-    size: float                # 委托数量
+    symbol: str  # 交易对，如 "ETH-USDT-SWAP"
+    side: OrderSide  # 买卖方向
+    order_type: OrderType  # 订单类型
+    size: float  # 委托数量
     price: Optional[float] = None  # 委托价格（限价单需要）
     client_oid: Optional[str] = None  # 客户端订单ID
     reduce_only: bool = False  # 是否只减仓
@@ -63,35 +63,35 @@ class OrderRequest:
 @dataclass
 class OrderResponse:
     """订单响应数据类"""
-    order_id: str              # 订单ID
+    order_id: str  # 订单ID
     client_oid: Optional[str]  # 客户端订单ID
-    symbol: str                # 交易对
-    side: OrderSide            # 买卖方向
-    order_type: OrderType      # 订单类型
-    size: float                # 委托数量
-    price: Optional[float]     # 委托价格
-    status: OrderStatus        # 订单状态
-    filled_size: float         # 已成交数量
-    avg_fill_price: float      # 平均成交价格
-    fee: float                 # 手续费
-    created_time: float        # 创建时间戳
-    update_time: float         # 更新时间戳
+    symbol: str  # 交易对
+    side: OrderSide  # 买卖方向
+    order_type: OrderType  # 订单类型
+    size: float  # 委托数量
+    price: Optional[float]  # 委托价格
+    status: OrderStatus  # 订单状态
+    filled_size: float  # 已成交数量
+    avg_fill_price: float  # 平均成交价格
+    fee: float  # 手续费
+    created_time: float  # 创建时间戳
+    update_time: float  # 更新时间戳
 
 
 @dataclass
 class ExecutionReport:
     """执行报告数据类"""
-    order_id: str              # 订单ID
+    order_id: str  # 订单ID
     client_oid: Optional[str]  # 客户端订单ID
-    symbol: str                # 交易对
-    side: OrderSide            # 买卖方向
-    executed_size: float       # 已执行数量
-    executed_price: float      # 执行价格
-    remaining_size: float      # 剩余数量
-    fee: float                 # 手续费
-    fee_currency: str          # 手续费币种
-    trade_time: float          # 成交时间戳
-    latency_ms: float          # 执行延迟（毫秒）
+    symbol: str  # 交易对
+    side: OrderSide  # 买卖方向
+    executed_size: float  # 已执行数量
+    executed_price: float  # 执行价格
+    remaining_size: float  # 剩余数量
+    fee: float  # 手续费
+    fee_currency: str  # 手续费币种
+    trade_time: float  # 成交时间戳
+    latency_ms: float  # 执行延迟（毫秒）
 
 
 class OKXAPIConfig:
@@ -314,11 +314,11 @@ class OKXOrderExecutor:
         for attempt in range(self.config.retry_count):
             try:
                 async with self.session.request(
-                    method=method,
-                    url=url,
-                    params=params,
-                    json=data,
-                    headers=headers
+                        method=method,
+                        url=url,
+                        params=params,
+                        json=data,
+                        headers=headers
                 ) as response:
                     latency_ms = (time.perf_counter() - start_time) * 1000
 
@@ -435,8 +435,8 @@ class OKXOrderExecutor:
         self.pending_orders[order_id] = order_response
 
         logger.info(f"✅ 下单成功: {order_request.side.value} {order_request.size} "
-                   f"{order_request.symbol} @ {order_request.price or 'MARKET'} "
-                   f"(ID: {order_id}, 延迟: {latency_ms:.1f}ms)")
+                    f"{order_request.symbol} @ {order_request.price or 'MARKET'} "
+                    f"(ID: {order_id}, 延迟: {latency_ms:.1f}ms)")
 
         return order_response
 

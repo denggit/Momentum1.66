@@ -4,9 +4,10 @@
 验证阶段5开发的KDE引擎性能
 """
 
-import sys
 import os
+import sys
 import time
+
 import numpy as np
 
 # 获取项目根目录并添加到路径
@@ -24,6 +25,7 @@ try:
     from src.strategy.triplea.kde_core import KDECore
     from src.strategy.triplea.kde_matrix import KDEMatrixEngine
     from src.strategy.triplea.lvn_extractor import LVNExtractor
+
     print('✅ 模块导入成功')
 except ImportError as e:
     print(f'❌ 模块导入失败: {e}')
@@ -94,7 +96,8 @@ if len(grid) > 0 and len(densities) > 0:
     if regions_list[0]:
         print(f'  LVN区域详情:')
         for i, region in enumerate(regions_list[0][:3]):  # 只显示前3个
-            print(f'    区域{i+1}: {region.start_price:.2f} - {region.end_price:.2f}, 中心: {region.center_price:.2f}')
+            print(
+                f'    区域{i + 1}: {region.start_price:.2f} - {region.end_price:.2f}, 中心: {region.center_price:.2f}')
 else:
     print('  ❌ KDE计算失败，跳过LVN提取')
     lvn_passed = False
@@ -107,7 +110,7 @@ kde_matrix = KDEMatrixEngine(config.kde_engine)
 # 创建批量数据
 n_batches = 5
 batch_size = 200
-price_batches = [prices[i*batch_size:(i+1)*batch_size] for i in range(n_batches)]
+price_batches = [prices[i * batch_size:(i + 1) * batch_size] for i in range(n_batches)]
 
 start_time = time.perf_counter_ns()
 results = kde_matrix.compute_batch_kde(price_batches)
@@ -171,13 +174,15 @@ except AssertionError as e:
     correctness_passed = False
 
 # 总结
-print('\n' + '='*60)
+print('\n' + '=' * 60)
 print('📈 性能测试总结')
-print('='*60)
+print('=' * 60)
 print(f'  KDE核心计算: {"✅ 通过" if kde_passed else "❌ 失败"} ({avg_kde_latency:.3f}ms)')
-print(f'  LVN提取: {"✅ 通过" if lvn_passed else "❌ 失败"} ({avg_lvn_latency if "avg_lvn_latency" in locals() else "N/A":.3f}ms)')
+print(
+    f'  LVN提取: {"✅ 通过" if lvn_passed else "❌ 失败"} ({avg_lvn_latency if "avg_lvn_latency" in locals() else "N/A":.3f}ms)')
 print(f'  批量吞吐量: {"✅ 通过" if batch_passed else "❌ 失败"} ({throughput:.0f} 样本/秒)')
-print(f'  完整流程: {"✅ 通过" if full_passed else "❌ 失败"} ({total_time_ms if "total_time_ms" in locals() else "N/A":.3f}ms)')
+print(
+    f'  完整流程: {"✅ 通过" if full_passed else "❌ 失败"} ({total_time_ms if "total_time_ms" in locals() else "N/A":.3f}ms)')
 print(f'  正确性: {"✅ 通过" if correctness_passed else "❌ 失败"}')
 
 all_passed = kde_passed and lvn_passed and batch_passed and full_passed and correctness_passed
@@ -186,4 +191,4 @@ if all_passed:
 else:
     print('\n⚠️  部分测试未通过，需要优化')
 
-print('='*60)
+print('=' * 60)

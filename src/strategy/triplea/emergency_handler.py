@@ -5,39 +5,39 @@
 """
 
 import asyncio
+import threading
 import time
-from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-import threading
+from typing import Dict, List, Optional, Any, Callable
 
-from src.utils.log import get_logger
+from src.strategy.triplea.okx_executor import OKXOrderExecutor
 from src.strategy.triplea.order_manager import OrderManager
-from src.strategy.triplea.okx_executor import OKXOrderExecutor, OrderSide
 from src.strategy.triplea.real_time_risk_monitor import RiskAlert, RiskLevel
+from src.utils.log import get_logger
 
 logger = get_logger(__name__)
 
 
 class EmergencyType(Enum):
     """紧急情况类型"""
-    CONNECTION_LOST = "connection_lost"          # 连接丢失
-    MARKET_CRASH = "market_crash"                # 市场崩盘
-    POSITION_AT_RISK = "position_at_risk"        # 仓位风险过高
-    SYSTEM_FAILURE = "system_failure"            # 系统故障
-    EXECUTION_FAILURE = "execution_failure"      # 执行失败
-    DATA_CORRUPTION = "data_corruption"          # 数据损坏
+    CONNECTION_LOST = "connection_lost"  # 连接丢失
+    MARKET_CRASH = "market_crash"  # 市场崩盘
+    POSITION_AT_RISK = "position_at_risk"  # 仓位风险过高
+    SYSTEM_FAILURE = "system_failure"  # 系统故障
+    EXECUTION_FAILURE = "execution_failure"  # 执行失败
+    DATA_CORRUPTION = "data_corruption"  # 数据损坏
 
 
 class EmergencyAction(Enum):
     """紧急处理动作"""
-    CLOSE_ALL_POSITIONS = "close_all_positions"      # 平掉所有仓位
-    REDUCE_POSITION = "reduce_position"              # 减仓
-    CANCEL_ALL_ORDERS = "cancel_all_orders"          # 取消所有订单
-    SWITCH_TO_BACKUP = "switch_to_backup"            # 切换到备用系统
-    PAUSE_TRADING = "pause_trading"                  # 暂停交易
-    RESTART_SYSTEM = "restart_system"                # 重启系统
-    NOTIFY_ADMIN = "notify_admin"                    # 通知管理员
+    CLOSE_ALL_POSITIONS = "close_all_positions"  # 平掉所有仓位
+    REDUCE_POSITION = "reduce_position"  # 减仓
+    CANCEL_ALL_ORDERS = "cancel_all_orders"  # 取消所有订单
+    SWITCH_TO_BACKUP = "switch_to_backup"  # 切换到备用系统
+    PAUSE_TRADING = "pause_trading"  # 暂停交易
+    RESTART_SYSTEM = "restart_system"  # 重启系统
+    NOTIFY_ADMIN = "notify_admin"  # 通知管理员
 
 
 @dataclass
@@ -76,10 +76,10 @@ class EmergencyHandler:
     """
 
     def __init__(
-        self,
-        order_manager: OrderManager,
-        executor: OKXOrderExecutor,
-        symbol: str = "ETH-USDT-SWAP"
+            self,
+            order_manager: OrderManager,
+            executor: OKXOrderExecutor,
+            symbol: str = "ETH-USDT-SWAP"
     ):
         """初始化紧急处理器
 
@@ -140,7 +140,8 @@ class EmergencyHandler:
             EmergencyPlan(
                 emergency_type=EmergencyType.CONNECTION_LOST,
                 severity_threshold=4,
-                actions=[EmergencyAction.CLOSE_ALL_POSITIONS, EmergencyAction.CANCEL_ALL_ORDERS, EmergencyAction.RESTART_SYSTEM],
+                actions=[EmergencyAction.CLOSE_ALL_POSITIONS, EmergencyAction.CANCEL_ALL_ORDERS,
+                         EmergencyAction.RESTART_SYSTEM],
                 priority=1,
                 description="严重连接丢失，平仓并重启系统"
             ),
@@ -313,7 +314,7 @@ class EmergencyHandler:
         suitable_plans = [
             plan for plan in self.emergency_plans
             if plan.emergency_type == event.emergency_type
-            and plan.severity_threshold <= event.severity
+               and plan.severity_threshold <= event.severity
         ]
 
         if not suitable_plans:
@@ -324,9 +325,9 @@ class EmergencyHandler:
         return suitable_plans[0]
 
     async def _execute_emergency_plan(
-        self,
-        plan: EmergencyPlan,
-        event: EmergencyEvent
+            self,
+            plan: EmergencyPlan,
+            event: EmergencyEvent
     ) -> bool:
         """执行紧急处理方案"""
         try:
@@ -357,9 +358,9 @@ class EmergencyHandler:
             return False
 
     async def _execute_emergency_action(
-        self,
-        action: EmergencyAction,
-        event: EmergencyEvent
+            self,
+            action: EmergencyAction,
+            event: EmergencyEvent
     ) -> bool:
         """执行单个紧急动作"""
         try:

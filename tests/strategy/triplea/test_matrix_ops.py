@@ -3,10 +3,11 @@
 测试矩阵广播、滑动窗口、数值计算等工具函数
 """
 
-import unittest
-import sys
 import os
+import sys
 import time
+import unittest
+
 import numpy as np
 
 # 添加项目根目录到Python路径
@@ -140,8 +141,8 @@ class TestMatrixOps(unittest.TestCase):
         col2 = np.array([2, 8])
         col3 = np.array([6, 9])
         expected = np.array([np.std(col1, ddof=1),
-                            np.std(col2, ddof=1),
-                            np.std(col3, ddof=1)])
+                             np.std(col2, ddof=1),
+                             np.std(col3, ddof=1)])
         np.testing.assert_array_almost_equal(result, expected, decimal=6)
 
     def test_rolling_mean(self):
@@ -180,7 +181,7 @@ class TestMatrixOps(unittest.TestCase):
         print(f"\n⏱️  滚动均值性能测试:")
         print(f"  数据大小: {len(x)}")
         print(f"  窗口大小: {window}")
-        print(f"  计算时间: {elapsed*1000:.1f}ms")
+        print(f"  计算时间: {elapsed * 1000:.1f}ms")
         print(f"  结果非NaN数量: {np.sum(~np.isnan(result))}")
 
         self.assertLess(elapsed, 1.0, "滚动均值计算时间过长")
@@ -211,7 +212,7 @@ class TestMatrixOps(unittest.TestCase):
         print(f"\n⏱️  滚动标准差性能测试:")
         print(f"  数据大小: {len(x)}")
         print(f"  窗口大小: {window}")
-        print(f"  计算时间: {elapsed*1000:.1f}ms")
+        print(f"  计算时间: {elapsed * 1000:.1f}ms")
 
         self.assertLess(elapsed, 0.5, "滚动标准差计算时间过长")
 
@@ -256,7 +257,7 @@ class TestMatrixOps(unittest.TestCase):
         print(f"\n⏱️  矩阵广播KDE性能测试:")
         print(f"  价格数据: {len(prices_large)}")
         print(f"  网格点数: {len(grid_large)}")
-        print(f"  计算时间: {elapsed*1000:.1f}ms")
+        print(f"  计算时间: {elapsed * 1000:.1f}ms")
         print(f"  结果范围: {result_large.min():.2e} - {result_large.max():.2e}")
 
         self.assertLess(elapsed, 0.1, "矩阵广播KDE计算时间过长")
@@ -288,9 +289,9 @@ class TestMatrixOps(unittest.TestCase):
         numba_time = time.perf_counter() - start
 
         print(f"\n⚡ KDE计算性能对比:")
-        print(f"  Python版本: {python_time*1000:.1f}ms")
-        print(f"  Numba版本: {numba_time*1000:.1f}ms")
-        print(f"  加速比: {python_time/numba_time:.1f}x")
+        print(f"  Python版本: {python_time * 1000:.1f}ms")
+        print(f"  Numba版本: {numba_time * 1000:.1f}ms")
+        print(f"  加速比: {python_time / numba_time:.1f}x")
 
         # Numba应该更快
         if python_time > 0.001:  # 只有时间可测量时才检查
@@ -395,12 +396,13 @@ class TestMatrixOps(unittest.TestCase):
         print(f"\n⏱️  快速分位数性能测试:")
         print(f"  数据大小: {len(data_large)}")
         print(f"  计算 {len(q_values)} 个分位数")
-        print(f"  总时间: {elapsed*1000:.1f}ms")
+        print(f"  总时间: {elapsed * 1000:.1f}ms")
 
         self.assertLess(elapsed, 0.5, "分位数计算时间过长")
 
     def test_performance_monitoring(self):
         """测试性能监控装饰器"""
+
         # 创建测试函数
         @measure_performance
         def slow_function(n):
@@ -424,10 +426,10 @@ class TestMatrixOps(unittest.TestCase):
 
         print(f"\n📊 性能监控测试:")
         print(f"  调用次数: {stats['call_count']}")
-        print(f"  总时间: {stats['total_time']*1000:.1f}ms")
-        print(f"  平均时间: {stats['avg_time']*1000:.1f}ms")
-        print(f"  最长时间: {stats['max_time']*1000:.1f}ms")
-        print(f"  最短时间: {stats['min_time']*1000:.1f}ms")
+        print(f"  总时间: {stats['total_time'] * 1000:.1f}ms")
+        print(f"  平均时间: {stats['avg_time'] * 1000:.1f}ms")
+        print(f"  最长时间: {stats['max_time'] * 1000:.1f}ms")
+        print(f"  最短时间: {stats['min_time'] * 1000:.1f}ms")
 
 
 class TestPerformance(unittest.TestCase):
@@ -459,7 +461,7 @@ class TestPerformance(unittest.TestCase):
         print(f"  网格大小: {grid.shape}")
         print(f"  特征数量: {n_features}")
         print(f"  总时间: {elapsed:.2f}s")
-        print(f"  平均每特征: {elapsed/n_features*1000:.1f}ms")
+        print(f"  平均每特征: {elapsed / n_features * 1000:.1f}ms")
 
         self.assertLess(elapsed, 10.0, "大规模广播计算时间过长")
 
@@ -485,9 +487,9 @@ class TestPerformance(unittest.TestCase):
         print(f"  数据大小: {n}")
         print(f"  窗口大小: {window_size}")
         print(f"  窗口数量: {len(windows)}")
-        print(f"  创建视图时间: {view_time*1000:.1f}ms")
-        print(f"  计算均值时间: {compute_time*1000:.1f}ms")
-        print(f"  窗口内存使用（估计）: {windows.nbytes / (1024*1024):.1f} MB")
+        print(f"  创建视图时间: {view_time * 1000:.1f}ms")
+        print(f"  计算均值时间: {compute_time * 1000:.1f}ms")
+        print(f"  窗口内存使用（估计）: {windows.nbytes / (1024 * 1024):.1f} MB")
 
         # 检查结果
         self.assertEqual(len(window_means), n - window_size + 1)

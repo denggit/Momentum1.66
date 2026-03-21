@@ -3,15 +3,12 @@
 测试缓存管理功能、清理策略和性能
 """
 
-import unittest
-import sys
 import os
-import tempfile
 import shutil
+import sys
+import tempfile
 import time
-import json
-import numpy as np
-from pathlib import Path
+import unittest
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))

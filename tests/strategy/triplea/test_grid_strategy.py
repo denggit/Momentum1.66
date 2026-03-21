@@ -4,13 +4,16 @@
 比较固定grid_size vs 固定grid_step策略
 """
 
-import time
-import numpy as np
 import sys
+import time
+
+import numpy as np
+
 sys.path.insert(0, '../../..')
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.strategy.triplea.kde_core import KDECore, fast_kde_epanechnikov, silverman_bandwidth
+
 
 class DynamicGridKDECore:
     """动态网格KDE核心（固定网格步长，限制最大网格点数）"""
@@ -81,6 +84,7 @@ class DynamicGridKDECore:
 
         return np.linspace(grid_min, grid_max, n_points)
 
+
 def generate_test_data(small_pulse: bool = True):
     """生成测试数据：小脉冲或大脉冲"""
     np.random.seed(42)
@@ -90,15 +94,16 @@ def generate_test_data(small_pulse: bool = True):
         base_price = 3000.0
         price_range = 0.5  # 0.5美元范围，约50个tick（假设tick size=0.01）
         n_samples = 1000
-        prices = np.random.randn(n_samples) * (price_range/2) + base_price
+        prices = np.random.randn(n_samples) * (price_range / 2) + base_price
     else:
         # 大脉冲：价格范围大（约200个tick）
         base_price = 3000.0
         price_range = 20.0  # 20美元范围，约2000个tick
         n_samples = 1000
-        prices = np.random.randn(n_samples) * (price_range/2) + base_price
+        prices = np.random.randn(n_samples) * (price_range / 2) + base_price
 
     return prices
+
 
 def _test_performance(strategy_name: str, kde_core, prices, n_runs: int = 100):
     """测试性能（内部函数，不是pytest测试）"""
@@ -132,6 +137,7 @@ def _test_performance(strategy_name: str, kde_core, prices, n_runs: int = 100):
         'price_range': np.max(prices) - np.min(prices) if len(prices) > 0 else 0
     }
 
+
 def _test_lvn_detection_consistency(strategy1, strategy2, prices):
     """测试LVN检测一致性（内部函数，不是pytest测试）"""
     from src.strategy.triplea.lvn_extractor import LVNExtractor
@@ -156,6 +162,7 @@ def _test_lvn_detection_consistency(strategy1, strategy2, prices):
         'grid1_step': (grid1[-1] - grid1[0]) / (len(grid1) - 1) if len(grid1) > 1 else 0,
         'grid2_step': (grid2[-1] - grid2[0]) / (len(grid2) - 1) if len(grid2) > 1 else 0
     }
+
 
 def main():
     print("🔬 网格策略性能对比测试")
@@ -237,6 +244,7 @@ def main():
     print("  1. 如果性能是首要考虑，保持固定grid_size=50")
     print("  2. 如果需要更精细的分辨率，考虑动态网格策略")
     print("  3. 动态策略在价格范围变化大时能保持更一致的步长")
+
 
 if __name__ == "__main__":
     main()

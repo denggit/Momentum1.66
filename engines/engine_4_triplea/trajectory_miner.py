@@ -135,7 +135,7 @@ class TrajectoryMiner:
             return False
 
     def _record_a1_suspect(self, price: float, cvd: float, vol: float, delta_ratio: float,
-                          recent_prices: List[float]):
+                           recent_prices: List[float]):
         """记录A1疑似形态到文件"""
         try:
             a1_dir = os.path.join(self.output_dir, "a1_suspects")

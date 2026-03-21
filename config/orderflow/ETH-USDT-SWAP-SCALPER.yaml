@@ -83,4 +83,4 @@ execution:
 # SMC验证参数 (Smart Money Concepts 智能资金概念验证)
 smc_validation:
   enabled: false   # 是否启用SMC验证 (false表示纯微观盘口策略，不验证宏观结构)
-  timeframes: ["5m"]  # 时间框架列表 (当启用SMC时检查的时间周期)
+  timeframes: [ "5m" ]  # 时间框架列表 (当启用SMC时检查的时间周期)

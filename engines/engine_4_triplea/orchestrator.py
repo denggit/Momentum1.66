@@ -17,8 +17,6 @@ import json
 import os
 import signal
 import sys
-import copy
-from datetime import datetime
 
 import aiohttp
 
@@ -307,7 +305,6 @@ class TripleAOrchestrator:
 
     async def _write_shadow_trade_to_csv(self, trade_data: dict, close_price: float, reason: str):
         """异步写入影子交易数据到CSV文件（使用线程池避免阻塞）"""
-        import json
         entry_price = trade_data['Entry_Price']
 
         # 计算纯点数毛利
@@ -315,7 +312,6 @@ class TripleAOrchestrator:
             gross_pnl = close_price - entry_price
         else:
             gross_pnl = entry_price - close_price
-
 
         # 准备行数据
         stage_metrics = trade_data.get('Stage_Metrics', {})

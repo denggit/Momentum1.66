@@ -4,13 +4,16 @@
 找到最佳平衡点
 """
 
-import time
-import numpy as np
 import sys
+import time
+
+import numpy as np
+
 sys.path.insert(0, '../../..')
 
 from src.strategy.triplea.data_structures import KDEEngineConfig
 from src.strategy.triplea.kde_core import KDECore
+
 
 def _test_grid_size_performance(grid_sizes, prices, n_runs=50):
     """测试不同grid_size的性能（内部函数，不是pytest测试）"""
@@ -54,6 +57,7 @@ def _test_grid_size_performance(grid_sizes, prices, n_runs=50):
 
     return results
 
+
 def main():
     print("🔬 Grid Size性能扫描测试")
     print("=" * 70)
@@ -64,7 +68,7 @@ def main():
     base_price = 3000.0
     price_range = 20.0  # 20美元范围
     n_samples = 1000
-    prices = np.random.randn(n_samples) * (price_range/2) + base_price
+    prices = np.random.randn(n_samples) * (price_range / 2) + base_price
 
     print(f"测试数据:")
     print(f"  价格范围: {np.max(prices) - np.min(prices):.2f}")
@@ -83,7 +87,8 @@ def main():
     results = _test_grid_size_performance(grid_sizes, prices, n_runs=30)
 
     for r in results:
-        print(f"{r['grid_size']:<10} {r['actual_grid_size']:<10} {r['grid_step']:<12.4f} {r['avg_time_ms']:<15.3f} {r['min_time_ms']:<15.3f}")
+        print(
+            f"{r['grid_size']:<10} {r['actual_grid_size']:<10} {r['grid_step']:<12.4f} {r['avg_time_ms']:<15.3f} {r['min_time_ms']:<15.3f}")
 
     # 分析最佳选择
     print("\n📈 分析:")
@@ -111,9 +116,11 @@ def main():
     perf_150 = next(r for r in results if r['grid_size'] == 150)
 
     print(f"\n📊 性能对比 (相对于grid_size=50):")
-    print(f"  grid_size=100: 延迟增加 {(perf_100['avg_time_ms']/perf_50['avg_time_ms']-1)*100:.1f}%")
-    print(f"  grid_size=150: 延迟增加 {(perf_150['avg_time_ms']/perf_50['avg_time_ms']-1)*100:.1f}%")
-    print(f"  grid_size=200: 延迟增加 {(next(r for r in results if r['grid_size'] == 200)['avg_time_ms']/perf_50['avg_time_ms']-1)*100:.1f}%")
+    print(f"  grid_size=100: 延迟增加 {(perf_100['avg_time_ms'] / perf_50['avg_time_ms'] - 1) * 100:.1f}%")
+    print(f"  grid_size=150: 延迟增加 {(perf_150['avg_time_ms'] / perf_50['avg_time_ms'] - 1) * 100:.1f}%")
+    print(
+        f"  grid_size=200: 延迟增加 {(next(r for r in results if r['grid_size'] == 200)['avg_time_ms'] / perf_50['avg_time_ms'] - 1) * 100:.1f}%")
+
 
 if __name__ == "__main__":
     main()

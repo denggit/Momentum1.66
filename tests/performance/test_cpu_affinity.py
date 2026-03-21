@@ -3,14 +3,16 @@
 目标：验证双核隔离架构的CPU亲和性设置
 """
 
+import concurrent.futures
+import multiprocessing
 import os
 import sys
 import time
-import multiprocessing
-import concurrent.futures
-from typing import Dict, List, Tuple
-import psutil
+from typing import Dict, List
+
 import numpy as np
+import psutil
+
 
 class CPUAffinityBenchmark:
     """CPU亲和性基准测试类"""
@@ -112,7 +114,7 @@ class CPUAffinityBenchmark:
 
         # 分析隔离效果
         if (core0_result['tasks_per_second'] > 0 and
-            core1_result['tasks_per_second'] > 0):
+                core1_result['tasks_per_second'] > 0):
             results['isolation_possible'] = True
             results['recommendations'].append("✅ 双核隔离架构可行")
 
@@ -193,7 +195,6 @@ class CPUAffinityBenchmark:
     def _benchmark_parallel_cores(self, cores: List[int]) -> Dict:
         """测试并行核心性能"""
         from concurrent.futures import ProcessPoolExecutor
-        import multiprocessing
 
         def worker_task(worker_id: int, core_id: int):
             """Worker进程任务"""
@@ -357,9 +358,9 @@ class CPUAffinityBenchmark:
 
     def print_report(self, all_results: Dict):
         """打印CPU亲和性测试报告"""
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("⚡ 四号引擎v3.0 CPU亲和性基准测试报告")
-        print("="*60)
+        print("=" * 60)
 
         # CPU信息
         print(f"\n🔧 系统CPU信息:")
@@ -391,8 +392,8 @@ class CPUAffinityBenchmark:
         # 进程创建开销
         overhead = all_results['overhead_results']
         print(f"\n⏱️  进程创建开销:")
-        print(f"  进程创建平均时间: {overhead['process_creation_times']['mean']*1000:.2f} ms")
-        print(f"  线程创建平均时间: {overhead['thread_creation_times']['mean']*1000:.2f} ms")
+        print(f"  进程创建平均时间: {overhead['process_creation_times']['mean'] * 1000:.2f} ms")
+        print(f"  线程创建平均时间: {overhead['thread_creation_times']['mean'] * 1000:.2f} ms")
         print(f"  进程/线程开销比: {overhead['process_vs_thread_ratio']:.1f}x")
 
         # 建议
@@ -401,7 +402,8 @@ class CPUAffinityBenchmark:
         for rec in recommendations:
             print(f"  {rec}")
 
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
+
 
 def main():
     """主函数：运行CPU亲和性测试"""
@@ -438,6 +440,7 @@ def main():
         return 0  # 成功
     else:
         return 1  # 失败
+
 
 if __name__ == "__main__":
     exit_code = main()

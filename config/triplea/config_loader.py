@@ -3,7 +3,8 @@
 """
 
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+
 import yaml
 
 from src.utils.log import get_logger
@@ -12,8 +13,8 @@ logger = get_logger(__name__)
 
 
 def load_triplea_config(
-    symbol: str = "default",
-    config_type: str = "engine"
+        symbol: str = "default",
+        config_type: str = "engine"
 ) -> Dict[str, Any]:
     """
     加载四号引擎配置
@@ -78,9 +79,9 @@ def _deep_update(target: Dict[str, Any], source: Dict[str, Any]) -> None:
 
 
 def get_triplea_config_value(
-    config: Dict[str, Any],
-    key_path: str,
-    default: Any = None
+        config: Dict[str, Any],
+        key_path: str,
+        default: Any = None
 ) -> Any:
     """
     通过点分隔的路径获取配置值
@@ -110,8 +111,8 @@ _config_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def get_cached_triplea_config(
-    symbol: str = "default",
-    config_type: str = "engine"
+        symbol: str = "default",
+        config_type: str = "engine"
 ) -> Dict[str, Any]:
     """获取缓存的配置"""
     cache_key = f"{symbol}:{config_type}"
