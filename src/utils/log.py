@@ -64,7 +64,7 @@ def setup_logging(log_level=logging.INFO, log_dir='logs'):
     root_logger.addHandler(file_handler)
 
     # 记录初始日志
-    root_logger.info('日志系统初始化完成，日志目录: %s', os.path.abspath(log_dir))
+    root_logger.info(f'日志系统初始化完成，日志目录: {os.path.abspath(log_dir)}， 日志等级：{log_level}')
 
     _setup_done = True
 
