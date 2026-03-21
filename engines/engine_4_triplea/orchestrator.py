@@ -176,6 +176,7 @@ class TripleAOrchestrator:
             "args": [{"channel": "trades", "instId": self.symbol}]
         }
 
+        tick_counter = 0
         while self._is_running:
             try:
                 async with aiohttp.ClientSession() as session:
@@ -201,6 +202,11 @@ class TripleAOrchestrator:
                                             'side': trade['side'],
                                             'ts': int(trade['ts'])
                                         }
+
+                                        # 更新Tick计数器
+                                        tick_counter += 1
+                                        if tick_counter % 100 == 0:
+                                            logger.debug(f"[DEBUG] 已处理 {tick_counter} 个Tick，最新价格: {tick['price']:.2f}")
 
                                         # 更新当前价格
                                         self.current_price = tick['price']

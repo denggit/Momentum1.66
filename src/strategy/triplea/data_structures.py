@@ -150,8 +150,8 @@ class RiskManagerConfig:
     """风险管理器配置（小资金优化版）"""
     account_size_usdt: float = 300.0  # 账户规模（USDT）
     max_risk_per_trade_pct: float = 5.0  # 单笔交易最大风险百分比 (5%)
-    stop_loss_ticks: int = 2  # 止损距离 (2 Tick)
-    take_profit_ticks: int = 6  # 止盈距离 (6 Tick)
+    stop_loss_ticks: int = 150  # 止损距离 (150 Tick)
+    take_profit_ticks: int = 450  # 止盈距离 (450 Tick)
     max_daily_loss_pct: float = 5.0  # 单日最大损失百分比 (5%)
 
 

@@ -188,11 +188,11 @@ class TripleAStateMachine:
         self.cvd_zscore_threshold = 2.0  # CVD Z-score阈值
 
         # 波动率压缩参数
-        self.vol_compression_threshold = 3.0  # 压缩阈值（Tick数）
+        self.vol_compression_threshold = 50.0  # 压缩阈值（Tick数）
         self.min_compression_duration = 5.0  # 最小压缩持续时间（秒）
 
         # Tick密度参数
-        self.min_tick_density = 200  # 最小Tick数（压缩期内）
+        self.min_tick_density = 50  # 最小Tick数（压缩期内）
         self.tick_density_window = 60  # 密度分析窗口（秒）
 
         # 攻击信号参数
@@ -225,6 +225,9 @@ class TripleAStateMachine:
         start_time_ns = time.perf_counter_ns()
 
         try:
+            # 调试日志：Tick处理开始
+            logger.debug(f"[DEBUG] 处理Tick: 价格={tick.px:.2f}, 大小={tick.sz:.4f}, 方向={'BUY' if tick.side > 0 else 'SELL'}, 当前状态={self.context.current_state}")
+
             # 更新实时数据缓存
             self._update_data_buffers(tick)
 
@@ -281,10 +284,23 @@ class TripleAStateMachine:
             max_distance=self.max_lvn_distance
         )
 
+        # 调试日志：LVN簇查找结果
+        if closest_cluster:
+            logger.debug(f"[DEBUG] 找到LVN簇: ID={closest_cluster.cluster_id}, 活跃={closest_cluster.is_active}, "
+                        f"价格范围=[{closest_cluster.merged_start_price:.2f}, {closest_cluster.merged_end_price:.2f}], "
+                        f"置信度={closest_cluster.confidence:.2f}, 距离={abs(tick.px - closest_cluster.merged_min_price):.2f}")
+        else:
+            logger.debug(f"[DEBUG] 未找到LVN簇 (价格={tick.px:.2f}, 最大距离={self.max_lvn_distance})")
+
         if closest_cluster and closest_cluster.is_active:
             # 检查价格是否进入LVN区域
-            if (closest_cluster.merged_start_price <= tick.px <= closest_cluster.merged_end_price and
-                    closest_cluster.confidence >= self.lvn_confidence_threshold):
+            price_in_range = closest_cluster.merged_start_price <= tick.px <= closest_cluster.merged_end_price
+            confidence_ok = closest_cluster.confidence >= self.lvn_confidence_threshold
+
+            logger.debug(f"[DEBUG] LVN检查: 价格在范围内={price_in_range} ({tick.px:.2f} in [{closest_cluster.merged_start_price:.2f}, {closest_cluster.merged_end_price:.2f}]), "
+                        f"置信度达标={confidence_ok} ({closest_cluster.confidence:.2f} >= {self.lvn_confidence_threshold})")
+
+            if price_in_range and confidence_ok:
                 # 记录LVN区域信息
                 self.context.active_lvn_region = {
                     'cluster_id': closest_cluster.cluster_id,
@@ -328,6 +344,9 @@ class TripleAStateMachine:
         1. 检查价格是否离开LVN区域（超时则返回IDLE）
         2. 检测CVD背离信号
         """
+        # 调试日志：进入MONITORING状态处理
+        logger.debug(f"[DEBUG] _handle_monitoring_state: 价格={tick.px:.2f}, LVN区域={self.context.active_lvn_region}")
+
         # 检查LVN区域是否仍然有效
         if not self._is_price_in_lvn(tick.px):
             # 价格离开LVN区域，返回IDLE状态
@@ -340,7 +359,10 @@ class TripleAStateMachine:
             return None
 
         # 检测CVD背离信号
-        if self._detect_cvd_divergence():
+        cvd_divergence_detected = self._detect_cvd_divergence()
+        logger.debug(f"[DEBUG] CVD背离检测结果: {cvd_divergence_detected}")
+
+        if cvd_divergence_detected:
             self.context.cvd_divergence_detected = True
 
             # 确定背离方向
@@ -377,6 +399,9 @@ class TripleAStateMachine:
         2. 检测高Tick密度信号
         3. 两者同时满足则进入ACCUMULATING状态
         """
+        # 调试日志：进入CONFIRMED状态处理
+        logger.debug(f"[DEBUG] _handle_confirmed_state: 价格={tick.px:.2f}, CVD背离方向={self.context.cvd_divergence_direction}")
+
         # 检查CVD背离是否仍然有效
         if not self._is_cvd_divergence_valid():
             # CVD背离消失，返回IDLE状态
@@ -389,11 +414,12 @@ class TripleAStateMachine:
             return None
 
         # 检测波动率压缩
-
         vol_compression = self._detect_volatility_compression()
 
         # 检测Tick密度
         high_density = self._detect_high_tick_density()
+
+        logger.debug(f"[DEBUG] 波动率压缩检测: {vol_compression}, Tick密度检测: {high_density}")
 
         if vol_compression and high_density:
             # 进入ACCUMULATING状态
@@ -428,8 +454,10 @@ class TripleAStateMachine:
         2. 检测足迹失衡信号
         3. 两者同时满足则进入POSITION状态并生成开仓信号
         """
-        # 检查波动率压缩是否仍然有效
+        # 调试日志：进入ACCUMULATING状态处理
+        logger.debug(f"[DEBUG] _handle_accumulating_state: 价格={tick.px:.2f}, 波动率压缩有效={self._is_vol_compression_valid()}")
 
+        # 检查波动率压缩是否仍然有效
         if not self._is_vol_compression_valid():
             # 压缩失效，返回IDLE状态
             self.context.update_state(
@@ -446,6 +474,8 @@ class TripleAStateMachine:
 
         # 检测足迹失衡
         footprint_imbalance = self._detect_footprint_imbalance()
+
+        logger.debug(f"[DEBUG] 大单气泡检测: {large_order}, 足迹失衡检测: {footprint_imbalance}")
 
         if large_order and footprint_imbalance:
             # 生成交易信号
@@ -614,12 +644,12 @@ class TripleAStateMachine:
 
         """检测波动率压缩信号"""
 
-        if len(self.price_buffer) < 20:
+        if len(self.price_buffer) < 50:
             return False
 
         # 计算最近价格范围（以Tick为单位）
 
-        recent_prices = list(self.price_buffer)
+        recent_prices = list(self.price_buffer)[-50:] # 取最后50个
 
         price_range = max(recent_prices) - min(recent_prices)
 
@@ -714,7 +744,11 @@ class TripleAStateMachine:
 
         """检测大单气泡信号"""
 
-        if len(self.order_size_buffer) < 50:
+        # 调试日志：大单检测输入
+        buffer_size = len(self.order_size_buffer)
+        logger.debug(f"[DEBUG] _detect_large_order_bubble: 缓冲区大小={buffer_size}, 百分位={self.large_order_multiplier}")
+
+        if buffer_size < 50:
             return False
 
         # 计算成交量分布的百分位数
@@ -726,6 +760,7 @@ class TripleAStateMachine:
             # 计算99百分位（大单阈值）
 
             large_order_threshold = np.percentile(sizes, self.large_order_multiplier)
+            logger.debug(f"[DEBUG] 大单阈值: {large_order_threshold:.6f} (百分位={self.large_order_multiplier}), 缓冲区大小={buffer_size}")
 
             # 检查最近是否有超过阈值的大单
 
@@ -744,15 +779,21 @@ class TripleAStateMachine:
 
             logger.debug(f"大单检测异常: {e}")
 
+        # 调试日志：大单检测结果
+        logger.debug(f"[DEBUG] 大单检测结果: 未找到超过阈值的大单")
         return False
 
     def _detect_footprint_imbalance(self) -> bool:
 
         """检测足迹失衡信号（简化版）"""
 
+        # 调试日志：足迹失衡检测
+        logger.debug(f"[DEBUG] _detect_footprint_imbalance: 缓冲区大小={len(self.order_size_buffer)}")
+
         # 简化实现：检查最近成交量的买卖比例
 
         if len(self.order_size_buffer) < 20:
+            logger.debug(f"[DEBUG] 足迹失衡检测: 缓冲区不足")
             return False
 
         # 需要扩展以分析更详细的足迹数据
@@ -760,6 +801,7 @@ class TripleAStateMachine:
         # 临时返回True以便测试流程
 
         self.context.footprint_imbalance_detected = True
+        logger.debug(f"[DEBUG] 足迹失衡检测: 返回True (简化实现)")
 
         return True
 
@@ -794,12 +836,12 @@ class TripleAStateMachine:
             # 做多：吸收点 = LVN低点 (start_price)
             absorption_point = lvn_start
             # 止损 = 吸收点下方2ticks
-            structural_sl = absorption_point - (2 * tick_size)
+            structural_sl = absorption_point - (50 * tick_size)
 
             # VAH近似 = LVN高点 (end_price)
             vah_approx = lvn_end
             # 止盈 = VAH下方一点点（1-2ticks）
-            structural_tp = vah_approx - (2 * tick_size)
+            structural_tp = vah_approx - (50 * tick_size)
 
             # 确保止盈高于入场价（至少0.2%距离）
             min_tp_distance_pct = 0.002  # 0.2%
@@ -811,19 +853,19 @@ class TripleAStateMachine:
 
             # 确保止损低于入场价
             if structural_sl >= entry_price:
-                structural_sl = entry_price - (2 * tick_size)
+                structural_sl = entry_price - (50 * tick_size)
                 print(f"⚠️ 调整止损以确保低于入场价: {structural_sl:.2f}")
 
         else:  # SHORT
             # 做空：吸收点 = LVN高点 (end_price)
             absorption_point = lvn_end
             # 止损 = 吸收点上方2ticks
-            structural_sl = absorption_point + (2 * tick_size)
+            structural_sl = absorption_point + (50 * tick_size)
 
             # VAL近似 = LVN低点 (start_price)
             val_approx = lvn_start
             # 止盈 = VAL上方一点点（1-2ticks）
-            structural_tp = val_approx + (2 * tick_size)
+            structural_tp = val_approx + (50 * tick_size)
 
             # 确保止盈低于入场价（至少0.2%距离）
             min_tp_distance_pct = 0.002  # 0.2%
@@ -835,7 +877,7 @@ class TripleAStateMachine:
 
             # 确保止损高于入场价
             if structural_sl <= entry_price:
-                structural_sl = entry_price + (2 * tick_size)
+                structural_sl = entry_price + (50 * tick_size)
                 print(f"⚠️ 调整止损以确保高于入场价: {structural_sl:.2f}")
 
         print(f"✅ 结构性水平计算:")
@@ -862,6 +904,9 @@ class TripleAStateMachine:
         Returns:
             交易信号字典，如果被风控拦截则返回None
         """
+        # 调试日志：生成交易信号开始
+        logger.debug(f"[DEBUG] _generate_trade_signal: 价格={tick.px:.2f}, CVD背离方向={self.context.cvd_divergence_direction}, LVN区域={self.context.active_lvn_region}")
+
         # 确定交易方向（基于CVD背离方向）
         direction = self.context.cvd_divergence_direction
 
@@ -894,6 +939,10 @@ class TripleAStateMachine:
                 print(f"⚠️ 风控拦截：无效的结构性水平 (SL={structural_sl:.2f}, TP={structural_tp:.2f})")
                 return None
 
+        # 调试日志：风险管理输入
+        logger.debug(f"[DEBUG] 风控输入: 入场价={entry_price:.2f}, SL={structural_sl:.2f}, TP={structural_tp:.2f}, "
+                    f"方向={trade_direction}, Tick大小={self.config.market.tick_size}")
+
         # 使用风险管理器的结构性仓位计算方法
         position_result = self.risk_manager.calculate_position_size_with_structure(
             entry_price=entry_price,
@@ -902,6 +951,10 @@ class TripleAStateMachine:
             direction=trade_direction,
             tick_size=self.config.market.tick_size
         )
+
+        # 调试日志：风险管理结果
+        logger.debug(f"[DEBUG] 风控结果: 数量={position_result.qty:.4f}, 止损价={position_result.stop_px:.2f}, "
+                    f"止盈价={position_result.take_profit_px:.2f}, 保本价={position_result.breakeven_px:.2f}")
 
         # 如果仓位被风控拦截（数量为0），返回None
         if position_result.qty <= 0:
