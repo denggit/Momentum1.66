@@ -26,8 +26,6 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.data_feed.okx_loader import OKXDataLoader
-from src.utils.volume_profile_builder import VolumeProfileBuilder
 from src.strategy.triplea.signal_generator import TripleASignalGenerator
 from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
 from src.execution.trader import OKXTrader
@@ -46,19 +44,19 @@ class TripleAOrchestrator:
         # 1. 实例化核心组件
         # ==========================================
         self.trader = OKXTrader(symbol=symbol, leverage=20, risk_pct=0.5)
-        self.vp_builder = VolumeProfileBuilder(value_area_pct=0.70, bin_size=0.5)
-        self.data_loader = OKXDataLoader(symbol=symbol, timeframe="1m")
         self.execution_manager = TripleAExecutionManager(trader=self.trader)
 
         # ⚔️ 主炮塔：实盘执行引擎 (参数极其严苛)
-        self.main_generator = TripleASignalGenerator(symbol=symbol, account_size_usdt=300.0)
+        # 初始账户规模：collect模式使用1000.0模拟余额，live模式设为0等待余额同步
+        main_initial_account_size = 1000.0 if mode == "collect" else 0.0
+        self.main_generator = TripleASignalGenerator(symbol=symbol, account_size_usdt=main_initial_account_size)
 
         # 👻 影子引擎：科考打捞船 (参数故意放宽，用于测试边界)
+        # 影子引擎使用固定账户规模1000，用于百分比计算，不依赖实际余额
         self.shadow_queue = asyncio.Queue(maxsize=10000)  # 影子引擎专用队列
-        self.shadow_generator = ResearchTripleASignalGenerator(symbol=symbol, account_size_usdt=300.0)
+        self.shadow_generator = ResearchTripleASignalGenerator(symbol=symbol, account_size_usdt=1000)
         self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
         self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
-
 
         # 📝 影子引擎的运行状态缓存与日志
         self.shadow_active_trade = {}
@@ -108,13 +106,23 @@ class TripleAOrchestrator:
             # 启动余额同步任务
             self._tasks.append(asyncio.create_task(self._balance_sync_loop()))
 
-
-        # 稍微等 3 秒，让第一张地图画好，再启动雷达
-        await asyncio.sleep(3)
+            # 立即查询一次余额并更新配置，避免使用硬编码的0.0
+            # 只更新主引擎，影子引擎使用固定账户规模（1.0）用于百分比计算
+            try:
+                success = await self.trader.fetch_balance()
+                if success and self.trader.available_usdt > 0:
+                    current_balance = self.trader.available_usdt
+                    self.main_generator.config.risk_manager.account_size_usdt = current_balance
+                    self.last_balance = current_balance
+                    logger.info(f"💰 [启动余额] 首次查询余额: {current_balance:.2f} USDT，已更新主引擎配置")
+                    logger.info(f"💰 [影子引擎] 使用固定账户规模1.0用于百分比计算，不依赖实际余额")
+                else:
+                    logger.warning("⚠️ [启动余额] 首次查询余额失败或余额为0，将继续等待余额同步循环")
+            except Exception as e:
+                logger.error(f"❌ [启动余额] 首次查询余额异常: {e}")
 
         # 启动毫秒级 Tick 数据流和微观引擎
         self._tasks.append(asyncio.create_task(self._ws_tick_loop()))
-
 
         # 启动影子引擎异步消费者
         self._tasks.append(asyncio.create_task(self._shadow_engine_consumer()))
@@ -140,19 +148,17 @@ class TripleAOrchestrator:
 
     async def _balance_sync_loop(self):
         """余额同步协程：将trader的实际余额同步到signal_generator配置中"""
-        import time
         while self._is_running:
             try:
                 current_balance = self.trader.available_usdt
                 # 如果余额有变化且大于0，更新signal_generator配置
                 if current_balance > 0 and abs(current_balance - self.last_balance) > 1.0:
                     logger.info(f"💰 [余额同步] 检测到余额变化: {self.last_balance:.2f} -> {current_balance:.2f} USDT")
-                    # 更新主引擎配置
+                    # 更新主引擎配置（影子引擎使用固定账户规模1.0，不依赖实际余额）
                     self.main_generator.config.risk_manager.account_size_usdt = current_balance
-                    # 更新影子引擎配置
-                    self.shadow_generator.config.risk_manager.account_size_usdt = current_balance
                     self.last_balance = current_balance
-                    logger.info(f"💰 [余额同步] 已更新signal_generator账户规模为: {current_balance:.2f} USDT")
+                    logger.info(f"💰 [余额同步] 已更新主引擎账户规模为: {current_balance:.2f} USDT")
+                    logger.info(f"💰 [影子引擎] 使用固定账户规模1.0用于百分比计算，不依赖实际余额")
 
                 # 每10秒检查一次
                 await asyncio.sleep(10)
@@ -161,8 +167,6 @@ class TripleAOrchestrator:
             except Exception as e:
                 logger.error(f"💰 [余额同步] 错误: {e}")
                 await asyncio.sleep(30)  # 错误时等待更久
-
-
 
     async def _ws_tick_loop(self):
         """Tick 数据流协程：直连 OKX WebSocket 喂养高频引擎"""
@@ -206,7 +210,6 @@ class TripleAOrchestrator:
                                         if main_signal:
                                             # 使用 create_task 异步处理信号执行，不阻塞 Tick 接收
                                             asyncio.create_task(self._handle_main_signal(main_signal))
-
 
                                         # 🚀 优先级 2：将 Tick 丢入影子队列 (非阻塞)
                                         try:
@@ -255,11 +258,11 @@ class TripleAOrchestrator:
         """异步写入影子交易数据到CSV文件（使用线程池避免阻塞）"""
         entry_price = trade_data['Entry_Price']
 
-        # 计算纯点数毛利
+        # 计算收益率百分比（影子引擎只记录百分比，不依赖绝对余额）
         if trade_data['Action'] == "BUY":
-            gross_pnl = close_price - entry_price
+            gross_pnl = (close_price - entry_price) / entry_price * 100.0  # 百分比
         else:
-            gross_pnl = entry_price - close_price
+            gross_pnl = (entry_price - close_price) / entry_price * 100.0  # 百分比
 
         # 准备行数据
         stage_metrics = trade_data.get('Stage_Metrics', {})
@@ -316,7 +319,7 @@ class TripleAOrchestrator:
                 writer.writerow(row)
 
         await asyncio.to_thread(write_to_file)
-        logger.info(f"🚢 [科考打捞] 影子订单终结 ({reason})，毛利: {gross_pnl:.4f}，已异步写入 CSV。")
+        logger.info(f"🚢 [科考打捞] 影子订单终结 ({reason})，收益率: {gross_pnl:.4f}%，已异步写入 CSV。")
 
     async def _handle_shadow_signal(self, signal: dict):
         """👻 处理影子引擎的信号：只记录，不发单，直到订单完结写入 CSV"""
