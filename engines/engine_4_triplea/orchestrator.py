@@ -52,11 +52,11 @@ class TripleAOrchestrator:
         self.execution_manager = TripleAExecutionManager(trader=self.trader)
 
         # ⚔️ 主炮塔：实盘执行引擎 (参数极其严苛)
-        self.main_generator = TripleASignalGenerator(symbol=symbol)
+        self.main_generator = TripleASignalGenerator(symbol=symbol, account_size_usdt=300.0)
 
         # 👻 影子引擎：科考打捞船 (参数故意放宽，用于测试边界)
         self.shadow_queue = asyncio.Queue(maxsize=10000)  # 影子引擎专用队列
-        self.shadow_generator = ResearchTripleASignalGenerator(symbol=symbol)
+        self.shadow_generator = ResearchTripleASignalGenerator(symbol=symbol, account_size_usdt=300.0)
         self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
         self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
 
@@ -71,6 +71,7 @@ class TripleAOrchestrator:
         self.current_price = 0.0
         self._is_running = False
         self._tasks = []
+        self.last_balance = 0.0  # 上次记录的余额，用于检测变化
 
         logger.info(f"🚀 TripleA 四号引擎编排器初始化完成: {symbol} [{mode.upper()}]")
 
@@ -107,6 +108,8 @@ class TripleAOrchestrator:
         # 启动财务官任务 (仅实盘模式)
         if self.mode == "live":
             self._tasks.append(asyncio.create_task(self.trader.update_balance_loop()))
+            # 启动余额同步任务
+            self._tasks.append(asyncio.create_task(self._balance_sync_loop()))
 
         # 启动宏观地图刷新任务
         self._tasks.append(asyncio.create_task(self._macro_map_loop()))
@@ -141,6 +144,30 @@ class TripleAOrchestrator:
                 task.cancel()
 
         logger.info("✅ TripleA 编排器已安全迫降。")
+
+    async def _balance_sync_loop(self):
+        """余额同步协程：将trader的实际余额同步到signal_generator配置中"""
+        import time
+        while self._is_running:
+            try:
+                current_balance = self.trader.available_usdt
+                # 如果余额有变化且大于0，更新signal_generator配置
+                if current_balance > 0 and abs(current_balance - self.last_balance) > 1.0:
+                    logger.info(f"💰 [余额同步] 检测到余额变化: {self.last_balance:.2f} -> {current_balance:.2f} USDT")
+                    # 更新主引擎配置
+                    self.main_generator.config.risk_manager.account_size_usdt = current_balance
+                    # 更新影子引擎配置
+                    self.shadow_generator.config.risk_manager.account_size_usdt = current_balance
+                    self.last_balance = current_balance
+                    logger.info(f"💰 [余额同步] 已更新signal_generator账户规模为: {current_balance:.2f} USDT")
+
+                # 每10秒检查一次
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"💰 [余额同步] 错误: {e}")
+                await asyncio.sleep(30)  # 错误时等待更久
 
     async def _macro_map_loop(self):
         """宏观地图更新协程：每 5 分钟重绘一次战区地图"""

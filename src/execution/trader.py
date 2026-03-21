@@ -260,8 +260,8 @@ class OKXTrader:
                     # 财务官每 5 秒死死盯住账户，一旦发现单子没了，立刻光速解锁！
                     base_sleep = 5
                 else:
-                    # 闲时模式：空仓状态，不需要浪费 API 额度，60 秒查一次余额即可
-                    base_sleep = 60
+                    # 闲时模式：空仓状态，不需要浪费 API 额度，300 秒查一次余额即可
+                    base_sleep = 300
 
                 # 应用指数退避（如果有连续失败）
                 if self._balance_update_failures > 0:
@@ -308,7 +308,7 @@ class OKXTrader:
                         logger.error(f"❌ 发送警报邮件失败: {email_error}")
 
                 # 失败时使用指数退避等待
-                base_sleep = 5 if (self.context.is_in_position if self.context else self.is_in_position) else 60
+                base_sleep = 5 if (self.context.is_in_position if self.context else self.is_in_position) else 300
                 backoff_factor = min(2 ** self._balance_update_failures, 60)
                 sleep_time = min(base_sleep * backoff_factor, 300)
                 logger.warning(f"💰 [财务官] 等待 {sleep_time:.1f} 秒后重试...")

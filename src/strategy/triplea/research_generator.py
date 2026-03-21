@@ -18,8 +18,8 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
     4. 增强信号数据（供orchestrator写入CSV）
     """
 
-    def __init__(self, symbol: str = "ETH-USDT-SWAP"):
-        super().__init__(symbol, is_shadow=True)
+    def __init__(self, symbol: str = "ETH-USDT-SWAP", account_size_usdt: float = 300.0):
+        super().__init__(symbol, is_shadow=True, account_size_usdt=account_size_usdt)
 
         # 状态转换时间戳跟踪（适配v3.0 5状态模型）
         self.state_timestamps = {

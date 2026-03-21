@@ -17,7 +17,7 @@ class TripleASignalGenerator:
     保持与现有orchestrator.py接口100%兼容。
     """
 
-    def __init__(self, symbol: str = "ETH-USDT-SWAP", is_shadow: bool = False):
+    def __init__(self, symbol: str = "ETH-USDT-SWAP", is_shadow: bool = False, account_size_usdt: float = 300.0):
         self.symbol = symbol
         self.is_shadow = is_shadow
 
@@ -25,7 +25,7 @@ class TripleASignalGenerator:
         self.config = TripleAEngineConfig()
 
         # 调整配置参数以适应小资金
-        self.config.risk_manager.account_size_usdt = 300.0  # 300U账户
+        self.config.risk_manager.account_size_usdt = account_size_usdt  # 动态账户规模
         self.config.risk_manager.max_risk_per_trade_pct = 5.0  # 5%单笔风险
         self.config.risk_manager.daily_loss_limit_pct = 5.0  # 5%日损失限制
         self.config.risk_manager.fee_rate_taker = 0.0005  # 双边0.1%手续费（0.05%每边）
