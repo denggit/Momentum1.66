@@ -42,13 +42,6 @@ class TripleASignalGenerator:
 
         # 兼容性属性（供orchestrator和轨迹矿工访问）
         self.status = "IDLE"  # 兼容性状态（映射到状态机状态）
-        self.tradable_zones = []  # 战术地图（8小时）
-        self.macro_zones = []  # 战略地图（24小时）
-        self.profile = {}  # 当前profile数据
-
-        # 全局统计（供轨迹矿工访问）
-        self.global_cvd = 0.0  # 全局CVD值
-        self.global_volume = 0.0  # 全局成交量
 
         # 订单状态（兼容性）
         self.current_sl = 0.0
@@ -70,33 +63,6 @@ class TripleASignalGenerator:
 
         logger.info(f"TripleASignalGenerator 初始化完成 (symbol={symbol}, is_shadow={is_shadow})")
 
-    def _process_zones(self, raw_zones):
-        """内部辅助：安全拷贝阵地列表（兼容性方法）"""
-        safe_tradable_zones = []
-        for zone in raw_zones:
-            safe_zone = zone.copy()
-            safe_tradable_zones.append(safe_zone)
-        return safe_tradable_zones
-
-    def update_maps(self, short_profile: Dict, long_profile: Dict):
-        """🚀 双轨雷达接收：短线管进场，长线管止盈（兼容性方法）
-
-        更新战术地图和战略地图，供轨迹矿工和状态机使用。
-        """
-        self.profile = short_profile
-
-        # 1. 战术地图 (8小时)：日常打仗、A1吸收全靠它
-        self.tradable_zones = self._process_zones(short_profile.get('tradable_zones', []))
-
-        # 2. 战略地图 (24小时)：专门用来寻找极高盈亏比的止盈点
-        self.macro_zones = self._process_zones(long_profile.get('tradable_zones', []))
-
-        # 3. 更新全局统计（供轨迹矿工访问）
-        self.global_cvd = short_profile.get('global_cvd', 0.0)
-        self.global_volume = short_profile.get('global_volume', 0.0)
-
-        logger.debug(f"地图已更新: {len(self.tradable_zones)}个战术区域, {len(self.macro_zones)}个战略区域")
-
     def process_tick(self, tick: Dict) -> Optional[Dict]:
         """处理单个Tick，驱动状态机并返回交易信号（兼容性接口）
 
@@ -111,9 +77,6 @@ class TripleASignalGenerator:
         try:
             # 1. 将orchestrator格式的tick转换为状态机格式
             normalized_tick = self._convert_to_normalized_tick(tick)
-
-            # 2. 更新全局统计（供轨迹矿工访问）
-            self._update_global_stats(tick)
 
             # 3. 驱动状态机处理Tick
             state_machine_signal = self.state_machine.process_tick(normalized_tick)
@@ -147,17 +110,6 @@ class TripleASignalGenerator:
             sz=float(tick_dict['size']),
             side=side_int
         )
-
-    def _update_global_stats(self, tick_dict: Dict):
-        """更新全局统计（供轨迹矿工访问）"""
-        # 简单累加CVD（买+，卖-）
-        if tick_dict.get('side', '').lower() == 'buy':
-            self.global_cvd += float(tick_dict['size'])
-        else:
-            self.global_cvd -= float(tick_dict['size'])
-
-        # 累加成交量
-        self.global_volume += float(tick_dict['size'])
 
     def _sync_state_from_state_machine(self):
         """同步状态机状态到兼容性状态"""
@@ -263,40 +215,6 @@ class TripleASignalGenerator:
 
         self._log_debug("🧹 状态已重置，等待新的资金入场...")
 
-    def _manage_position_by_tick(self, tick: Dict) -> Optional[Dict]:
-        """
-        持仓飞行模式 (IN_POSITION) - 兼容性方法
-
-        注意：状态机已经处理持仓管理，此方法仅用于兼容性。
-        如果状态机处于POSITION状态，将由状态机处理止损止盈。
-        此方法只在兼容性状态为LONG/SHORT但状态机未处于POSITION时调用。
-        """
-        # 如果状态机处于POSITION状态，由状态机处理
-        if self.state_machine.context.current_state == TripleAState.POSITION:
-            return None
-
-        # 兼容性逻辑（仅当状态机未运行时使用）
-        price = tick['price']
-        signal = None
-
-        if self.status == "LONG":
-            if price <= self.current_sl:
-                signal = {"action": "CLOSE_LONG", "reason": "STOP_LOSS_HIT", "price": price}
-            elif price >= self.current_tp:
-                signal = {"action": "CLOSE_LONG", "reason": "TAKE_PROFIT_HIT", "price": price}
-
-        elif self.status == "SHORT":
-            if price >= self.current_sl:
-                signal = {"action": "CLOSE_SHORT", "reason": "STOP_LOSS_HIT", "price": price}
-            elif price <= self.current_tp:
-                signal = {"action": "CLOSE_SHORT", "reason": "TAKE_PROFIT_HIT", "price": price}
-
-        if signal:
-            self._log_info(f"🏁 订单终结！触发原因: {signal['reason']}，成交价: {price}。")
-            self._reset_to_idle()
-
-        return signal
-
     # ==========================================
     # 🔇 日志消音器：如果是影子引擎，就闭嘴不打印日常刷屏
     # ==========================================
@@ -330,9 +248,7 @@ class TripleASignalGenerator:
             'signal_generator': {
                 'processed_ticks': self.processed_ticks,
                 'last_signal_time': self.last_signal_time,
-                'current_status': self.status,
-                'global_cvd': self.global_cvd,
-                'global_volume': self.global_volume
+                'current_status': self.status
             }
         }
 

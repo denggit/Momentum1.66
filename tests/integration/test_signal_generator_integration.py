@@ -74,44 +74,6 @@ def test_signal_generator_process_tick():
     print("✅ 信号生成器处理Tick测试通过")
 
 
-def test_signal_generator_update_maps():
-    """测试信号生成器更新地图"""
-    print("\n🗺️ 测试信号生成器更新地图")
-    print("-" * 60)
-
-    generator = TripleASignalGenerator(symbol="ETH-USDT-SWAP")
-
-    # 创建测试profile数据
-    short_profile = {
-        'tradable_zones': [
-            {'zone_high': 3010.0, 'zone_low': 2990.0, 'confidence': 0.8},
-            {'zone_high': 3020.0, 'zone_low': 3000.0, 'confidence': 0.7}
-        ],
-        'global_cvd': 100.0,
-        'global_volume': 5000.0
-    }
-
-    long_profile = {
-        'tradable_zones': [
-            {'zone_high': 3100.0, 'zone_low': 2900.0, 'confidence': 0.9}
-        ]
-    }
-
-    # 更新地图
-    generator.update_maps(short_profile, long_profile)
-
-    # 验证更新
-    assert generator.profile == short_profile
-    assert len(generator.tradable_zones) == 2
-    assert len(generator.macro_zones) == 1
-    assert generator.global_cvd == 100.0
-    assert generator.global_volume == 5000.0
-
-    print(f"✅ 战术地图更新: {len(generator.tradable_zones)}个区域")
-    print(f"✅ 战略地图更新: {len(generator.macro_zones)}个区域")
-    print(f"✅ 全局统计更新: CVD={generator.global_cvd}, Volume={generator.global_volume}")
-
-    print("✅ 信号生成器更新地图测试通过")
 
 
 def test_shadow_generator_enhancement():
@@ -154,15 +116,13 @@ def test_compatibility_with_orchestrator():
     generator = TripleASignalGenerator()
 
     # orchestrator调用的方法
-    required_methods = ['process_tick', 'update_maps', '_reset_to_idle']
+    required_methods = ['process_tick', '_reset_to_idle']
     for method in required_methods:
         assert hasattr(generator, method), f"缺少方法: {method}"
         assert callable(getattr(generator, method)), f"方法不可调用: {method}"
 
     # orchestrator访问的属性
-    required_attrs = ['status', 'tradable_zones', 'macro_zones', 'profile',
-                      'global_cvd', 'global_volume', 'current_sl', 'current_tp',
-                      'micro_tracker']
+    required_attrs = ['status', 'current_sl', 'current_tp', 'micro_tracker']
     for attr in required_attrs:
         assert hasattr(generator, attr), f"缺少属性: {attr}"
 
@@ -195,7 +155,6 @@ def run_all_integration_tests():
 
     test_signal_generator_initialization()
     test_signal_generator_process_tick()
-    test_signal_generator_update_maps()
     test_shadow_generator_enhancement()
     test_compatibility_with_orchestrator()
 

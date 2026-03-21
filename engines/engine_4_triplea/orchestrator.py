@@ -32,7 +32,6 @@ from src.strategy.triplea.signal_generator import TripleASignalGenerator
 from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
 from src.execution.trader import OKXTrader
 from engines.engine_4_triplea.execution_manager import TripleAExecutionManager
-from engines.engine_4_triplea.trajectory_miner import TrajectoryMiner
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -60,8 +59,6 @@ class TripleAOrchestrator:
         self.shadow_generator.vol_spike_threshold = 1.5  # 放宽爆量倍数 (主炮塔是 2.0)
         self.shadow_generator.delta_ratio_threshold = 0.25  # 放宽净买卖比 (主炮塔是 0.35)
 
-        # 🚀 轨迹矿工：异步记录成功/失败前的15分钟轨迹
-        self.miner = TrajectoryMiner(symbol=symbol)
 
         # 📝 影子引擎的运行状态缓存与日志
         self.shadow_active_trade = {}
@@ -111,8 +108,6 @@ class TripleAOrchestrator:
             # 启动余额同步任务
             self._tasks.append(asyncio.create_task(self._balance_sync_loop()))
 
-        # 启动宏观地图刷新任务
-        self._tasks.append(asyncio.create_task(self._macro_map_loop()))
 
         # 稍微等 3 秒，让第一张地图画好，再启动雷达
         await asyncio.sleep(3)
@@ -120,8 +115,6 @@ class TripleAOrchestrator:
         # 启动毫秒级 Tick 数据流和微观引擎
         self._tasks.append(asyncio.create_task(self._ws_tick_loop()))
 
-        # 启动轨迹矿工打点循环
-        self._tasks.append(asyncio.create_task(self._miner_ticker_loop()))
 
         # 启动影子引擎异步消费者
         self._tasks.append(asyncio.create_task(self._shadow_engine_consumer()))
@@ -169,61 +162,7 @@ class TripleAOrchestrator:
                 logger.error(f"💰 [余额同步] 错误: {e}")
                 await asyncio.sleep(30)  # 错误时等待更久
 
-    async def _macro_map_loop(self):
-        """宏观地图更新协程：每 5 分钟重绘一次战区地图"""
-        while self._is_running:
-            try:
-                logger.debug("🗺️ 参谋部：正在拉取过去 24 小时数据，重绘双轨地图...")
-                # 1. 获取 24小时 的 1分钟K线 (1440 根)
-                df_long = await asyncio.to_thread(self.data_loader.fetch_historical_data, limit=1440)
 
-                if not df_long.empty:
-                    # 🚀 2. 切割出最近 8 小时 (480根) 的数据作为微观战术数据
-                    df_short = df_long.tail(480)
-
-                    # 3. 构建双轨 Volume Profile
-                    long_profile = self.vp_builder.build_profile(df_long)
-                    short_profile = self.vp_builder.build_profile(df_short)
-
-                    if long_profile and short_profile:
-                        # 🗺️ 4. 将【长短双轨地图】同时喂给主炮塔和影子雷达
-                        self.main_generator.update_maps(short_profile, long_profile)
-                        self.shadow_generator.update_maps(short_profile, long_profile)
-
-                        poc_price = short_profile['POC']['center']
-                        logger.debug(
-                            f"🗺️ 双轨地图更新完毕！日内短线核心 (POC): {poc_price} | 战术交火区: {len(short_profile['tradable_zones'])}个 | 战略防线: {len(long_profile['tradable_zones'])}个。")
-                else:
-                    logger.error("❌ 拉取 1m K线失败，沿用旧地图。")
-
-            except Exception as e:
-                logger.error(f"❌ 宏观地图更新异常: {e}")
-
-            # 休息 5 分钟再画下一张
-            await asyncio.sleep(300)
-
-    async def _miner_ticker_loop(self):
-        """1秒钟心跳：专门负责给行车记录仪喂数据"""
-        while self._is_running:
-            await asyncio.sleep(1.0)
-            # 提取主引擎当前的 15s 滑动窗口数据
-            # 计算 delta_ratio = abs(global_cvd) / (global_volume + 1e-8)
-            global_volume = self.main_generator.global_volume
-            global_cvd = self.main_generator.global_cvd
-            delta_ratio = abs(global_cvd) / (global_volume + 1e-8) if global_volume > 0 else 0.0
-
-            # 获取当前价格（使用最近的价格）
-            current_price = self.current_price
-
-            # 更新矿工录像带
-            self.miner.update_tape_tick(
-                price=current_price,
-                cvd=global_cvd,
-                vol=global_volume,
-                delta_ratio=delta_ratio
-            )
-            # 清理过期的冷却条目
-            self.miner.cleanup_expired_cooldowns()
 
     async def _ws_tick_loop(self):
         """Tick 数据流协程：直连 OKX WebSocket 喂养高频引擎"""
@@ -268,24 +207,6 @@ class TripleAOrchestrator:
                                             # 使用 create_task 异步处理信号执行，不阻塞 Tick 接收
                                             asyncio.create_task(self._handle_main_signal(main_signal))
 
-                                        # 🚀 轨迹矿工：极速检查并追踪（非阻塞）
-                                        try:
-                                            # 安全获取基准成交量
-                                            if hasattr(self.main_generator, 'profile') and self.main_generator.profile:
-                                                baseline_vol = self.main_generator.profile.get('avg_vol_1m', 100) / 4.0
-                                            else:
-                                                baseline_vol = 25.0  # 默认值
-
-                                            self.miner.check_and_spawn_tracker(
-                                                price=tick['price'],
-                                                cvd=self.main_generator.global_cvd,
-                                                vol=self.main_generator.global_volume,
-                                                baseline_vol=baseline_vol,
-                                                tradable_zones=self.main_generator.tradable_zones
-                                            )
-                                            self.miner.evaluate_trackers(tick['price'])
-                                        except Exception as e:
-                                            logger.error(f"❌ 矿工处理异常: {e}")
 
                                         # 🚀 优先级 2：将 Tick 丢入影子队列 (非阻塞)
                                         try:
@@ -424,8 +345,6 @@ class TripleAOrchestrator:
                 'Delta_Ratio_Threshold': signal.get('delta_ratio_threshold', 0.0),
                 # 🆕 添加阶段指标
                 'Stage_Metrics': copy.deepcopy(signal.get('stage_metrics', {})),
-                # 🆕 极其关键：使用 deepcopy 锁定开仓那一刻的地图快照，防止后续被污染
-                'Tradable_Zones': copy.deepcopy(self.shadow_generator.tradable_zones)
             }
             logger.debug(f"👻 [影子引擎] 虚拟开仓 {action} @ {price}")
 

@@ -170,23 +170,6 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
                     "mae_price": self.mae_price
                 })
 
-        # 添加目标区域信息（如果可用）
-        if self.tradable_zones:
-            # 使用第一个战术区域作为目标区域
-            target_zone = self.tradable_zones[0] if self.tradable_zones else {}
-            enhanced_signal.update({
-                "target_zone_high": target_zone.get('zone_high', 0.0),
-                "target_zone_low": target_zone.get('zone_low', 0.0)
-            })
-
-        # 添加POC信息（如果可用）
-        if self.profile and 'POC' in self.profile:
-            macro_poc_price = self.profile['POC'].get('center', 0.0)
-            price = tick['price']
-            enhanced_signal.update({
-                "macro_poc_price": macro_poc_price,
-                "distance_to_poc": abs(price - macro_poc_price)
-            })
 
         return enhanced_signal
 
