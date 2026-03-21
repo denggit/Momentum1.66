@@ -77,7 +77,7 @@ def convert_to_engine_config(yaml_config: Dict[str, Any]) -> TripleAEngineConfig
     # 创建RangeBarConfig
     algorithm_config = triplea_config.get('algorithm', {})
     range_bar_config = RangeBarConfig(
-        tick_range=20,  # 默认值
+        tick_range=150,  # 默认值（1.5U）
         tick_size=0.01,  # 默认值
         max_bar_history=1440  # 默认值
     )

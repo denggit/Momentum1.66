@@ -23,7 +23,7 @@ class TestRangeBarPerformance:
     def range_bar_config(self):
         """创建Range Bar配置"""
         return RangeBarConfig(
-            tick_range=20,  # 20个Tick构成一根Range Bar
+            tick_range=150,  # 150个Tick构成一根Range Bar（1.5U）
             tick_size=0.01,  # 最小价格变动单位
             max_bar_history=1440
         )
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     test = TestRangeBarPerformance()
 
     # 创建配置和样本数据
-    config = RangeBarConfig(tick_range=20, max_bar_history=1440)
+    config = RangeBarConfig(tick_range=150, max_bar_history=1440)
     ticks = test.sample_ticks()
 
     print("🚀 开始Range Bar生成器性能测试...")

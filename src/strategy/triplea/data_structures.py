@@ -126,7 +126,7 @@ class DataPipelineConfig:
 @dataclass
 class RangeBarConfig:
     """Range Bar配置"""
-    tick_range: int = 20  # 20个Tick构成一根Range Bar
+    tick_range: int = 150  # 150个Tick构成一根Range Bar（1.5U）
     tick_size: float = 0.01  # 最小价格变动单位（ETH永续合约）
     max_bar_history: int = 1440  # 保留最近1440根Bar
 

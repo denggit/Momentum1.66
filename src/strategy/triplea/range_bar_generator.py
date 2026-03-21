@@ -91,9 +91,9 @@ class RangeBarGenerator:
 
             # 检查是否触发闭合条件
             # 位移计算：价格差除以最小价格变动单位（tick_size）
-            # 当位移达到tick_range（20个Tick）时闭合Bar
+            # 当位移达到tick_range（150个Tick，即1.5U）时闭合Bar
             displacement = abs(tick.px - self.open_px_base) / self.config.tick_size
-            if displacement >= self.config.tick_range:  # 达到tick_range个Tick位移
+            if displacement >= self.config.tick_range:  # 达到tick_range个Tick位移（150ticks=1.5U）
                 completed_bar = self._close_bar_and_emit(tick)
 
                 # 更新统计
@@ -313,7 +313,7 @@ class BatchRangeBarGenerator:
 
             # 检查是否触发闭合条件
             displacement = abs(tick.px - self.open_px_base) / self.config.tick_size
-            if displacement >= self.config.tick_range:  # 达到tick_range个Tick位移
+            if displacement >= self.config.tick_range:  # 达到tick_range个Tick位移（150ticks=1.5U）
                 completed_bar = self.current_bar
                 self.bar_history.append(completed_bar)
                 completed_bars.append(completed_bar)
