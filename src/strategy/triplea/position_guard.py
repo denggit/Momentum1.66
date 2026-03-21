@@ -634,6 +634,10 @@ class PositionGuard:
             self.guard_configs[guard_type].params.update(params)
             logger.info(f"⚙️  更新保护配置: {guard_type.value}")
 
+    def update_guard(self, guard_type: GuardType, params: Dict[str, Any]):
+        """更新保护配置（兼容性别名）"""
+        return self.update_guard_config(guard_type, params)
+
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         active_positions = len(self.active_positions)
