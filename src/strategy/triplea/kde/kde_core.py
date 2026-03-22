@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 KDE核心函数库
 基于Numba JIT编译的高性能核密度估计（KDE）实现

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 CVD计算器
 累积成交量差值（Cumulative Volume Delta）计算引擎

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 LVN区域管理器
 负责LVN区域的合并、冲突解决和生命周期管理

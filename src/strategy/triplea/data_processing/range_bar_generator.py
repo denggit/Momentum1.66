@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 Range Bar生成器
 高性能无循环版本，支持Numpy批量计算

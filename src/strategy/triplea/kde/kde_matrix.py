@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 KDE矩阵计算库
 基于Numpy广播和Numba加速的高性能KDE计算

@@ -668,6 +668,11 @@ class HealthMonitor:
         }
 
 
+class ConnectionHealthMonitor(HealthMonitor):
+    """连接健康监控器（专门用于连接监控）"""
+    pass
+
+
 async def test_health_monitor():
     """测试健康监控器"""
     print("🧪 测试健康监控器...")
@@ -722,3 +727,4 @@ async def test_health_monitor():
 
 if __name__ == "__main__":
     asyncio.run(test_health_monitor())
+

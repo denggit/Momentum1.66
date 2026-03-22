@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+四号引擎v3.0 信号生成器（集成状态机）
+"""
 import time
 from typing import Dict, Optional, Any
 

@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+影子引擎专用信号生成器（适配v3.0状态机）
+"""
 import time
 from typing import Dict, Optional
 

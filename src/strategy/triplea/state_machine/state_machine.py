@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 状态机（5状态模型）
 实现IDLE→MONITORING→CONFIRMED→ACCUMULATING→POSITION状态转换

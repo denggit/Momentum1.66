@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 KDE引擎主控制器
 集成进程池异步计算、LVN提取和实时监控

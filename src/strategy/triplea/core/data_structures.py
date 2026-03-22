@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 核心数据结构定义
 使用Python dataclass定义所有核心数据结构和配置类

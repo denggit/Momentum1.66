@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any, Callable
 
 from src.strategy.triplea.execution.okx_executor import OKXOrderExecutor
 from src.strategy.triplea.execution.order_manager import OrderManager
-from src.strategy.triplea.risk.real_time_risk_monitor import RiskAlert, RiskLevel
+from src.strategy.triplea.risk import RiskAlert, RiskLevel
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

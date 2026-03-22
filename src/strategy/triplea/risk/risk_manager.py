@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 四号引擎v3.0 风险管理器
 小资金优化版：5%单笔风险，2 tick止损，6 tick止盈，5%日损失限制

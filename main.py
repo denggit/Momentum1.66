@@ -13,6 +13,12 @@ import subprocess
 import sys
 import time
 
+# 禁用numba配置文件读取，避免编码问题
+os.environ['NUMBA_DISABLE_CONFIG_FILE'] = '1'
+os.environ['NUMBA_CONFIG_FILE'] = ''
+# 确保使用UTF-8编码
+os.environ['PYTHONUTF8'] = '1'
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
