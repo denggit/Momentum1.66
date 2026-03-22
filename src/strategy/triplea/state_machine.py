@@ -188,7 +188,7 @@ class TripleAStateMachine:
         self.cvd_zscore_threshold = 2.0  # CVD Z-score阈值
 
         # 波动率压缩参数
-        self.vol_compression_threshold = 50.0  # 压缩阈值（Tick数）
+        self.vol_compression_threshold = 3.0  # 压缩阈值（Tick数）
         self.min_compression_duration = 5.0  # 最小压缩持续时间（秒）
 
         # Tick密度参数

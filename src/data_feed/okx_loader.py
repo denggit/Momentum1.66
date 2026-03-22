@@ -97,7 +97,7 @@ class OKXDataLoader:
 
         all_candles = []
         current_after = after_ts
-        batch_size_threshold = 1000
+        batch_size_threshold = 5000
 
         # logger.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
 
@@ -150,7 +150,7 @@ class OKXDataLoader:
                 break
 
             if len(all_candles) > 0 and len(all_candles) % batch_size_threshold == 0:
-                # logger.debug(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，防封锁...")
+                logger.info(f"🟢 已完成一个大批次 ({len(all_candles)}根)，强制休眠 3 秒，防封锁...")
                 time.sleep(3)
             else:
                 time.sleep(0.15)

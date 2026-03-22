@@ -69,7 +69,7 @@ def setup_logging(log_level=logging.INFO, log_dir='logs'):
     _setup_done = True
 
 
-def get_logger(name, log_level=logging.DEBUG):
+def get_logger(name):
     """
     获取指定名称的日志记录器。
 
@@ -80,13 +80,13 @@ def get_logger(name, log_level=logging.DEBUG):
         logging.Logger 实例
     """
     # 确保日志系统已初始化
-    setup_logging(log_level=log_level)
+    setup_logging()
 
     return logging.getLogger(name)
 
 
 # 导入此模块时自动初始化日志系统
-setup_logging(log_level=logging.DEBUG)
+setup_logging()
 
 # 提供便捷的全局日志记录器
 logger = get_logger(__name__)
