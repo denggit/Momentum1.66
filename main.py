@@ -25,6 +25,8 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 # 禁用numba缓存
 os.environ['NUMBA_DISABLE_CACHING'] = '1'
 os.environ['NUMBA_CACHE_DIR'] = os.path.join(current_dir, 'temp_numba_cache')
+# 设置Numba日志级别为WARNING，减少调试输出
+os.environ.setdefault('NUMBA_LOG_LEVEL', 'WARNING')
 
 # 尝试修复numba配置文件编码问题
 import sys

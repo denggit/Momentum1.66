@@ -58,7 +58,7 @@ def setup_logging(log_level=None, log_dir='logs'):
     # 获取根日志器
     root_logger = logging.getLogger()
 
-    # 移除所有现有的处理器，确保我们拥有完整的控制权
+    # 移除所有现有的处理器，确保我们拥有完整的操作
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
@@ -94,8 +94,39 @@ def setup_logging(log_level=None, log_dir='logs'):
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
+    # 设置Numba日志级别，减少调试输出
+    # 除非用户通过NUMBA_LOG_LEVEL环境变量明确指定
+    numba_log_level_str = os.environ.get('NUMBA_LOG_LEVEL', '').upper()
+    if numba_log_level_str:
+        level_map = {
+            'DEBUG': logging.DEBUG,
+            'INFO': logging.INFO,
+            'WARNING': logging.WARNING,
+            'WARN': logging.WARNING,
+            'ERROR': logging.ERROR,
+            'CRITICAL': logging.CRITICAL,
+        }
+        numba_log_level = level_map.get(numba_log_level_str, logging.WARNING)
+    else:
+        # 默认设置Numba日志级别为WARNING，除非LOG_LEVEL是ERROR或更高
+        if log_level <= logging.WARNING:
+            numba_log_level = logging.WARNING
+        else:
+            numba_log_level = log_level
+
+    # 设置Numba日志记录器级别
+    numba_logger = logging.getLogger('numba')
+    numba_logger.setLevel(numba_log_level)
+
+    # 可选：设置更具体的Numba模块日志级别
+    # 例如：numba.core.ssa, numba.core.byteflow
+    for module_name in ['numba.core.ssa', 'numba.core.byteflow', 'numba.core.interpreter']:
+        module_logger = logging.getLogger(module_name)
+        module_logger.setLevel(logging.WARNING)
+
     # 记录初始日志
     root_logger.info(f'日志系统初始化完成，日志目录: {os.path.abspath(log_dir)}， 日志等级：{log_level}')
+    root_logger.debug(f'Numba日志级别: {numba_log_level}')
 
     _setup_done = True
 
