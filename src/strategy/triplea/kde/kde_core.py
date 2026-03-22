@@ -10,7 +10,7 @@ from typing import Tuple, Optional, List, Dict
 import numpy as np
 from numba import njit, prange
 
-from src.strategy.triplea.data_structures import KDEEngineConfig
+from src.strategy.triplea.core.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

@@ -10,7 +10,7 @@ from typing import Tuple, List
 import numpy as np
 from numba import njit, prange
 
-from src.strategy.triplea.data_structures import KDEEngineConfig
+from src.strategy.triplea.core.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -307,7 +307,7 @@ class KDEMatrixEngine:
                 continue
 
             # 计算带宽
-            from src.strategy.triplea.kde_core import silverman_bandwidth
+            from src.strategy.triplea.kde.kde_core import silverman_bandwidth
             base_bandwidth = silverman_bandwidth(prices)
 
             if use_adaptive_bandwidth:
@@ -366,7 +366,7 @@ class KDEMatrixEngine:
             if len(prices) < self.config.min_slice_ticks:
                 continue
 
-            from src.strategy.triplea.kde_core import silverman_bandwidth
+            from src.strategy.triplea.kde.kde_core import silverman_bandwidth
             bandwidth = silverman_bandwidth(prices)
 
             densities = matrix_broadcast_kde_numba(prices, unified_grid, bandwidth)

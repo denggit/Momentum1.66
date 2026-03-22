@@ -11,8 +11,8 @@ import time
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from src.strategy.triplea.signal_generator import TripleASignalGenerator
-from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
+from src.strategy.triplea.signal.signal_generator import TripleASignalGenerator
+from src.strategy.triplea.signal.research_generator import ResearchTripleASignalGenerator
 
 
 def test_signal_generator_initialization():

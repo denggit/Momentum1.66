@@ -9,7 +9,7 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 from numba import njit, prange
 
-from src.strategy.triplea.data_structures import KDEEngineConfig
+from src.strategy.triplea.core.data_structures import KDEEngineConfig
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -329,7 +329,7 @@ class LVNExtractor:
             return []
 
         # 计算密度阈值
-        from src.strategy.triplea.kde_core import compute_density_percentiles
+        from src.strategy.triplea.kde.kde_core import compute_density_percentiles
         percentile_array = np.array([self.density_percentile_threshold])
         density_threshold = compute_density_percentiles(densities, percentile_array)[0]
 
@@ -535,8 +535,8 @@ def test_lvn_extraction():
     all_prices = np.concatenate([prices1, prices2, prices_mid])
 
     # 计算KDE
-    from src.strategy.triplea.kde_core import KDECore
-    from src.strategy.triplea.data_structures import KDEEngineConfig
+    from src.strategy.triplea.kde.kde_core import KDECore
+    from src.strategy.triplea.core.data_structures import KDEEngineConfig
 
     config = KDEEngineConfig()
     kde_core = KDECore(config)

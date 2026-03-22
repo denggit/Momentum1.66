@@ -13,13 +13,13 @@ from typing import Optional, Dict, List, Any, Tuple
 
 import numpy as np
 
-from src.strategy.triplea.cvd_calculator import CVDCalculator
-from src.strategy.triplea.data_structures import (
+from src.strategy.triplea.data_processing.cvd_calculator import CVDCalculator
+from src.strategy.triplea.core.data_structures import (
     NormalizedTick, TripleAEngineConfig
 )
-from src.strategy.triplea.lvn_manager import LVNManager
-from src.strategy.triplea.range_bar_generator import RangeBarGenerator
-from src.strategy.triplea.risk_manager import RiskManager
+from src.strategy.triplea.lvn.lvn_manager import LVNManager
+from src.strategy.triplea.data_processing.range_bar_generator import RangeBarGenerator
+from src.strategy.triplea.risk.risk_manager import RiskManager
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

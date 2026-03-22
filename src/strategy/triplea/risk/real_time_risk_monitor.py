@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any
 
-from src.strategy.triplea.connection_health import HealthMonitor
-from src.strategy.triplea.data_structures import RiskManagerConfig
-from src.strategy.triplea.order_manager import OrderManager
+from src.strategy.triplea.system.connection_health import HealthMonitor
+from src.strategy.triplea.core.data_structures import RiskManagerConfig
+from src.strategy.triplea.execution.order_manager import OrderManager
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -653,7 +653,7 @@ async def test_real_time_risk_monitor():
     print("🧪 测试实时风险监控器")
     print("=" * 60)
 
-    from src.strategy.triplea.data_structures import RiskManagerConfig
+    from src.strategy.triplea.core.data_structures import RiskManagerConfig
 
     # 创建配置
     risk_config = RiskManagerConfig(

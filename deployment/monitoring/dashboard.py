@@ -39,7 +39,7 @@ from deployment.monitoring.alerts import AlertManager, AlertSeverity
 
 # 尝试导入四号引擎组件
 try:
-    from src.strategy.triplea.signal_generator import TripleASignalGenerator
+    from src.strategy.triplea.signal.signal_generator import TripleASignalGenerator
 
     SIGNAL_GENERATOR_AVAILABLE = True
 except ImportError as e:
@@ -234,7 +234,7 @@ class MonitoringDashboard:
 
             # 从JIT监控器获取缓存命中率（如果可用）
             try:
-                from src.strategy.triplea.jit_monitor import JITMonitor
+                from src.strategy.triplea.optimization.jit_monitor import JITMonitor
                 # 这里可以添加获取JIT监控器实例的逻辑
                 # performance_metrics['cache_hit_rate'] = jit_monitor.get_cache_hit_rate()
             except ImportError:

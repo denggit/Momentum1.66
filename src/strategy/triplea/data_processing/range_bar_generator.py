@@ -10,7 +10,7 @@ from typing import Optional, List, Tuple, Deque
 import numpy as np
 from numba import njit
 
-from src.strategy.triplea.data_structures import (
+from src.strategy.triplea.core.data_structures import (
     NormalizedTick, RangeBar, RangeBarConfig
 )
 from src.utils.log import get_logger

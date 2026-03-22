@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any
 
-from src.strategy.triplea.data_structures import PositionState
-from src.strategy.triplea.order_manager import OrderManager
+from src.strategy.triplea.core.data_structures import PositionState
+from src.strategy.triplea.execution.order_manager import OrderManager
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -673,7 +673,7 @@ async def test_position_guard():
     print("🧪 测试仓位保护器")
     print("=" * 60)
 
-    from src.strategy.triplea.data_structures import PositionState
+    from src.strategy.triplea.core.data_structures import PositionState
 
     # 创建模拟的订单管理器
     class MockOrderManager:

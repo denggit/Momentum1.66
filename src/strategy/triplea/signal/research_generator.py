@@ -1,8 +1,8 @@
 import time
 from typing import Dict, Optional
 
-from src.strategy.triplea.signal_generator import TripleASignalGenerator
-from src.strategy.triplea.state_machine import TripleAState
+from src.strategy.triplea.signal.signal_generator import TripleASignalGenerator
+from src.strategy.triplea.state_machine.state_machine import TripleAState
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

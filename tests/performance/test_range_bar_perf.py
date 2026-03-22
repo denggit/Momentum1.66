@@ -8,10 +8,10 @@ import time
 import numpy as np
 import pytest
 
-from src.strategy.triplea.data_structures import (
+from src.strategy.triplea.core.data_structures import (
     NormalizedTick, RangeBarConfig
 )
-from src.strategy.triplea.range_bar_generator import (
+from src.strategy.triplea.data_processing.range_bar_generator import (
     RangeBarGenerator, BatchRangeBarGenerator
 )
 

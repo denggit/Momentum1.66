@@ -741,7 +741,7 @@ def track_function(
     """
     # 获取或创建默认监控器
     if monitor is None:
-        from .jit_monitor import get_default_monitor
+        from . import get_default_monitor
         monitor = get_default_monitor()
 
     def decorator(func):

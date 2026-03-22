@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, Callable
 
-from src.strategy.triplea.okx_executor import OKXOrderExecutor
-from src.strategy.triplea.order_manager import OrderManager
-from src.strategy.triplea.real_time_risk_monitor import RiskAlert, RiskLevel
+from src.strategy.triplea.execution.okx_executor import OKXOrderExecutor
+from src.strategy.triplea.execution.order_manager import OrderManager
+from src.strategy.triplea.risk.real_time_risk_monitor import RiskAlert, RiskLevel
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -584,7 +584,7 @@ async def test_emergency_handler():
     print("🧪 测试紧急情况处理器")
     print("=" * 60)
 
-    from src.strategy.triplea.okx_executor import OKXAPIConfig, OKXOrderExecutor
+    from src.strategy.triplea.execution.okx_executor import OKXAPIConfig, OKXOrderExecutor
 
     # 创建配置
     config = OKXAPIConfig(use_simulation=True)

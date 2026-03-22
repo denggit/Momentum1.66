@@ -14,7 +14,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 try:
-    from src.strategy.triplea.data_structures import (
+    from src.strategy.triplea.core.data_structures import (
         TripleAEngineConfig,
         MarketConfig,
         DataPipelineConfig,

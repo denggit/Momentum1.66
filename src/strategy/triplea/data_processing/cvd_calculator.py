@@ -11,7 +11,7 @@ from typing import List, Dict, Optional, Deque
 import numpy as np
 from numba import njit
 
-from src.strategy.triplea.data_structures import NormalizedTick
+from src.strategy.triplea.core.data_structures import NormalizedTick
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

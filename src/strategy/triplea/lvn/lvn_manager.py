@@ -10,8 +10,8 @@ from typing import List, Dict, Optional
 
 import numpy as np
 
-from src.strategy.triplea.data_structures import KDEEngineConfig
-from src.strategy.triplea.lvn_extractor import LVNRegion, LVNExtractor
+from src.strategy.triplea.core.data_structures import KDEEngineConfig
+from src.strategy.triplea.kde.lvn_extractor import LVNRegion, LVNExtractor
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)

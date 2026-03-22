@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, Set, Callable
 
-from src.strategy.triplea.okx_executor import (
+from src.strategy.triplea.execution.okx_executor import (
     OKXOrderExecutor, OrderStatus, OrderSide
 )
 from src.utils.log import get_logger
@@ -237,7 +237,7 @@ class OrderManager:
         """提交订单到交易所"""
         try:
             # 调用执行器下单
-            from src.strategy.triplea.okx_executor import OrderRequest, OrderType
+            from src.strategy.triplea.execution.okx_executor import OrderRequest, OrderType
 
             # 映射订单类型
             order_type_map = {
@@ -534,7 +534,7 @@ async def test_order_manager():
     """测试订单管理器"""
     print("🧪 测试订单管理器...")
 
-    from src.strategy.triplea.okx_executor import OKXAPIConfig, OKXOrderExecutor
+    from src.strategy.triplea.execution.okx_executor import OKXAPIConfig, OKXOrderExecutor
 
     # 创建配置
     config = OKXAPIConfig(use_simulation=True)

@@ -26,8 +26,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from src.strategy.triplea.signal_generator import TripleASignalGenerator
-from src.strategy.triplea.research_generator import ResearchTripleASignalGenerator
+from src.strategy.triplea.signal.signal_generator import TripleASignalGenerator
+from src.strategy.triplea.signal.research_generator import ResearchTripleASignalGenerator
 from src.execution.trader import OKXTrader
 from engines.engine_4_triplea.execution_manager import TripleAExecutionManager
 from src.utils.log import get_logger

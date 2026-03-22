@@ -1,10 +1,10 @@
 import time
 from typing import Dict, Optional, Any
 
-from src.strategy.triplea.data_structures import (
+from src.strategy.triplea.core.data_structures import (
     TripleAEngineConfig, NormalizedTick
 )
-from src.strategy.triplea.state_machine import TripleAStateMachine, TripleAState
+from src.strategy.triplea.state_machine.state_machine import TripleAStateMachine, TripleAState
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
