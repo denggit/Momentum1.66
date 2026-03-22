@@ -335,6 +335,25 @@ class LVNExtractor:
 
         logger.debug(f"密度阈值 (P{self.density_percentile_threshold}): {density_threshold:.2e}")
 
+        # 密度分布诊断
+        density_min = np.min(densities)
+        density_max = np.max(densities)
+        density_mean = np.mean(densities)
+        density_median = np.median(densities)
+        positive_density_ratio = np.sum(densities > 0) / len(densities)
+
+        logger.debug(
+            f"密度分布: 最小值={density_min:.2e}, 最大值={density_max:.2e}, "
+            f"均值={density_mean:.2e}, 中位数={density_median:.2e}, "
+            f"正密度比例={positive_density_ratio:.1%}"
+        )
+
+        # 防止阈值过小：如果阈值接近0，使用绝对阈值
+        if density_threshold < density_max * 0.01:  # 阈值小于最大值的1%
+            absolute_threshold = density_max * 0.1  # 使用最大值的10%作为阈值
+            logger.debug(f"分位数阈值过小 ({density_threshold:.2e} < {density_max*0.01:.2e})，使用绝对阈值: {absolute_threshold:.2e}")
+            density_threshold = absolute_threshold
+
         # 寻找山谷区域
         valleys = find_valleys(
             grid, densities,
@@ -375,7 +394,7 @@ class LVNExtractor:
             lvn_regions.append(region)
             logger.debug(f"检测到LVN区域 {region_id}: {region}")
 
-        logger.info(f"提取到 {len(lvn_regions)} 个LVN区域")
+        logger.debug(f"提取到 {len(lvn_regions)} 个LVN区域")
         return lvn_regions
 
     def filter_and_merge_regions(
