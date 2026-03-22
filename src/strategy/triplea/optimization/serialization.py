@@ -490,3 +490,100 @@ def get_default_serializer() -> HighPerformanceSerializer:
 
 # 导入time模块（需要在类定义后添加）
 import time
+
+
+# ==========================================
+# 导出函数（保持向后兼容性）
+# ==========================================
+
+def encode_numpy_array(array: np.ndarray, include_metadata: bool = True) -> bytes:
+    """
+    编码Numpy数组（兼容性函数）
+
+    Args:
+        array: Numpy数组
+        include_metadata: 是否包含元数据
+
+    Returns:
+        编码后的字节数据
+    """
+    return NumpySerializer.serialize(array, include_metadata)
+
+
+def decode_numpy_array(data: bytes, has_metadata: bool = True) -> np.ndarray:
+    """
+    解码Numpy数组（兼容性函数）
+
+    Args:
+        data: 编码后的字节数据
+        has_metadata: 数据是否包含元数据
+
+    Returns:
+        Numpy数组
+    """
+    return NumpySerializer.deserialize(data, has_metadata)
+
+
+def compress_data(data: bytes, method: str = "lz4", level: int = 3) -> bytes:
+    """
+    压缩数据（兼容性函数）
+
+    Args:
+        data: 原始字节数据
+        method: 压缩方法 ("none", "zlib", "lz4", "gzip")
+        level: 压缩级别 (1-9)
+
+    Returns:
+        压缩后的字节数据
+    """
+    # 创建临时序列化器
+    if method.lower() == "none":
+        compression = CompressionMethod.NONE
+    elif method.lower() == "zlib":
+        compression = CompressionMethod.ZLIB
+    elif method.lower() == "lz4":
+        compression = CompressionMethod.LZ4
+    elif method.lower() == "gzip":
+        compression = CompressionMethod.GZIP
+    else:
+        compression = CompressionMethod.LZ4
+
+    serializer = HighPerformanceSerializer(
+        format=SerializationFormat.NUMPY,
+        compression=compression,
+        compression_level=level
+    )
+
+    return serializer._compress(data)
+
+
+def decompress_data(data: bytes, method: str = "lz4") -> bytes:
+    """
+    解压缩数据（兼容性函数）
+
+    Args:
+        data: 压缩后的字节数据
+        method: 压缩方法 ("none", "zlib", "lz4", "gzip")
+
+    Returns:
+        解压缩后的字节数据
+    """
+    # 创建临时序列化器
+    if method.lower() == "none":
+        compression = CompressionMethod.NONE
+    elif method.lower() == "zlib":
+        compression = CompressionMethod.ZLIB
+    elif method.lower() == "lz4":
+        compression = CompressionMethod.LZ4
+    elif method.lower() == "gzip":
+        compression = CompressionMethod.GZIP
+    else:
+        compression = CompressionMethod.LZ4
+
+    serializer = HighPerformanceSerializer(
+        format=SerializationFormat.NUMPY,
+        compression=compression,
+        compression_level=3
+    )
+
+    return serializer._decompress(data)
