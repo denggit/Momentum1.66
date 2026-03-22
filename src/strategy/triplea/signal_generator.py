@@ -78,13 +78,13 @@ class TripleASignalGenerator:
             # 1. 将orchestrator格式的tick转换为状态机格式
             normalized_tick = self._convert_to_normalized_tick(tick)
 
-            # 3. 驱动状态机处理Tick
+            # 2. 驱动状态机处理Tick
             state_machine_signal = self.state_machine.process_tick(normalized_tick)
 
-            # 4. 同步状态机状态到兼容性状态
+            # 3. 同步状态机状态到兼容性状态
             self._sync_state_from_state_machine()
 
-            # 5. 如果状态机生成信号，转换为兼容性格式
+            # 4. 如果状态机生成信号，转换为兼容性格式
             if state_machine_signal:
                 return self._convert_state_machine_signal(state_machine_signal)
 
