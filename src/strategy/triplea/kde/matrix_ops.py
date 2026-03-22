@@ -4,6 +4,9 @@
 """
 
 from typing import Tuple, Optional, Union, List, Callable, Dict
+import os
+os.environ['NUMBA_DISABLE_CONFIG_FILE'] = '1'
+os.environ['NUMBA_CONFIG_FILE'] = ''
 
 import numba
 import numpy as np
@@ -642,6 +645,69 @@ def get_performance_stats(func: Callable) -> Dict[str, float]:
         'min_time': min(stats) if stats else 0.0,
         'max_time': max(stats) if stats else 0.0
     }
+
+
+def broadcast_subtract(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+    广播减法：计算 a - b，支持NumPy广播规则
+
+    Args:
+        a: 第一个数组
+        b: 第二个数组
+
+    Returns:
+        广播减法结果
+    """
+    # 使用NumPy广播进行减法
+    return a - b
+
+
+def broadcast_gaussian_kernel(diff: np.ndarray, bandwidth: float = 0.5) -> np.ndarray:
+    """
+    广播高斯核计算
+
+    Args:
+        diff: 差异数组（形状任意）
+        bandwidth: 带宽参数
+
+    Returns:
+        高斯核值数组（与diff相同形状）
+    """
+    # 计算高斯核：exp(-0.5 * (diff / bandwidth)^2)
+    return np.exp(-0.5 * (diff / bandwidth) ** 2)
+
+
+def compute_density_grid(
+    data: np.ndarray,
+    n_points: int = 200,
+    margin_pct: float = 0.1
+) -> np.ndarray:
+    """
+    计算密度估计的评估网格
+
+    Args:
+        data: 输入数据数组
+        n_points: 网格点数
+        margin_pct: 数据范围边缘扩展百分比
+
+    Returns:
+        均匀分布的网格点数组
+    """
+    if len(data) == 0:
+        return np.array([])
+
+    # 计算数据范围
+    data_min = np.min(data)
+    data_max = np.max(data)
+    data_range = data_max - data_min
+
+    # 扩展范围
+    margin = data_range * margin_pct
+    grid_min = data_min - margin
+    grid_max = data_max + margin
+
+    # 创建均匀网格
+    return np.linspace(grid_min, grid_max, n_points)
 
 
 # 示例使用

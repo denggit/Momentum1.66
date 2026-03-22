@@ -6,6 +6,9 @@
 
 import math
 from typing import Tuple, Optional, List, Dict
+import os
+os.environ['NUMBA_DISABLE_CONFIG_FILE'] = '1'
+os.environ['NUMBA_CONFIG_FILE'] = ''
 
 import numpy as np
 from numba import njit, prange
