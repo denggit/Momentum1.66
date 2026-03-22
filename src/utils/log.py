@@ -12,17 +12,48 @@ import sys
 _setup_done = False
 
 
-def setup_logging(log_level=logging.INFO, log_dir='logs'):
+def _get_log_level_from_env(default_level=logging.INFO):
+    """
+    从环境变量获取日志级别
+
+    Args:
+        default_level: 默认日志级别
+
+    Returns:
+        logging级别常量
+    """
+    log_level_str = os.environ.get('LOG_LEVEL', '').upper()
+    if not log_level_str:
+        return default_level
+
+    level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'WARN': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL,
+        'FATAL': logging.CRITICAL,
+    }
+
+    return level_map.get(log_level_str, default_level)
+
+
+def setup_logging(log_level=None, log_dir='logs'):
     """
     配置根日志记录器。
 
     Args:
-        log_level: 日志级别，默认为 INFO
+        log_level: 日志级别，如果为None则从环境变量LOG_LEVEL读取，默认为INFO
         log_dir: 日志文件存放目录，默认为 'logs'
     """
     global _setup_done
     if _setup_done:
         return
+
+    # 如果未指定log_level，从环境变量读取
+    if log_level is None:
+        log_level = _get_log_level_from_env(logging.INFO)
 
     # 获取根日志器
     root_logger = logging.getLogger()
@@ -80,13 +111,13 @@ def get_logger(name):
         logging.Logger 实例
     """
     # 确保日志系统已初始化
-    setup_logging()
+    setup_logging(None)
 
     return logging.getLogger(name)
 
 
 # 导入此模块时自动初始化日志系统
-setup_logging()
+setup_logging(None)
 
 # 提供便捷的全局日志记录器
 logger = get_logger(__name__)

@@ -230,7 +230,7 @@ def silverman_bandwidth(data: np.ndarray) -> float:
         bandwidth = 0.1
 
     # 金融价格序列的额外保障：最小带宽 = 价格范围 × 0.02 或 至少10个tick size
-    price_range = np.max(data) - np.min(data)
+    price_range = data.max() - data.min()
     tick_size = 0.01  # ETH永续合约tick size
     min_bandwidth_by_range = price_range * 0.02  # 价格范围的2%
     min_bandwidth_by_tick = tick_size * 10  # 10个tick
@@ -238,14 +238,6 @@ def silverman_bandwidth(data: np.ndarray) -> float:
     if price_range > 0:
         min_bandwidth = max(min_bandwidth_by_range, min_bandwidth_by_tick, tick_size * 5)
         bandwidth = max(bandwidth, min_bandwidth)
-
-    # 调试日志
-    import logging
-    logging.getLogger(__name__).debug(
-        f"Silverman带宽: n={n}, std={std:.4f}, iqr={iqr:.4f}, "
-        f"robust_std={robust_std:.4f}, range={price_range:.2f}, "
-        f"raw_h={1.06 * robust_std * (n ** (-0.2)):.6f}, final_h={bandwidth:.4f}"
-    )
 
     return bandwidth
 
@@ -483,8 +475,7 @@ class KDECore:
         densities = fast_kde_epanechnikov(prices, grid, bandwidth)
 
         # 调试日志
-        import logging
-        logging.getLogger(__name__).debug(
+        logger.debug(
             f"KDE计算完成: 输入点数={len(prices)}, 带宽={bandwidth:.4f}, "
             f"网格大小={len(grid)}, 价格范围=[{np.min(prices):.2f}, {np.max(prices):.2f}], "
             f"网格范围=[{np.min(grid):.2f}, {np.max(grid):.2f}], "
@@ -503,11 +494,9 @@ class KDECore:
         Returns:
             带宽值
         """
-        if self.config.bandwidth_method == "silverman_robust":
-            return silverman_bandwidth(prices)
-        else:
-            # 默认使用Silverman法则
-            return silverman_bandwidth(prices)
+        bandwidth = silverman_bandwidth(prices)
+        logger.debug(f"带宽计算: 输入点数={len(prices)}, 价格范围=[{prices.min():.2f}, {prices.max():.2f}], 带宽={bandwidth:.4f}")
+        return bandwidth
 
     def _create_grid(self, prices: np.ndarray) -> np.ndarray:
         """
