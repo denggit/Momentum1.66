@@ -50,6 +50,8 @@ class KDEEngine:
         self.tick_buffer: List[NormalizedTick] = []
         self.price_history: List[float] = []
         self.active_lvn_regions: List[LVNRegion] = []
+        self.grid: Optional[np.ndarray] = None
+        self.densities: Optional[np.ndarray] = None
 
         # 状态跟踪
         self.stats = {
@@ -149,6 +151,10 @@ class KDEEngine:
             if len(grid) == 0 or len(densities) == 0:
                 return []
 
+            # 存储最新的网格和密度
+            self.grid = grid
+            self.densities = densities
+
             # 触发KDE计算事件
             if self.on_kde_calculated:
                 try:
@@ -177,6 +183,15 @@ class KDEEngine:
         except Exception as e:
             logger.error(f"处理Tick时出错: {e}")
             return []
+
+    def get_latest_kde_grid(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        获取最新的KDE网格和密度计算结果
+
+        Returns:
+            (网格点, 密度估计) 元组，如果尚未计算则返回 (None, None)
+        """
+        return self.grid, self.densities
 
     async def _compute_kde_async(self, prices: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """

@@ -5,6 +5,7 @@
 专为实时交易决策优化，毫秒级延迟
 """
 
+import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from src.strategy.triplea.core.data_structures import (
 from src.strategy.triplea.lvn.lvn_manager import LVNManager
 from src.strategy.triplea.data_processing.range_bar_generator import RangeBarGenerator
 from src.strategy.triplea.risk.risk_manager import RiskManager
+from src.strategy.triplea.kde.kde_engine import KDEEngine
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -53,6 +55,7 @@ class StateContext:
 
     # 活跃的LVN区域信息
     active_lvn_region: Optional[Dict[str, Any]] = None
+    lvn_regions: List[Dict[str, Any]] = field(default_factory=list)
     entered_lvn_time: Optional[float] = None  # 进入LVN的时间戳（秒）
     lvn_center_price: Optional[float] = None  # LVN中心价格
     lvn_width: Optional[float] = None  # LVN宽度
@@ -164,12 +167,21 @@ class TripleAStateMachine:
         self.config = config
 
         # 核心组件初始化
+        self.kde_engine = KDEEngine(config)
         self.lvn_manager = LVNManager(config.kde_engine)
         self.cvd_calculator = CVDCalculator(
             window_sizes=[10, 30, 60, 120, 240]  # 多时间窗口分析
         )
         self.range_bar_generator = RangeBarGenerator(config.range_bar)
         self.risk_manager = RiskManager(config.risk_manager)
+
+        # 事件循环检测
+        try:
+            self.loop = asyncio.get_event_loop()
+            self.loop_running = self.loop.is_running()
+        except RuntimeError:
+            self.loop = None
+            self.loop_running = False
 
         # 状态机上下文
         self.context = StateContext()
@@ -212,7 +224,7 @@ class TripleAStateMachine:
         logger.info(f"TripleAStateMachine 初始化完成")
         logger.info(f"状态模型: IDLE → MONITORING → CONFIRMED → ACCUMULATING → POSITION")
 
-    def process_tick(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
+    async def process_tick(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
         """
         处理单个Tick，更新状态机并返回交易信号
 
@@ -237,6 +249,19 @@ class TripleAStateMachine:
 
             # 更新CVD统计
             self.context.cvd_statistics = self.cvd_calculator.get_statistics()
+
+            # 处理KDE计算（完全异步，不阻塞事件循环）
+            try:
+                # 直接await KDE引擎的异步方法，避免使用run_coroutine_threadsafe+future.result()的阻塞模式
+                lvn_regions = await self.kde_engine.process_tick(tick)
+
+                # 获取最新的网格和密度
+                grid, densities = self.kde_engine.get_latest_kde_grid()
+                if grid is not None and densities is not None:
+                    # 处理KDE结果，更新LVN区域
+                    self.lvn_manager.process_kde_result(grid, densities)
+            except Exception as e:
+                logger.warning(f"KDE处理失败: {e}", exc_info=True)
 
             # 根据当前状态执行不同逻辑
             signal = None

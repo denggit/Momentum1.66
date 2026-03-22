@@ -212,7 +212,7 @@ class TripleAOrchestrator:
                                         self.current_price = tick['price']
 
                                         # 🚀 优先级 1：主引擎同步处理 (最高优先级，严禁延迟)
-                                        main_signal = self.main_generator.process_tick(tick)
+                                        main_signal = await self.main_generator.process_tick(tick)
                                         if main_signal:
                                             # 使用 create_task 异步处理信号执行，不阻塞 Tick 接收
                                             asyncio.create_task(self._handle_main_signal(main_signal))
@@ -377,7 +377,7 @@ class TripleAOrchestrator:
                 tick = await self.shadow_queue.get()
 
                 # 驱动影子引擎
-                shadow_signal = self.shadow_generator.process_tick(tick)
+                shadow_signal = await self.shadow_generator.process_tick(tick)
                 if shadow_signal:
                     await self._handle_shadow_signal(shadow_signal)
 

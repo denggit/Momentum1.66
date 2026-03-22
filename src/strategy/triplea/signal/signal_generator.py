@@ -63,7 +63,7 @@ class TripleASignalGenerator:
 
         logger.info(f"TripleASignalGenerator 初始化完成 (symbol={symbol}, is_shadow={is_shadow})")
 
-    def process_tick(self, tick: Dict) -> Optional[Dict]:
+    async def process_tick(self, tick: Dict) -> Optional[Dict]:
         """处理单个Tick，驱动状态机并返回交易信号（兼容性接口）
 
         Args:
@@ -79,7 +79,7 @@ class TripleASignalGenerator:
             normalized_tick = self._convert_to_normalized_tick(tick)
 
             # 2. 驱动状态机处理Tick
-            state_machine_signal = self.state_machine.process_tick(normalized_tick)
+            state_machine_signal = await self.state_machine.process_tick(normalized_tick)
 
             # 3. 同步状态机状态到兼容性状态
             self._sync_state_from_state_machine()

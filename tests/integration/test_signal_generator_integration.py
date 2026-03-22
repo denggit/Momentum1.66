@@ -4,6 +4,7 @@
 验证signal_generator与状态机的集成，确保接口兼容性
 """
 
+import asyncio
 import os
 import sys
 import time
@@ -40,7 +41,7 @@ def test_signal_generator_initialization():
     print("✅ 信号生成器初始化测试通过")
 
 
-def test_signal_generator_process_tick():
+async def test_signal_generator_process_tick():
     """测试信号生成器处理Tick"""
     print("\n🔍 测试信号生成器处理Tick")
     print("-" * 60)
@@ -56,7 +57,7 @@ def test_signal_generator_process_tick():
     }
 
     # 处理Tick（应该没有错误）
-    signal = generator.process_tick(test_tick)
+    signal = await generator.process_tick(test_tick)
 
     # 验证处理结果
     assert signal is None or isinstance(signal, dict)
@@ -76,7 +77,7 @@ def test_signal_generator_process_tick():
 
 
 
-def test_shadow_generator_enhancement():
+async def test_shadow_generator_enhancement():
     """测试影子引擎信号增强"""
     print("\n👻 测试影子引擎信号增强")
     print("-" * 60)
@@ -93,7 +94,7 @@ def test_shadow_generator_enhancement():
     }
 
     # 处理Tick
-    signal = shadow_generator.process_tick(test_tick)
+    signal = await shadow_generator.process_tick(test_tick)
 
     # 验证影子引擎特有功能
     assert hasattr(shadow_generator, 'stage_metrics')
@@ -148,14 +149,14 @@ def test_compatibility_with_orchestrator():
     print("✅ 与orchestrator的兼容性测试通过")
 
 
-def run_all_integration_tests():
+async def run_all_integration_tests():
     """运行所有集成测试"""
     print("🚀 四号引擎集成测试套件")
     print("=" * 70)
 
     test_signal_generator_initialization()
-    test_signal_generator_process_tick()
-    test_shadow_generator_enhancement()
+    await test_signal_generator_process_tick()
+    await test_shadow_generator_enhancement()
     test_compatibility_with_orchestrator()
 
     print("\n" + "=" * 70)
@@ -170,4 +171,4 @@ def run_all_integration_tests():
 
 
 if __name__ == "__main__":
-    run_all_integration_tests()
+    asyncio.run(run_all_integration_tests())

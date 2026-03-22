@@ -52,13 +52,13 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
 
         logger.info(f"ResearchTripleASignalGenerator 初始化完成 (symbol={symbol})")
 
-    def process_tick(self, tick: Dict) -> Optional[Dict]:
+    async def process_tick(self, tick: Dict) -> Optional[Dict]:
         """重写：记录时间戳并跟踪状态转换"""
         # 记录当前tick时间戳
         self._current_tick_time = int(tick.get('ts', tick.get('timestamp', time.time() * 1000))) / 1000.0
 
         # 调用父类处理tick
-        signal = super().process_tick(tick)
+        signal = await super().process_tick(tick)
 
         # 跟踪状态转换和记录指标
         self._track_state_transitions()
