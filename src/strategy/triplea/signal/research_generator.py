@@ -199,3 +199,5 @@ class ResearchTripleASignalGenerator(TripleASignalGenerator):
         self.entry_price = 0.0
 
         logger.debug("研究数据已重置")
+
+ResearchGenerator = ResearchTripleASignalGenerator

@@ -4,17 +4,21 @@
 处理连接丢失、市场异常、仓位风险过高等紧急情况
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 
 from src.strategy.triplea.execution.okx_executor import OKXOrderExecutor
 from src.strategy.triplea.execution.order_manager import OrderManager
-from src.strategy.triplea.risk import RiskAlert, RiskLevel
 from src.utils.log import get_logger
+
+if TYPE_CHECKING:
+    from src.strategy.triplea.risk.real_time_risk_monitor import RiskAlert, RiskLevel
 
 logger = get_logger(__name__)
 
@@ -585,6 +589,7 @@ async def test_emergency_handler():
     print("=" * 60)
 
     from src.strategy.triplea.execution.okx_executor import OKXAPIConfig, OKXOrderExecutor
+    from src.strategy.triplea.risk.real_time_risk_monitor import RiskAlert, RiskLevel
 
     # 创建配置
     config = OKXAPIConfig(use_simulation=True)

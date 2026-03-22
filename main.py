@@ -13,15 +13,60 @@ import subprocess
 import sys
 import time
 
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
 # 禁用numba配置文件读取，避免编码问题
 os.environ['NUMBA_DISABLE_CONFIG_FILE'] = '1'
 os.environ['NUMBA_CONFIG_FILE'] = ''
 # 确保使用UTF-8编码
 os.environ['PYTHONUTF8'] = '1'
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+# 禁用numba缓存
+os.environ['NUMBA_DISABLE_CACHING'] = '1'
+os.environ['NUMBA_CACHE_DIR'] = os.path.join(current_dir, 'temp_numba_cache')
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
+# 尝试修复numba配置文件编码问题
+import sys
+possible_config_paths = []
+if 'APPDATA' in os.environ:
+    possible_config_paths.append(os.path.join(os.environ['APPDATA'], 'numba', 'numba.yaml'))
+    possible_config_paths.append(os.path.join(os.environ['APPDATA'], '.config', 'numba', 'numba.yaml'))
+if 'USERPROFILE' in os.environ:
+    possible_config_paths.append(os.path.join(os.environ['USERPROFILE'], '.config', 'numba', 'numba.yaml'))
+    possible_config_paths.append(os.path.join(os.environ['USERPROFILE'], '.numba', 'numba.yaml'))
+home = os.path.expanduser('~')
+possible_config_paths.append(os.path.join(home, '.config', 'numba', 'numba.yaml'))
+possible_config_paths.append(os.path.join(home, '.numba', 'numba.yaml'))
+
+for config_path in possible_config_paths:
+    if os.path.exists(config_path):
+        try:
+            # 尝试用UTF-8读取文件，如果失败则删除
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # 用UTF-8重写文件
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f'Fixed numba config encoding: {config_path}')
+        except Exception as e:
+            # 如果无法用UTF-8读取，删除文件
+            try:
+                os.remove(config_path)
+                print(f'Removed corrupt numba config: {config_path}')
+            except Exception:
+                pass
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
+
+# 创建有效的UTF-8编码的numba配置文件
+numba_config_path = os.path.join(current_dir, 'numba.yaml')
+try:
+    with open(numba_config_path, 'w', encoding='utf-8') as f:
+        f.write('{}\n')
+except Exception:
+    pass
+os.environ['NUMBA_CONFIG_FILE'] = numba_config_path
 
 from src.utils.log import get_logger
 from src.utils.email_sender import send_trading_signal_email
