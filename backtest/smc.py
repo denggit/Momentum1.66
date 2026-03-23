@@ -21,8 +21,8 @@ logger = get_logger(__name__)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-START_DATE = '2020-01-01'
-END_DATE = '2025-12-31'
+START_DATE = '2024-01-01'
+END_DATE = '2025-03-07'
 SMC_TIMEFRAME = '1H'  # 波段交易，回归 1H 大气层！
 SYMBOL = 'ETH-USDT-SWAP'
 cfg = load_strategy_config("smc", SYMBOL)
@@ -34,12 +34,14 @@ ai_enabled = False
 if __name__ == "__main__":
     loader = OKXDataLoader(symbol=SYMBOL, timeframe=SMC_TIMEFRAME)
     df = loader.fetch_data_by_date_range(START_DATE, END_DATE)
+    logger.info(f"获取数据完成，形状: {df.shape if not df.empty else '空'}，列: {list(df.columns) if not df.empty else []}")
 
     if df.empty:
         logger.info(f"数据为空！")
     else:
         # 1. 挂载 SMC 需要的均线和 ATR
         df = add_smc_indicators(df)
+        logger.info(f"添加SMC指标后，形状: {df.shape}")
 
         # 2. 生成聪明的订单块回踩信号
         strategy = SMCStrategy(ema_period=strat_cfg.get('ema_period'),
