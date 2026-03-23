@@ -10,6 +10,7 @@ from collections import deque
 from typing import Optional, List, Tuple, Deque
 
 import numpy as np
+import pandas as pd
 from numba import njit
 
 from src.strategy.triplea.core.data_structures import (
@@ -429,7 +430,7 @@ def accumulate_volume_batch(
         sides: 方向数组（1=买入，-1=卖出）
 
     Returns:
-        更新后的(total_buy_vol, total_sell_vol)
+        更新后的(total_buy_vol, total_sell)
     """
     buy_mask = sides == 1
     sell_mask = sides == -1
@@ -438,3 +439,5 @@ def accumulate_volume_batch(
     total_sell = total_sell_vol + np.sum(sizes[sell_mask])
 
     return total_buy, total_sell
+
+
