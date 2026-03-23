@@ -17,6 +17,8 @@ logger = get_logger(__name__)
 
 
 class OKXDataLoader:
+    BATCH_SAVE_SIZE = 10000  # 每获取10000根K线保存一次
+
     def __init__(self, symbol="ETH-USDT-SWAP", timeframe="1H", db_dir=None):
         self.symbol = symbol
         self.timeframe = timeframe
@@ -90,16 +92,75 @@ class OKXDataLoader:
         conn.close()
         logger.debug(f"💾 成功将 {len(df)} 根 K 线保存至本地数据库: [{self.table_name}]")
 
+    def _append_to_local_data(self, df: pd.DataFrame):
+        """
+        将新数据追加到本地数据库，合并去重
+
+        Args:
+            df: 新的K线数据
+        """
+        if df.empty:
+            return
+
+        # 加载现有数据
+        existing_df = self.load_local_data()
+
+        if existing_df.empty:
+            # 没有现有数据，直接保存
+            self.save_local_data(df)
+            logger.debug(f"💾 追加数据: 无现有数据，直接保存 {len(df)} 根K线")
+        else:
+            # 合并数据，去重，按时间排序
+            combined_df = pd.concat([existing_df, df])
+            combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+            combined_df = combined_df.sort_index(ascending=True)
+
+            # 保存合并后的数据
+            self.save_local_data(combined_df)
+            logger.debug(f"💾 追加数据: 合并现有 {len(existing_df)} 根和新 {len(df)} 根，去重后 {len(combined_df)} 根K线")
+    def _save_candles_batch(self, candles_batch: list):
+        """
+        保存一批原始蜡烛数据到本地数据库
+
+        Args:
+            candles_batch: 原始蜡烛数据列表
+        """
+        if not candles_batch:
+            return
+
+        # 转换为DataFrame
+        df = pd.DataFrame(candles_batch,
+                          columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'volCcy', 'volCcyQuote',
+                                   'confirm'])
+        df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
+
+        df['timestamp'] = pd.to_datetime(df['timestamp'].astype(int), unit='ms')
+        if "+" in TIMEZONE:
+            df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
+        elif "-" in TIMEZONE:
+            df['timestamp'] += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
+
+        df.sort_values('timestamp', ascending=True, inplace=True)
+        df.set_index('timestamp', inplace=True)
+
+        # 追加到本地数据库
+        self._append_to_local_data(df)
+        logger.debug(f"💾 保存批次数据: {len(candles_batch)} 根蜡烛，时间范围 {df.index[0]} -> {df.index[-1]}")
+
     def fetch_from_okx(self, limit=100, after_ts=None, max_retries=10) -> pd.DataFrame:
         """原生调用 OKX V5 接口拉取历史 K 线 (自动分批防封版)"""
         endpoint = "/api/v5/market/history-candles"
         url = f"{self.base_url}{endpoint}"
 
         all_candles = []
+        batch_candles = []
         current_after = after_ts
         batch_size_threshold = 5000
 
-        # logger.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
+        logger.info(f"开始通过原生 API 批量拉取 {self.symbol} {self.timeframe} 数据，目标 {limit} 根...")
 
         while len(all_candles) < limit:
             fetch_size = min(100, limit - len(all_candles))
@@ -129,11 +190,17 @@ class OKXDataLoader:
                         break
 
                     all_candles.extend(candles)
+                    batch_candles.extend(candles)
                     current_after = candles[-1][0]
                     success = True
 
+                    # 检查批次大小，如果达到阈值则保存
+                    if len(batch_candles) >= self.BATCH_SAVE_SIZE:
+                        self._save_candles_batch(batch_candles)
+                        batch_candles = []
+
                     if len(all_candles) % 10000 == 0 or len(all_candles) == limit:
-                        logger.debug(f"拉取进度: {len(all_candles)} / {limit} ...")
+                        logger.info(f"拉取进度: {len(all_candles)} / {limit} ...")
 
                     break
 
@@ -154,6 +221,11 @@ class OKXDataLoader:
                 time.sleep(3)
             else:
                 time.sleep(0.15)
+
+        # 保存剩余的批次数据
+        if batch_candles:
+            self._save_candles_batch(batch_candles)
+            batch_candles = []
 
         if not all_candles:
             return pd.DataFrame()
@@ -250,10 +322,32 @@ class OKXDataLoader:
             combined_df = combined_df.sort_index(ascending=True)
 
         # =======================================
-        # 步骤 3: 保存至本地数据库并返回
+        # 步骤 3: 检测并补齐【中间】缺失的 K 线
         # =======================================
-        if not new_df.empty or not old_df.empty:
-            self.save_local_data(combined_df)
+        missing_intervals = self._detect_missing_intervals(combined_df)
+        if missing_intervals:
+            logger.debug(f"🔍 检测到 {len(missing_intervals)} 个缺失区间，开始补全...")
+            filled_dfs = []
+            for i, (start_time, end_time) in enumerate(missing_intervals):
+                logger.debug(f"  补全区间 {i+1}: {start_time} -> {end_time}")
+                filled_df = self._fill_missing_interval(start_time, end_time)
+                if not filled_df.empty:
+                    filled_dfs.append(filled_df)
+
+            if filled_dfs:
+                # 合并所有补全的数据
+                filled_combined = pd.concat(filled_dfs)
+                # 合并到主数据集
+                combined_df = pd.concat([combined_df, filled_combined])
+                combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+                combined_df = combined_df.sort_index(ascending=True)
+                logger.debug(f"✅ 成功补全 {len(filled_dfs)} 个缺失区间，新增 {len(filled_combined)} 根K线")
+
+        # =======================================
+        # 步骤 4: 保存至本地数据库并返回
+        # =======================================
+        # 将最终数据保存到本地数据库（增量追加）
+        self._append_to_local_data(combined_df)
 
         return combined_df.tail(limit)
 
@@ -361,6 +455,82 @@ class OKXDataLoader:
                 f"✅ 成功获取并合并 {start_date.date()} 到 {end_date.date()} 的数据，共 {len(result_df)} 根 K 线")
 
         return result_df
+
+    def _detect_missing_intervals(self, df: pd.DataFrame) -> list:
+        """
+        检测时间序列中的缺失区间
+
+        Args:
+            df: 本地加载的K线数据，索引为timestamp
+
+        Returns:
+            list: 缺失区间列表，每个元素为(start_time, end_time)元组
+        """
+        if df.empty or len(df) < 2:
+            return []
+
+        # 确保按时间排序
+        df = df.sort_index(ascending=True)
+
+        # 计算理论时间间隔（秒）
+        interval_seconds = self._get_seconds(self.timeframe)
+
+        missing_intervals = []
+
+        # 遍历相邻行，检测缺失
+        for i in range(len(df) - 1):
+            current_time = df.index[i]
+            next_time = df.index[i + 1]
+
+            # 计算实际时间差
+            time_diff = (next_time - current_time).total_seconds()
+
+            # 允许10%的容差（考虑数据可能略有偏差）
+            if time_diff > interval_seconds * 1.1:
+                # 计算缺失的条数
+                missing_bars = int(time_diff // interval_seconds) - 1
+                if missing_bars > 0:
+                    # 计算缺失区间的开始和结束时间
+                    gap_start = current_time + pd.Timedelta(seconds=interval_seconds)
+                    gap_end = next_time - pd.Timedelta(seconds=interval_seconds)
+                    missing_intervals.append((gap_start, gap_end))
+
+        return missing_intervals
+
+    def _fill_missing_interval(self, start_time, end_time) -> pd.DataFrame:
+        """
+        填充指定时间区间的缺失数据
+
+        Args:
+            start_time: 缺失区间开始时间
+            end_time: 缺失区间结束时间
+
+        Returns:
+            pd.DataFrame: 填充的数据
+        """
+        # 计算需要多少根K线
+        interval_seconds = self._get_seconds(self.timeframe)
+        total_seconds = (end_time - start_time).total_seconds()
+        bars_needed = int(total_seconds // interval_seconds) + 1
+
+        logger.debug(f"🔄 准备填充缺失区间: {start_time} -> {end_time}, 约{bars_needed}根K线")
+
+        # 将结束时间转换为OKX API需要的UTC毫秒时间戳
+        end_utc = end_time
+        if "+" in TIMEZONE:
+            end_utc -= pd.Timedelta(hours=int(TIMEZONE.split("+")[-1]))
+        elif "-" in TIMEZONE:
+            end_utc += pd.Timedelta(hours=int(TIMEZONE.split("-")[-1]))
+
+        # 加上1000毫秒冗余
+        end_ts_ms = str(int(end_utc.timestamp() * 1000) + 1000)
+
+        # 获取缺失数据
+        missing_df = self.fetch_from_okx(limit=bars_needed + 10, after_ts=end_ts_ms)
+
+        # 过滤出指定区间内的数据
+        mask = (missing_df.index >= start_time) & (missing_df.index <= end_time)
+        return missing_df[mask]
 
     def fetch_data_by_hours(self, hours: int) -> pd.DataFrame:
         """
