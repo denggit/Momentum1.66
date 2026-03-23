@@ -140,6 +140,15 @@ class KDEEngineConfig:
     lvn_density_percentile: float = 30.0  # 密度低于30%分位认定为LVN
     min_slice_ticks: int = 100  # 脉冲波最少包含100笔Tick才计算KDE
 
+    # 脉冲波检测配置
+    impulse_wave_threshold: float = 2.0  # 脉冲波价格范围阈值（USDT）
+    min_price_change_pct: float = 0.5  # 最小价格变化百分比（0.5%）
+    min_volume_multiplier: float = 2.0  # 最小成交量倍数（相对于平均成交量）
+    min_impulse_duration_seconds: float = 1.0  # 最小脉冲持续时间（秒）
+    max_impulse_duration_seconds: float = 30.0  # 最大脉冲持续时间（秒）
+    lookback_window_ticks: int = 50  # 回看窗口大小（tick数）
+    volatility_multiplier: float = 2.0  # 波动率倍数（相对于历史波动率）
+
     # 自适应网格配置（实盘保命核心）
     adaptive_grid: bool = True  # 强烈建议默认开启自适应！实盘保命的核心。
     target_grid_step: float = 0.2  # 目标步长：0.20 USDT (过滤微观噪音的甜点区)

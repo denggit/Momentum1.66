@@ -9,8 +9,12 @@
 
 from .range_bar_generator import RangeBarGenerator
 from .cvd_calculator import CVDCalculator
+from .impulse_wave_detector import ImpulseWaveDetector, ImpulseWave, ImpulseWaveDirection
 
 __all__ = [
     'RangeBarGenerator',
-    'CVDCalculator'
+    'CVDCalculator',
+    'ImpulseWaveDetector',
+    'ImpulseWave',
+    'ImpulseWaveDirection'
 ]

@@ -19,6 +19,7 @@ from src.strategy.triplea.kde.kde_core import KDECore
 from src.strategy.triplea.kde.kde_matrix import KDEMatrixEngine
 from src.strategy.triplea.kde.lvn_extractor import LVNExtractor, LVNRegion
 from src.strategy.triplea.optimization.process_pool_manager import ProcessPoolManager
+from src.strategy.triplea.data_processing.impulse_wave_detector import ImpulseWaveDetector
 from src.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -44,6 +45,7 @@ class KDEEngine:
         self.kde_core = KDECore(self.kde_config)
         self.kde_matrix = KDEMatrixEngine(self.kde_config)
         self.lvn_extractor = LVNExtractor(self.kde_config)
+        self.impulse_wave_detector = ImpulseWaveDetector(self.kde_config)
 
         # 进程池管理
         self.process_pool_manager: Optional[ProcessPoolManager] = None
@@ -55,6 +57,10 @@ class KDEEngine:
         self.grid: Optional[np.ndarray] = None
         self.densities: Optional[np.ndarray] = None
 
+        # 脉冲波检测
+        self.impulse_wave_threshold: float = self.kde_config.impulse_wave_threshold  # USDT，价格范围阈值
+        self.min_slice_ticks: int = self.kde_config.min_slice_ticks  # 100
+
         # 状态跟踪
         self.stats = {
             'total_ticks_processed': 0,
@@ -62,7 +68,12 @@ class KDEEngine:
             'lvn_detections': 0,
             'avg_kde_time_ms': 0.0,
             'avg_lvn_extraction_time_ms': 0.0,
-            'last_update_timestamp': 0
+            'last_update_timestamp': 0,
+            # 脉冲波统计
+            'impulse_waves_detected': 0,
+            'kde_in_impulse_wave': 0,
+            'impulse_wave_duration_avg': 0.0,
+            'impulse_wave_price_change_avg': 0.0
         }
 
         # 事件回调
@@ -136,8 +147,40 @@ class KDEEngine:
                 logger.debug(f"数据不足，等待更多Tick: {len(self.tick_buffer)}/{self.kde_config.min_slice_ticks}")
                 return []
 
-            # 提取价格数组
-            prices = np.array([t.px for t in self.tick_buffer[-self.kde_config.min_slice_ticks:]])
+            # 使用脉冲波检测器判断是否为脉冲波
+            completed_wave = self.impulse_wave_detector.process_tick(tick)
+
+            # 检查当前是否处于脉冲波中
+            is_in_impulse_wave = self.impulse_wave_detector.is_in_impulse_wave()
+
+            if not is_in_impulse_wave:
+                logger.debug("非脉冲波阶段，跳过KDE计算")
+                # 清除之前的KDE结果，避免使用过时数据
+                self.grid = None
+                self.densities = None
+                return []
+
+            # 如果有脉冲波结束，记录日志并更新统计
+            if completed_wave:
+                logger.info(f"脉冲波结束: {completed_wave}")
+                # 更新脉冲波统计
+                self.stats['impulse_waves_detected'] += 1
+
+                # 更新平均脉冲波持续时间和价格变化
+                prev_avg_duration = self.stats['impulse_wave_duration_avg']
+                prev_avg_price_change = self.stats['impulse_wave_price_change_avg']
+                n_waves = self.stats['impulse_waves_detected']
+
+                wave_duration = completed_wave.end_time - completed_wave.start_time
+                self.stats['impulse_wave_duration_avg'] = \
+                    (prev_avg_duration * (n_waves - 1) + wave_duration) / n_waves if n_waves > 0 else wave_duration
+
+                self.stats['impulse_wave_price_change_avg'] = \
+                    (prev_avg_price_change * (n_waves - 1) + completed_wave.price_change_pct) / n_waves if n_waves > 0 else completed_wave.price_change_pct
+
+            # 提取最近的价格数组用于KDE计算
+            recent_prices = np.array([t.px for t in self.tick_buffer[-self.min_slice_ticks:]])
+            prices = recent_prices
 
             # 判断是否使用进程池
             if (self.process_pool_manager and
@@ -328,12 +371,15 @@ class KDEEngine:
         self.stats['kde_calculations'] += 1
         self.stats['lvn_detections'] += lvn_count
 
+        # 如果当前处于脉冲波中，更新脉冲波KDE计算统计
+        if self.impulse_wave_detector.is_in_impulse_wave():
+            self.stats['kde_in_impulse_wave'] += 1
+
         # 更新平均时间
         prev_avg_kde = self.stats['avg_kde_time_ms']
         n_kde = self.stats['kde_calculations']
 
         # 指数移动平均
-
         self.stats['avg_kde_time_ms'] = \
             (prev_avg_kde * (n_kde - 1) + processing_time_ms) / n_kde if n_kde > 0 else processing_time_ms
 
