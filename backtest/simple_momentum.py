@@ -4,7 +4,7 @@
 @Author     : Zijun Deng
 @Date       : 3/22/2026 12:24 AM
 @File       : simple_momentum.py
-@Description: 
+@Description:
 """
 import logging
 import os
@@ -21,6 +21,7 @@ import pandas as pd
 from config.loader import GLOBAL_SETTINGS
 from src.data_feed.okx_loader import OKXDataLoader
 from src.utils.log import get_logger
+from src.data_process import create_range_bars_from_ohlc
 
 logger = get_logger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,8 +29,20 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # ==========================================
 # ⚙️ 核心回测时间控制
 # ==========================================
-START_DATE = '2025-12-01'  # 建议先测最近几个月，5分钟数据量很大
+START_DATE = '2025-01-01'  # 建议先测最近几个月，5分钟数据量很大
 END_DATE = '2025-12-31'
+
+# ==========================================
+# ⚙️ Bar类型选择
+# ==========================================
+USE_RANGE_BAR = True  # True: 使用Range Bar, False: 使用时间K线
+
+# Range Bar 配置参数（仅在USE_RANGE_BAR=True时生效）
+RANGE_BAR_CFG = {
+    'tick_range': 150,  # Range Bar 的价格范围，150 ticks = 1.5U
+    'tick_size': 0.01,  # 最小价格变动单位，ETH永续合约
+    'max_bars': None,   # 最大生成的Bar数量，None表示无限制
+}
 
 
 def prepare_strategy_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -188,7 +201,56 @@ if __name__ == "__main__":
     if df.empty:
         logger.error("数据拉取失败！请检查日期范围或网络。")
     else:
+        # 根据配置选择Bar类型
+        if USE_RANGE_BAR:
+            # 使用Range Bar模式
+            logger.info(f"使用Range Bar模式 (tick_range={RANGE_BAR_CFG['tick_range']}, tick_size={RANGE_BAR_CFG['tick_size']})...")
+            range_bar_df = create_range_bars_from_ohlc(
+                df=df,
+                tick_range=RANGE_BAR_CFG['tick_range'],
+                tick_size=RANGE_BAR_CFG['tick_size'],
+                max_bars=RANGE_BAR_CFG['max_bars']
+            )
+
+            # 重命名列以兼容策略（期望的列名：open, high, low, close）
+            # Range Bar生成器返回的列：open_px, high_px, low_px, close_px
+            range_bar_df = range_bar_df.rename(columns={
+                'open_px': 'open',
+                'high_px': 'high',
+                'low_px': 'low',
+                'close_px': 'close'
+            })
+
+            # 添加volume列（总成交量 = 买入成交量 + 卖出成交量）
+            if 'total_buy_vol' in range_bar_df.columns and 'total_sell_vol' in range_bar_df.columns:
+                range_bar_df['volume'] = range_bar_df['total_buy_vol'] + range_bar_df['total_sell_vol']
+            else:
+                range_bar_df['volume'] = 0.0
+
+            # 设置时间索引（使用open_ts转换为datetime）
+            range_bar_df.index = pd.to_datetime(range_bar_df['open_ts'], unit='ns')
+
+            if range_bar_df.empty:
+                logger.error("Range Bar转换结果为空，请检查输入数据或参数配置！")
+                sys.exit(1)
+
+            backtest_df = range_bar_df
+            bar_type = f"RangeBar {RANGE_BAR_CFG['tick_range']}ticks"
+
+            logger.info(f"Range Bar转换完成：{len(backtest_df)} 个Bar")
+            logger.info(f"Bar时间范围：{backtest_df.index[0]} 到 {backtest_df.index[-1]}")
+            if 'tick_count' in backtest_df.columns:
+                avg_ticks = backtest_df['tick_count'].mean()
+                logger.info(f"平均每个Range Bar包含 {avg_ticks:.1f} 根原始K线")
+        else:
+            # 使用时间K线模式
+            logger.info(f"使用时间K线模式 (timeframe=5m)...")
+            backtest_df = df
+            bar_type = "5m"
+            logger.info(f"时间K线数据：{len(backtest_df)} 个Bar")
+            logger.info(f"时间范围：{backtest_df.index[0]} 到 {backtest_df.index[-1]}")
+
         # 处理策略信号
-        df = prepare_strategy_data(df)
+        df = prepare_strategy_data(backtest_df)
         # 执行回测
         run_backtest(df, initial_capital=1000.0, fee_rate=0.0005)
