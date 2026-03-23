@@ -37,7 +37,7 @@ ENGINE_CFG = {
 }
 
 # 3. Bar类型选择
-USE_RANGE_BAR = True  # True: 使用Range Bar, False: 使用时间K线
+USE_RANGE_BAR = False  # True: 使用Range Bar, False: 使用时间K线
 
 # 4. Range Bar 配置参数（仅在USE_RANGE_BAR=True时生效）
 RANGE_BAR_CFG = {
