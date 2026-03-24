@@ -282,7 +282,7 @@ class TripleAStateMachine:
         self.kde_engine = None  # KDEEngine(config)
         self.lvn_manager = None  # LVNManager(config.kde_engine)
         self.cvd_calculator = CVDCalculator(
-            window_sizes=[10, 30, 60, 120, 240]  # 多时间窗口分析
+            window_sizes=[60, 120, 240, 500, 1000]  # 多时间窗口分析，包含1000窗口
         )
         self.range_bar_generator = RangeBarGenerator(config.range_bar)
         self.risk_manager = RiskManager(config.risk_manager)
@@ -708,30 +708,37 @@ class TripleAStateMachine:
         return True
 
     def _detect_cvd_divergence(self) -> bool:
+        """检测CVD背离信号（使用1000窗口）"""
 
-        """检测CVD背离信号"""
+        # 使用长期分析窗口（1000个Tick）
+        window = 1000
 
-        # 使用主要分析窗口（60个Tick）
+        # 检查是否有足够的数据进行可靠检测
+        # 1. 至少需要处理window个tick
+        if self.context.stats['total_ticks_processed'] < window:
+            return False
 
-        window = 60
-
+        # 2. 检查CVD统计信息是否存在
         if window not in self.context.cvd_statistics:
             return False
 
         stats = self.context.cvd_statistics[window]
 
-        # 检查Z-score是否超过阈值
+        # 3. 检查标准差是否足够大（避免初期数据不足导致的虚假信号）
+        std_val = stats.get('std', 0.0)
+        if std_val < 0.1:  # 最小标准差阈值
+            return False
 
+        # 检查Z-score是否超过阈值
         if abs(stats.get('z_score', 0.0)) >= self.cvd_zscore_threshold:
             return True
 
         return False
 
     def _determine_cvd_divergence_direction(self) -> str:
+        """确定CVD背离方向（BULLISH or BEARISH）使用1000窗口"""
 
-        """确定CVD背离方向（BULLISH or BEARISH）"""
-
-        window = 60
+        window = 1000
 
         if window not in self.context.cvd_statistics:
             return "UNKNOWN"
@@ -741,11 +748,8 @@ class TripleAStateMachine:
         z_score = stats.get('z_score', 0.0)
 
         if z_score > 0:
-
             return "BULLISH"
-
         else:
-
             return "BEARISH"
 
     def _is_cvd_divergence_valid(self) -> bool:
