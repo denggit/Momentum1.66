@@ -429,17 +429,6 @@ class TripleAStateMachine:
         # 调试日志：进入CONFIRMED状态处理
         logger.debug(f"[DEBUG] _handle_confirmed_state: 价格={tick.px:.2f}, CVD背离方向={self.context.cvd_divergence_direction}")
 
-        # 检查CVD背离是否仍然有效
-        if not self._is_cvd_divergence_valid():
-            # CVD背离消失，返回IDLE状态
-
-            self.context.update_state(
-                TripleAState.IDLE,
-                "CVD背离消失"
-            )
-            logger.info("🔙 返回IDLE状态: CVD背离消失")
-            return None
-
         # 检测波动率压缩
         vol_compression = self._detect_volatility_compression()
 
@@ -483,18 +472,6 @@ class TripleAStateMachine:
         """
         # 调试日志：进入ACCUMULATING状态处理
         logger.debug(f"[DEBUG] _handle_accumulating_state: 价格={tick.px:.2f}, 波动率压缩有效={self._is_vol_compression_valid()}")
-
-        # 检查波动率压缩是否仍然有效
-        if not self._is_vol_compression_valid():
-            # 压缩失效，返回IDLE状态
-            self.context.update_state(
-
-                TripleAState.IDLE,
-                "波动率压缩失效"
-            )
-            logger.info("🔙 返回IDLE状态: 波动率压缩失效")
-
-            return None
 
         # 检测大单气泡
         large_order = self._detect_large_order_bubble()
@@ -607,16 +584,16 @@ class TripleAStateMachine:
 
     # ==========================================
 
-    def _is_price_in_lvn(self, price: float) -> bool:
-
-        """检查价格是否在活跃的LVN区域内"""
-
+    def _is_price_in_lvn(self, price: float, tolerance_ticks: int = 10) -> bool:
+        """检查价格是否在活跃的LVN区域内（带有插针容差）"""
         if not self.context.active_lvn_region:
             return False
-
+        
         region = self.context.active_lvn_region
-
-        return region['start_price'] <= price <= region['end_price']
+        # 允许上下 10 个 Tick 的插针/扫损空间！
+        tolerance = tolerance_ticks * self.config.market.tick_size
+        
+        return (region['start_price'] - tolerance) <= price <= (region['end_price'] + tolerance)
 
     def _detect_cvd_divergence(self) -> bool:
 
@@ -1190,14 +1167,19 @@ def test_state_machine():
 
     signals = []
 
-    for i, tick in enumerate(test_ticks[:100]):
+    # 需要在 async 函数中运行测试
+    async def run_test():
+        signals = []
+        for i, tick in enumerate(test_ticks[:100]):
+            # ✅ 必须加上 await！
+            signal = await state_machine.process_tick(tick)
+            if signal:
+                signals.append(signal)
+                print(f"  Tick {i}: 触发信号 {signal['action']} - {signal['reason']}")
+        return signals
 
-        signal = state_machine.process_tick(tick)
-
-        if signal:
-            signals.append(signal)
-
-            print(f"  Tick {i}: 触发信号 {signal['action']} - {signal['reason']}")
+    # 运行异步测试
+    signals = asyncio.run(run_test())
 
     print(f"\n处理结果:")
 
