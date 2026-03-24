@@ -107,21 +107,54 @@ class StateContext:
         'aggression_signal_count': 0
     })
 
-    def update_state(self, new_state: TripleAState, event: str):
-        """更新状态并记录历史"""
+    def update_state(self, new_state: TripleAState, event: str, details: Optional[Dict[str, Any]] = None):
+        """更新状态并记录历史
+
+        Args:
+            new_state: 新状态
+            event: 事件描述
+            details: 详细数据字典，包含触发条件的具体数值
+        """
         old_state = self.current_state
         self.current_state = new_state
         self.state_enter_time = time.time()
 
-        # 记录状态转换历史
-        log_msg = f"{old_state} → {new_state} [{event}]"
-        logger.debug(f"状态转换: {log_msg}")
+        # 状态emoji映射
+        state_emojis = {
+            TripleAState.IDLE: "🛌",
+            TripleAState.MONITORING: "🔍",
+            TripleAState.CONFIRMED: "✅",
+            TripleAState.ACCUMULATING: "📊",
+            TripleAState.POSITION: "💰"
+        }
 
-        # 保存历史记录
+        # 构建详细日志消息
+        old_emoji = state_emojis.get(old_state, "❓")
+        new_emoji = state_emojis.get(new_state, "❓")
+
+        # 基础日志
+        log_msg = f"{old_emoji}{old_state.value} → {new_emoji}{new_state.value} [{event}]"
+
+        # 如果有详细信息，添加到日志
+        if details:
+            details_str = " | ".join([f"{k}:{v}" if not isinstance(v, float) else f"{k}:{v:.4f}"
+                                     for k, v in details.items()])
+            log_msg = f"{log_msg} | {details_str}"
+
+        logger.info(f"状态转换: {log_msg}")
+
+        # 保存历史记录（包含详细信息）
+        history_event = event
+        if details:
+            # 将details转换为字符串以便存储
+            details_summary = " ".join([f"{k[:3]}:{v:.2f}" if isinstance(v, (int, float)) else f"{k[:3]}:{v}"
+                                       for k, v in details.items()])
+            history_event = f"{event} ({details_summary})"
+
         self.state_history.append((
             new_state,
             self.state_enter_time,
-            event
+            history_event
         ))
         self.stats['state_transitions'] += 1
 
@@ -131,6 +164,26 @@ class StateContext:
 
     def record_event(self, event: StateTransitionEvent, details: Dict[str, Any]):
         """记录事件"""
+        # 事件emoji映射
+        event_emojis = {
+            StateTransitionEvent.ENTER_LVN: "📥",
+            StateTransitionEvent.EXIT_LVN: "📤",
+            StateTransitionEvent.CVD_DIVERGENCE: "📊",
+            StateTransitionEvent.VOL_COMPRESSION: "📉",
+            StateTransitionEvent.HIGH_TICK_DENSITY: "🐌",
+            StateTransitionEvent.AGGRESSION_SIGNAL: "⚡"
+        }
+
+        # 构建详细事件日志
+        event_emoji = event_emojis.get(event, "📌")
+        event_summary = " ".join([f"{k[:4]}:{v:.2f}" if isinstance(v, (int, float)) else f"{k[:4]}:{v}"
+                                  for k, v in details.items()])
+
+        event_log_msg = f"{event_emoji}{event.value} | {event_summary}"
+
+        logger.info(f"事件记录: {event_log_msg}")
+
+        # 保存到历史
         self.event_history.append((
             event,
             time.time(),
@@ -169,8 +222,9 @@ class TripleAStateMachine:
         self.config = config
 
         # 核心组件初始化
-        self.kde_engine = KDEEngine(config)
-        self.lvn_manager = LVNManager(config.kde_engine)
+        # 注释掉KDE和LVN，暂时不运行
+        self.kde_engine = None  # KDEEngine(config)
+        self.lvn_manager = None  # LVNManager(config.kde_engine)
         self.cvd_calculator = CVDCalculator(
             window_sizes=[10, 30, 60, 120, 240]  # 多时间窗口分析
         )
@@ -253,17 +307,18 @@ class TripleAStateMachine:
             self.context.cvd_statistics = self.cvd_calculator.get_statistics()
 
             # 处理KDE计算（完全异步，不阻塞事件循环）
-            try:
-                # 直接await KDE引擎的异步方法，避免使用run_coroutine_threadsafe+future.result()的阻塞模式
-                lvn_regions = await self.kde_engine.process_tick(tick)
-
-                # 获取最新的网格和密度
-                grid, densities = self.kde_engine.get_latest_kde_grid()
-                if grid is not None and densities is not None:
-                    # 处理KDE结果，更新LVN区域
-                    self.lvn_manager.process_kde_result(grid, densities)
-            except Exception as e:
-                logger.warning(f"KDE处理失败: {e}", exc_info=True)
+            # 注释掉KDE处理，暂时不运行
+            # try:
+            #     # 直接await KDE引擎的异步方法，避免使用run_coroutine_threadsafe+future_result()的阻塞模式
+            #     lvn_regions = await self.kde_engine.process_tick(tick)
+            #
+            #     # 获取最新的网格和密度
+            #     grid, densities = self.kde_engine.get_latest_kde_grid()
+            #     if grid is not None and densities is not None:
+            #         # 处理KDE结果，更新LVN区域
+            #         self.lvn_manager.process_kde_result(grid, densities)
+            # except Exception as e:
+            #     logger.warning(f"KDE处理失败: {e}", exc_info=True)
 
             # 根据当前状态执行不同逻辑
             signal = None
@@ -303,63 +358,47 @@ class TripleAStateMachine:
         """
         处理IDLE状态
 
-        逻辑：检测价格是否进入LVN区域
+        逻辑：检测吸收信号（CVD背离）
         """
-        # 获取最近的LVN簇
-        closest_cluster = self.lvn_manager.find_closest_cluster(
-            tick.px,
-            max_distance=self.max_lvn_distance
-        )
+        # 检测CVD背离作为吸收信号
+        cvd_divergence_detected = self._detect_cvd_divergence()
 
-        # 调试日志：LVN簇查找结果
-        if closest_cluster:
-            logger.debug(f"[DEBUG] 找到LVN簇: ID={closest_cluster.cluster_id}, 活跃={closest_cluster.is_active}, "
-                        f"价格范围=[{closest_cluster.merged_start_price:.2f}, {closest_cluster.merged_end_price:.2f}], "
-                        f"置信度={closest_cluster.confidence:.2f}, 距离={abs(tick.px - closest_cluster.merged_min_price):.2f}")
-        else:
-            logger.debug(f"[DEBUG] 未找到LVN簇 (价格={tick.px:.2f}, 最大距离={self.max_lvn_distance})")
+        if cvd_divergence_detected:
+            # 确定背离方向
+            direction = self._determine_cvd_divergence_direction()
 
-        if closest_cluster and closest_cluster.is_active:
-            # 检查价格是否进入LVN区域
-            price_in_range = closest_cluster.merged_start_price <= tick.px <= closest_cluster.merged_end_price
-            confidence_ok = closest_cluster.confidence >= self.lvn_confidence_threshold
+            # 获取具体的Z-score值
+            window = 60
+            z_score = 0.0
+            if window in self.context.cvd_statistics:
+                z_score = self.context.cvd_statistics[window].get('z_score', 0.0)
 
-            logger.debug(f"[DEBUG] LVN检查: 价格在范围内={price_in_range} ({tick.px:.2f} in [{closest_cluster.merged_start_price:.2f}, {closest_cluster.merged_end_price:.2f}]), "
-                        f"置信度达标={confidence_ok} ({closest_cluster.confidence:.2f} >= {self.lvn_confidence_threshold})")
+            # 构建详细数据
+            details = {
+                '价格': tick.px,
+                'CVD_Z-score': z_score,
+                '阈值': self.cvd_zscore_threshold,
+                '方向': direction,
+                '检测窗口': window
+            }
 
-            if price_in_range and confidence_ok:
-                # 记录LVN区域信息
-                self.context.active_lvn_region = {
-                    'cluster_id': closest_cluster.cluster_id,
-                    'start_price': closest_cluster.merged_start_price,
-                    'end_price': closest_cluster.merged_end_price,
-                    'center_price': closest_cluster.merged_min_price,
-                    'width': closest_cluster.merged_end_price - closest_cluster.merged_start_price,
-                    'confidence': closest_cluster.confidence
+            # 记录事件
+            self.context.record_event(
+                StateTransitionEvent.CVD_DIVERGENCE,
+                {
+                    'direction': direction,
+                    'current_price': tick.px,
+                    'cvd_values': self.context.current_cvd_values,
+                    'statistics': self.context.cvd_statistics
                 }
-                self.context.entered_lvn_time = time.time()
-                self.context.lvn_center_price = closest_cluster.merged_min_price
-                self.context.lvn_width = (closest_cluster.merged_end_price - closest_cluster.merged_start_price)
+            )
 
-                # 触发状态转换
-                self.context.update_state(
-                    TripleAState.MONITORING,
-                    "价格进入LVN区域"
-                )
-
-                # 记录事件
-                self.context.record_event(
-                    StateTransitionEvent.ENTER_LVN,
-                    {
-                        'price': tick.px,
-                        'lvn_center': closest_cluster.merged_min_price,
-                        'lvn_width': self.context.lvn_width,
-                        'confidence': closest_cluster.confidence
-                    }
-                )
-
-                logger.info(
-                    f"🚀 进入MONITORING状态: 价格{tick.px:.2f}进入LVN区域，置信度{closest_cluster.confidence:.2f}")
+            # 触发状态转换（传递详细数据）
+            self.context.update_state(
+                TripleAState.MONITORING,
+                f"检测到CVD背离 ({direction})",
+                details=details
+            )
 
         return None
 
@@ -374,16 +413,15 @@ class TripleAStateMachine:
         # 调试日志：进入MONITORING状态处理
         logger.debug(f"[DEBUG] _handle_monitoring_state: 价格={tick.px:.2f}, LVN区域={self.context.active_lvn_region}")
 
-        # 检查LVN区域是否仍然有效
-        if not self._is_price_in_lvn(tick.px):
-            # 价格离开LVN区域，返回IDLE状态
-            self.context.update_state(
-                TripleAState.IDLE,
-                "价格离开LVN区域"
-
-            )
-            logger.info("🔙 返回IDLE状态: 价格离开LVN区域")
-            return None
+        # 检查LVN区域是否仍然有效（暂时禁用LVN检查）
+        # if not self._is_price_in_lvn(tick.px):
+        #     # 价格离开LVN区域，返回IDLE状态
+        #     self.context.update_state(
+        #         TripleAState.IDLE,
+        #         "价格离开LVN区域"
+        #     )
+        #     logger.info("🔙 返回IDLE状态: 价格离开LVN区域")
+        #     return None
 
         # 检测CVD背离信号
         cvd_divergence_detected = self._detect_cvd_divergence()
@@ -396,10 +434,26 @@ class TripleAStateMachine:
             direction = self._determine_cvd_divergence_direction()
             self.context.cvd_divergence_direction = direction
 
-            # 转换到CONFIRMED状态
+            # 获取具体的Z-score值
+            window = 60
+            z_score = 0.0
+            if window in self.context.cvd_statistics:
+                z_score = self.context.cvd_statistics[window].get('z_score', 0.0)
+
+            # 构建详细数据
+            details = {
+                '价格': tick.px,
+                'CVD_Z-score': z_score,
+                '阈值': self.cvd_zscore_threshold,
+                '方向': direction,
+                '检测窗口': window
+            }
+
+            # 转换到CONFIRMED状态（传递详细数据）
             self.context.update_state(
                 TripleAState.CONFIRMED,
-                f"检测到CVD背离 ({direction})"
+                f"检测到CVD背离 ({direction})",
+                details=details
             )
 
             # 记录事件
@@ -412,8 +466,6 @@ class TripleAStateMachine:
                     'statistics': self.context.cvd_statistics
                 }
             )
-
-            logger.info(f"🎯 进入CONFIRMED状态: 检测到CVD {direction}背离")
 
         return None
 
@@ -438,11 +490,28 @@ class TripleAStateMachine:
         logger.debug(f"[DEBUG] 波动率压缩检测: {vol_compression}, Tick密度检测: {high_density}")
 
         if vol_compression and high_density:
-            # 进入ACCUMULATING状态
-            self.context.update_state(
+            # 计算持续时间
+            duration = 0.0
+            if self.context.compression_start_time:
+                duration = time.time() - self.context.compression_start_time
 
+            # 构建详细数据
+            details = {
+                '价格': tick.px,
+                '价格范围_ticks': self.context.price_range_ticks,
+                '压缩阈值': self.vol_compression_threshold,
+                'Tick密度': self.context.ticks_per_second,
+                '最小Tick数': self.min_tick_density,
+                '压缩持续时间': duration,
+                '最小持续时间': self.min_compression_duration,
+                'CVD方向': self.context.cvd_divergence_direction
+            }
+
+            # 进入ACCUMULATING状态（传递详细数据）
+            self.context.update_state(
                 TripleAState.ACCUMULATING,
-                "波动率压缩 + 高Tick密度"
+                "波动率压缩 + 高Tick密度",
+                details=details
             )
 
             # 记录事件
@@ -450,14 +519,10 @@ class TripleAStateMachine:
                 StateTransitionEvent.VOL_COMPRESSION,
                 {
                     'price_range_ticks': self.context.price_range_ticks,
-                    'compression_duration': time.time() - self.context.compression_start_time,
+                    'compression_duration': duration,
                     'tick_density': self.context.ticks_per_second
-
                 }
             )
-
-            logger.info(
-                f"📊 进入ACCUMULATING状态: 波动率压缩({self.context.price_range_ticks:.1f} ticks) + 高Tick密度({self.context.ticks_per_second:.1f}/s)")
 
         return None
 
@@ -488,17 +553,36 @@ class TripleAStateMachine:
             # 检查是否被风控拦截
             if signal is None:
                 # 风控拦截，返回IDLE状态
+                details = {
+                    '价格': tick.px,
+                    '原因': '风控拦截：交易被拒绝',
+                    '大单检测': large_order,
+                    '足迹失衡检测': footprint_imbalance,
+                    '波动率压缩有效': self._is_vol_compression_valid()
+                }
                 self.context.update_state(
                     TripleAState.IDLE,
-                    "风控拦截：交易被拒绝"
+                    "风控拦截：交易被拒绝",
+                    details=details
                 )
-                logger.info("🔙 返回IDLE状态: 交易被风控拦截")
                 return None
 
             # 进入POSITION状态
+            details = {
+                '入场价格': self.context.entry_price,
+                '止损价格': self.context.stop_loss_price,
+                '止盈价格': self.context.take_profit_price,
+                '方向': self.context.trade_direction,
+                '合约数量': self.context.position_quantity,
+                '保本价格': self.context.breakeven_price,
+                '当前价格': tick.px,
+                '大单检测': large_order,
+                '足迹失衡检测': footprint_imbalance
+            }
             self.context.update_state(
                 TripleAState.POSITION,
-                f"攻击信号触发 ({self.context.trade_direction})"
+                f"攻击信号触发 ({self.context.trade_direction})",
+                details=details
             )
 
             # 记录事件
@@ -509,11 +593,8 @@ class TripleAStateMachine:
                     'entry_price': self.context.entry_price,
                     'stop_loss': self.context.stop_loss_price,
                     'take_profit': self.context.take_profit_price
-
                 }
             )
-
-            logger.info(f"⚡ 进入POSITION状态: {self.context.trade_direction}仓位开立")
 
             return signal
 
@@ -561,16 +642,23 @@ class TripleAStateMachine:
 
         if signal:
             # 返回IDLE状态
+            details = {
+                '当前价格': tick.px,
+                '触发原因': signal['reason'],
+                '止损价格': self.context.stop_loss_price,
+                '止盈价格': self.context.take_profit_price,
+                '入场价格': self.context.entry_price,
+                '方向': self.context.trade_direction,
+                '仓位状态': '已平仓'
+            }
 
             self.context.update_state(
                 TripleAState.IDLE,
-
-                f"仓位平仓: {signal['reason']}"
+                f"仓位平仓: {signal['reason']}",
+                details=details
             )
-            logger.info(f"🏁 返回IDLE状态: {signal['reason']}")
 
             # 重置交易相关上下文
-
             self.context.trade_direction = None
             self.context.entry_price = 0.0
             self.context.stop_loss_price = 0.0
@@ -585,15 +673,9 @@ class TripleAStateMachine:
     # ==========================================
 
     def _is_price_in_lvn(self, price: float, tolerance_ticks: int = 10) -> bool:
-        """检查价格是否在活跃的LVN区域内（带有插针容差）"""
-        if not self.context.active_lvn_region:
-            return False
-        
-        region = self.context.active_lvn_region
-        # 允许上下 10 个 Tick 的插针/扫损空间！
-        tolerance = tolerance_ticks * self.config.market.tick_size
-        
-        return (region['start_price'] - tolerance) <= price <= (region['end_price'] + tolerance)
+        """检查价格是否在活跃的LVN区域内（暂时禁用LVN，始终返回True）"""
+        # 暂时禁用LVN检查，始终返回True
+        return True
 
     def _detect_cvd_divergence(self) -> bool:
 
@@ -1047,16 +1129,18 @@ class TripleAStateMachine:
 
             if state_duration > timeout:
                 # 状态超时，返回IDLE
+                details = {
+                    '超时状态': current_state.value,
+                    '持续时间': state_duration,
+                    '超时阈值': timeout,
+                    '超时原因': '状态停留时间超过阈值'
+                }
 
                 self.context.update_state(
-
                     TripleAState.IDLE,
-
-                    f"状态超时 ({current_state})"
-
+                    f"状态超时 ({current_state})",
+                    details=details
                 )
-
-                logger.info(f"⏰ 状态超时，返回IDLE: {current_state} 持续{state_duration:.0f}秒")
 
     def get_current_state(self) -> TripleAState:
 
@@ -1098,7 +1182,7 @@ class TripleAStateMachine:
 
         # 重置核心组件
 
-        self.lvn_manager.reset()
+        # self.lvn_manager.reset()  # 暂时禁用LVN
 
         self.cvd_calculator.reset()
 

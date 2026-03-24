@@ -285,21 +285,23 @@ class TripleASignalGenerator:
             stats['range_bar_generator'] = {'error': str(e)}
 
         # 尝试获取KDE引擎统计（如果存在）
-        try:
-            if hasattr(self.state_machine, 'kde_engine'):
-                kde_stats = self.state_machine.kde_engine.get_stats()
-                stats['kde_engine'] = kde_stats
-        except Exception as e:
-            # KDE引擎可能不存在，这是正常的
-            pass
+        # 注释掉，因为KDE引擎已禁用
+        # try:
+        #     if hasattr(self.state_machine, 'kde_engine'):
+        #         kde_stats = self.state_machine.kde_engine.get_stats()
+        #         stats['kde_engine'] = kde_stats
+        # except Exception as e:
+        #     # KDE引擎可能不存在，这是正常的
+        #     pass
 
         # 尝试获取LVN管理器统计
-        try:
-            if hasattr(self.state_machine, 'lvn_manager'):
-                lvn_stats = self.state_machine.lvn_manager.get_stats()
-                stats['lvn_manager'] = lvn_stats
-        except Exception as e:
-            # 可能没有get_stats方法，这是正常的
-            pass
+        # 注释掉，因为LVN管理器已禁用
+        # try:
+        #     if hasattr(self.state_machine, 'lvn_manager'):
+        #         lvn_stats = self.state_machine.lvn_manager.get_stats()
+        #         stats['lvn_manager'] = lvn_stats
+        # except Exception as e:
+        #     # 可能没有get_stats方法，这是正常的
+        #     pass
 
         return stats
