@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-四号引擎v3.0 状态机（5状态模型）
+四号引擎v3.0 状态机（5状态模型 - LVN禁用简化版）
 实现IDLE→MONITORING→CONFIRMED→ACCUMULATING→POSITION状态转换
-集成LVN检测、CVD分析、波动率压缩检测等核心算法
+集成CVD分析、波动率压缩检测等核心算法（LVN检测暂时禁用）
 专为实时交易决策优化，毫秒级延迟
 """
 
@@ -30,9 +30,9 @@ logger = get_logger(__name__)
 
 
 class TripleAState(Enum):
-    """四号引擎5状态模型"""
-    IDLE = "IDLE"  # 空闲状态，等待价格进入LVN
-    MONITORING = "MONITORING"  # 监控状态，价格在LVN内，等待CVD背离
+    """四号引擎5状态模型（LVN禁用简化版）"""
+    IDLE = "IDLE"  # 空闲状态，直接进入监控模式
+    MONITORING = "MONITORING"  # 监控状态，等待CVD背离信号
     CONFIRMED = "CONFIRMED"  # 确认状态，CVD背离出现，等待积累信号
     ACCUMULATING = "ACCUMULATING"  # 积累状态，波动率压缩，等待攻击信号
     POSITION = "POSITION"  # 持仓状态，已开仓，等待止损/止盈
@@ -54,6 +54,10 @@ class StateContext:
 
     # 当前状态
     current_state: TripleAState = TripleAState.IDLE
+
+    # 防止重复日志的字段
+    last_state_transition: Optional[Tuple[TripleAState, TripleAState, float]] = None  # (from, to, timestamp)
+    last_state_log_time: float = 0.0
 
     # 活跃的LVN区域信息
     active_lvn_region: Optional[Dict[str, Any]] = None
@@ -116,8 +120,28 @@ class StateContext:
             details: 详细数据字典，包含触发条件的具体数值
         """
         old_state = self.current_state
+
+        # 如果状态没有变化，不记录日志（防止重复）
+        if old_state == new_state:
+            return
+
+        current_time = time.time()
+
+        # 检查是否与最近一次状态转换相同（在1秒内）
+        if self.last_state_transition:
+            last_from, last_to, last_time = self.last_state_transition
+            if (old_state == last_from and new_state == last_to and
+                current_time - last_time < 1.0):
+                # 相同状态转换在1秒内重复，跳过日志
+                self.current_state = new_state
+                return
+
         self.current_state = new_state
-        self.state_enter_time = time.time()
+        self.state_enter_time = current_time
+
+        # 保存本次状态转换
+        self.last_state_transition = (old_state, new_state, current_time)
+        self.last_state_log_time = current_time
 
         # 状态emoji映射
         state_emojis = {
@@ -128,20 +152,33 @@ class StateContext:
             TripleAState.POSITION: "💰"
         }
 
-        # 构建详细日志消息
+        # 构建简洁日志消息
         old_emoji = state_emojis.get(old_state, "❓")
         new_emoji = state_emojis.get(new_state, "❓")
 
-        # 基础日志
+        # 基础日志（只显示状态转换和事件）
         log_msg = f"{old_emoji}{old_state.value} → {new_emoji}{new_state.value} [{event}]"
 
-        # 如果有详细信息，添加到日志
+        # 只添加最重要的详细信息
         if details:
-            details_str = " | ".join([f"{k}:{v}" if not isinstance(v, float) else f"{k}:{v:.4f}"
-                                     for k, v in details.items()])
-            log_msg = f"{log_msg} | {details_str}"
+            # 根据状态类型选择关键信息
+            if new_state == TripleAState.MONITORING or new_state == TripleAState.CONFIRMED:
+                # CVD背离相关：只显示价格和Z-score
+                if '价格' in details and 'CVD_Z-score' in details:
+                    log_msg = f"{log_msg} | 价格:{details['价格']:.2f} | Z:{details['CVD_Z-score']:.2f}"
+            elif new_state == TripleAState.ACCUMULATING:
+                # 积累阶段：显示价格范围和Tick密度
+                if '价格范围_ticks' in details and 'Tick密度' in details:
+                    log_msg = f"{log_msg} | 范围:{details['价格范围_ticks']:.1f}ticks | 密度:{details['Tick密度']:.0f}/s"
+            elif new_state == TripleAState.POSITION:
+                # 持仓阶段：显示关键价格
+                if '入场价格' in details and '止损价格' in details and '止盈价格' in details:
+                    log_msg = f"{log_msg} | 入场:{details['入场价格']:.2f} | 止损:{details['止损价格']:.2f} | 止盈:{details['止盈价格']:.2f}"
+            elif new_state == TripleAState.IDLE and '超时状态' in details:
+                # 超时返回：显示超时信息
+                log_msg = f"{log_msg} | 超时:{details['持续时间']:.1f}s"
 
-        logger.info(f"状态转换: {log_msg}")
+        logger.info(f"{log_msg}")
 
         # 保存历史记录（包含详细信息）
         history_event = event
@@ -163,7 +200,7 @@ class StateContext:
             self.state_history = self.state_history[-500:]
 
     def record_event(self, event: StateTransitionEvent, details: Dict[str, Any]):
-        """记录事件"""
+        """记录事件（简化日志）"""
         # 事件emoji映射
         event_emojis = {
             StateTransitionEvent.ENTER_LVN: "📥",
@@ -174,16 +211,35 @@ class StateContext:
             StateTransitionEvent.AGGRESSION_SIGNAL: "⚡"
         }
 
-        # 构建详细事件日志
+        # 根据事件类型构建简洁日志
         event_emoji = event_emojis.get(event, "📌")
-        event_summary = " ".join([f"{k[:4]}:{v:.2f}" if isinstance(v, (int, float)) else f"{k[:4]}:{v}"
-                                  for k, v in details.items()])
 
-        event_log_msg = f"{event_emoji}{event.value} | {event_summary}"
+        # 只显示最关键信息
+        if event == StateTransitionEvent.CVD_DIVERGENCE:
+            # CVD背离：只显示方向和当前价格
+            direction = details.get('direction', 'UNKNOWN')
+            current_price = details.get('current_price', 0.0)
+            event_summary = f"方向:{direction} | 价格:{current_price:.2f}"
+        elif event == StateTransitionEvent.VOL_COMPRESSION:
+            # 波动率压缩：显示价格范围和持续时间
+            price_range = details.get('price_range_ticks', 0.0)
+            duration = details.get('compression_duration', 0.0)
+            event_summary = f"范围:{price_range:.1f}ticks | 持续:{duration:.1f}s"
+        elif event == StateTransitionEvent.AGGRESSION_SIGNAL:
+            # 攻击信号：显示交易方向和入场价格
+            trade_direction = details.get('trade_direction', 'UNKNOWN')
+            entry_price = details.get('entry_price', 0.0)
+            event_summary = f"方向:{trade_direction} | 入场:{entry_price:.2f}"
+        else:
+            # 其他事件：只显示简要信息
+            event_summary = event.value
 
-        logger.info(f"事件记录: {event_log_msg}")
+        event_log_msg = f"{event_emoji}{event_summary}"
 
-        # 保存到历史
+        # 使用调试级别记录事件，减少日志数量
+        logger.debug(f"{event_log_msg}")
+
+        # 保存到历史（完整细节）
         self.event_history.append((
             event,
             time.time(),
@@ -200,16 +256,16 @@ class TripleAStateMachine:
     """
     四号引擎状态机（5状态模型）
 
-    状态转换逻辑：
-    1. IDLE -> MONITORING: 价格进入LVN区域
+    状态转换逻辑（LVN禁用简化版）：
+    1. IDLE -> MONITORING: 直接进入监控模式（跳过LVN检测）
     2. MONITORING -> CONFIRMED: 出现CVD背离信号
     3. CONFIRMED -> ACCUMULATING: 波动率压缩 + 高Tick密度
     4. ACCUMULATING -> POSITION: 大单气泡 + 足迹失衡
 
     额外转换：
-    - MONITORING -> IDLE: 价格离开LVN（超时）
-    - CONFIRMED -> IDLE: CVD背离消失或超时
-    - ACCUMULATING -> IDLE: 波动率压缩失败或超时
+    - MONITORING -> IDLE: 监控超时（120秒）
+    - CONFIRMED -> IDLE: CVD背离消失或超时（300秒）
+    - ACCUMULATING -> IDLE: 波动率压缩失败或超时（120秒）
     """
 
     def __init__(self, config: TripleAEngineConfig):
@@ -356,62 +412,36 @@ class TripleAStateMachine:
 
     def _handle_idle_state(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
         """
-        处理IDLE状态
+        处理IDLE状态（简化版）
 
-        逻辑：检测吸收信号（CVD背离）
+        逻辑：由于LVN检测被禁用，IDLE状态直接进入MONITORING状态
+              保持5状态架构不变，但跳过价格进入LVN的条件
         """
-        # 检测CVD背离作为吸收信号
-        cvd_divergence_detected = self._detect_cvd_divergence()
+        # 直接进入MONITORING状态
+        details = {
+            '价格': tick.px,
+            '说明': '跳过LVN检测，直接进入监控模式'
+        }
 
-        if cvd_divergence_detected:
-            # 确定背离方向
-            direction = self._determine_cvd_divergence_direction()
-
-            # 获取具体的Z-score值
-            window = 60
-            z_score = 0.0
-            if window in self.context.cvd_statistics:
-                z_score = self.context.cvd_statistics[window].get('z_score', 0.0)
-
-            # 构建详细数据
-            details = {
-                '价格': tick.px,
-                'CVD_Z-score': z_score,
-                '阈值': self.cvd_zscore_threshold,
-                '方向': direction,
-                '检测窗口': window
-            }
-
-            # 记录事件
-            self.context.record_event(
-                StateTransitionEvent.CVD_DIVERGENCE,
-                {
-                    'direction': direction,
-                    'current_price': tick.px,
-                    'cvd_values': self.context.current_cvd_values,
-                    'statistics': self.context.cvd_statistics
-                }
-            )
-
-            # 触发状态转换（传递详细数据）
-            self.context.update_state(
-                TripleAState.MONITORING,
-                f"检测到CVD背离 ({direction})",
-                details=details
-            )
+        # 转换到MONITORING状态
+        self.context.update_state(
+            TripleAState.MONITORING,
+            "进入监控模式（跳过LVN检测）",
+            details=details
+        )
 
         return None
 
     def _handle_monitoring_state(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
         """
-        处理MONITORING状态
+        处理MONITORING状态（简化版）
 
         逻辑：
-        1. 检查价格是否离开LVN区域（超时则返回IDLE）
-        2. 检测CVD背离信号
+        1. 检测CVD背离信号
+        2. 检测到背离则进入CONFIRMED状态
         """
-        # 调试日志：进入MONITORING状态处理
-        logger.debug(f"[DEBUG] _handle_monitoring_state: 价格={tick.px:.2f}, LVN区域={self.context.active_lvn_region}")
+        # 调试日志：进入MONITORING状态处理（LVN检测已禁用）
+        logger.debug(f"[DEBUG] _handle_monitoring_state: 价格={tick.px:.2f}")
 
         # 检查LVN区域是否仍然有效（暂时禁用LVN检查）
         # if not self._is_price_in_lvn(tick.px):

@@ -70,7 +70,7 @@ def setup_logging(log_level=None, log_dir='logs'):
 
     # 日志格式
     formatter = logging.Formatter(
-        fmt='%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+        fmt='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
