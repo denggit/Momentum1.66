@@ -71,6 +71,8 @@ class StateContext:
     cvd_statistics: Dict[int, Dict[str, float]] = field(default_factory=dict)  # {窗口大小: {统计指标}}
     cvd_divergence_detected: bool = False
     cvd_divergence_direction: Optional[str] = None  # "BULLISH" or "BEARISH"
+    absorption_score: float = 0.0
+    absorption_metrics: Dict[str, float] = field(default_factory=dict)
 
     # 波动率压缩检测
     volatility_compression_detected: bool = False
@@ -310,6 +312,14 @@ class TripleAStateMachine:
         # CVD背离检测参数
         self.cvd_divergence_window = 60  # CVD背离分析窗口（Tick数）
         self.cvd_zscore_threshold = 2.0  # CVD Z-score阈值
+        self.absorption_window_seconds = 5.0
+        self.absorption_min_ticks = 150
+        self.absorption_subwindow_seconds = 1.0
+        self.absorption_dominance_threshold = 0.65
+        self.absorption_score_threshold = 70.0
+        self.absorption_jump_outlier_ticks = 8.0
+        self.absorption_cooldown_seconds = 4.0
+        self.last_absorption_trigger_ts = 0.0
 
         # 波动率压缩参数
         self.vol_compression_threshold = 3.0  # 压缩阈值（Tick数）
@@ -328,6 +338,7 @@ class TripleAStateMachine:
         self.price_buffer = deque(maxlen=1000)
         self.tick_time_buffer = deque(maxlen=1000)
         self.order_size_buffer = deque(maxlen=1000)
+        self.tick_side_buffer = deque(maxlen=1000)
 
         # 性能监控
         self.processing_times = deque(maxlen=100)
@@ -453,36 +464,31 @@ class TripleAStateMachine:
         #     logger.info("🔙 返回IDLE状态: 价格离开LVN区域")
         #     return None
 
-        # 检测CVD背离信号
-        cvd_divergence_detected = self._detect_cvd_divergence()
-        logger.debug(f"[DEBUG] CVD背离检测结果: {cvd_divergence_detected}")
+        # 检测A1微结构吸收信号（替代CVD异常触发）
+        absorption_detected, direction, absorption_metrics = self._detect_microstructure_absorption()
+        logger.debug(f"[DEBUG] 微结构吸收检测结果: {absorption_detected}, 方向={direction}, 指标={absorption_metrics}")
 
-        if cvd_divergence_detected:
+        if absorption_detected:
             self.context.cvd_divergence_detected = True
+            self.context.absorption_metrics = absorption_metrics
 
-            # 确定背离方向
-            direction = self._determine_cvd_divergence_direction()
+            # 吸收方向直接映射为BULLISH/BEARISH，兼容后续状态机逻辑
             self.context.cvd_divergence_direction = direction
+            self.context.absorption_score = absorption_metrics.get('score', 0.0)
 
-            # 获取具体的Z-score值
-            window = 60
-            z_score = 0.0
-            if window in self.context.cvd_statistics:
-                z_score = self.context.cvd_statistics[window].get('z_score', 0.0)
-
-            # 构建详细数据
             details = {
                 '价格': tick.px,
-                'CVD_Z-score': z_score,
-                '阈值': self.cvd_zscore_threshold,
+                '吸收评分': self.context.absorption_score,
                 '方向': direction,
-                '检测窗口': window
+                '净主动量': absorption_metrics.get('net_aggressive_volume', 0.0),
+                '位移_ticks': absorption_metrics.get('displacement_ticks', 0.0),
+                '吸收效率': absorption_metrics.get('absorption_efficiency', 0.0)
             }
 
             # 转换到CONFIRMED状态（传递详细数据）
             self.context.update_state(
                 TripleAState.CONFIRMED,
-                f"检测到CVD背离 ({direction})",
+                f"检测到微结构吸收 ({direction})",
                 details=details
             )
 
@@ -492,6 +498,8 @@ class TripleAStateMachine:
                 {
                     'direction': direction,
                     'current_price': tick.px,
+                    'score': self.context.absorption_score,
+                    'metrics': absorption_metrics,
                     'cvd_values': self.context.current_cvd_values,
                     'statistics': self.context.cvd_statistics
                 }
@@ -758,7 +766,187 @@ class TripleAStateMachine:
 
         # 简单实现：检查是否仍然检测到背离
 
-        return self._detect_cvd_divergence()
+        absorption_detected, _, _ = self._detect_microstructure_absorption()
+        return absorption_detected
+
+    def _detect_microstructure_absorption(self) -> Tuple[bool, str, Dict[str, float]]:
+        """检测A1微结构吸收信号（主动量主导 + 价格打不动 + 持续性）"""
+        now = time.time()
+        if now - self.last_absorption_trigger_ts < self.absorption_cooldown_seconds:
+            return False, "UNKNOWN", {'cooldown_remaining': self.absorption_cooldown_seconds - (now - self.last_absorption_trigger_ts)}
+
+        if len(self.tick_time_buffer) < self.absorption_min_ticks:
+            return False, "UNKNOWN", {}
+
+        times = np.array(self.tick_time_buffer, dtype=float)
+        prices = np.array(self.price_buffer, dtype=float)
+        sizes = np.array(self.order_size_buffer, dtype=float)
+        sides = np.array(self.tick_side_buffer, dtype=float)
+
+        cutoff = now - self.absorption_window_seconds
+        mask = times >= cutoff
+        if mask.sum() < self.absorption_min_ticks:
+            return False, "UNKNOWN", {}
+
+        w_times = times[mask]
+        w_prices = prices[mask]
+        w_sizes = sizes[mask]
+        w_sides = sides[mask]
+
+        buy_volume = float(np.sum(w_sizes[w_sides > 0]))
+        sell_volume = float(np.sum(w_sizes[w_sides < 0]))
+        total_volume = buy_volume + sell_volume
+        if total_volume <= 0:
+            return False, "UNKNOWN", {}
+
+        net_aggressive_volume = buy_volume - sell_volume
+        buy_ratio = buy_volume / total_volume
+        sell_ratio = sell_volume / total_volume
+
+        if sell_ratio >= self.absorption_dominance_threshold:
+            dominant_side = -1
+            dominance_ratio = sell_ratio
+        elif buy_ratio >= self.absorption_dominance_threshold:
+            dominant_side = 1
+            dominance_ratio = buy_ratio
+        else:
+            return False, "UNKNOWN", {
+                'buy_ratio': buy_ratio,
+                'sell_ratio': sell_ratio
+            }
+
+        start_price, end_price = self._compute_robust_window_prices(w_prices)
+        tick_size = max(self.config.market.tick_size, 1e-8)
+        signed_displacement_ticks = (end_price - start_price) / tick_size
+        displacement_ticks = abs(signed_displacement_ticks)
+
+        nav_abs = abs(net_aggressive_volume)
+        absorption_efficiency = nav_abs / max(displacement_ticks, 1.0)
+        nav_threshold, ae_threshold, max_disp_ticks = self._compute_absorption_thresholds()
+
+        persistence = self._compute_direction_persistence(w_times, w_sizes, w_sides, dominant_side)
+
+        dominance_score = np.clip(
+            (dominance_ratio - self.absorption_dominance_threshold) / max(1.0 - self.absorption_dominance_threshold, 1e-8),
+            0.0,
+            1.0
+        ) * 30.0
+        displacement_score = np.clip(1.0 - (displacement_ticks / max(max_disp_ticks, 1e-8)), 0.0, 1.0) * 25.0
+        efficiency_score = np.clip(absorption_efficiency / max(ae_threshold, 1e-8), 0.0, 1.0) * 25.0
+        persistence_score = np.clip(persistence / 0.8, 0.0, 1.0) * 20.0
+        score = float(dominance_score + displacement_score + efficiency_score + persistence_score)
+
+        direction = "UNKNOWN"
+        directional_match = False
+        if dominant_side < 0 and signed_displacement_ticks >= -max_disp_ticks:
+            direction = "BULLISH"  # 卖压主导但价格跌不动 => 买方吸收
+            directional_match = True
+        elif dominant_side > 0 and signed_displacement_ticks <= max_disp_ticks:
+            direction = "BEARISH"  # 买压主导但价格涨不动 => 卖方吸收
+            directional_match = True
+
+        metrics = {
+            'buy_volume': buy_volume,
+            'sell_volume': sell_volume,
+            'buy_ratio': buy_ratio,
+            'sell_ratio': sell_ratio,
+            'dominance_ratio': dominance_ratio,
+            'net_aggressive_volume': net_aggressive_volume,
+            'signed_displacement_ticks': signed_displacement_ticks,
+            'displacement_ticks': displacement_ticks,
+            'max_disp_ticks': max_disp_ticks,
+            'absorption_efficiency': absorption_efficiency,
+            'nav_threshold': nav_threshold,
+            'ae_threshold': ae_threshold,
+            'persistence': persistence,
+            'score': score
+        }
+
+        triggered = (
+            directional_match
+            and nav_abs >= nav_threshold
+            and absorption_efficiency >= ae_threshold
+            and persistence >= 0.7
+            and score >= self.absorption_score_threshold
+        )
+        if triggered:
+            self.last_absorption_trigger_ts = now
+
+        return triggered, direction, metrics
+
+    def _compute_robust_window_prices(self, prices: np.ndarray) -> Tuple[float, float]:
+        """计算鲁棒窗口起止价格，降低极端成交跳变干扰。"""
+        if prices.size == 0:
+            return 0.0, 0.0
+        chunk = max(3, prices.size // 10)
+        start_price = float(np.median(prices[:chunk]))
+        end_price = float(np.median(prices[-chunk:]))
+        return start_price, end_price
+
+    def _compute_absorption_thresholds(self) -> Tuple[float, float, float]:
+        """基于近期市场活跃度计算A1阈值。"""
+        if len(self.order_size_buffer) < 50:
+            return 5.0, 2.0, 4.0
+
+        recent_sizes = np.array(list(self.order_size_buffer)[-300:], dtype=float)
+        recent_prices = np.array(list(self.price_buffer)[-300:], dtype=float)
+        tick_size = max(self.config.market.tick_size, 1e-8)
+
+        median_size = float(np.median(recent_sizes))
+        nav_threshold = max(median_size * self.absorption_min_ticks * 0.25, 5.0)
+        ae_threshold = max(median_size * 25.0, 2.0)
+
+        if recent_prices.size >= 20:
+            diff_ticks = np.abs(np.diff(recent_prices)) / tick_size
+            vol_scale = float(np.percentile(diff_ticks, 75))
+        else:
+            vol_scale = 2.0
+        max_disp_ticks = float(np.clip(max(2.0, vol_scale * 2.0), 2.0, 12.0))
+        return nav_threshold, ae_threshold, max_disp_ticks
+
+    def _compute_direction_persistence(
+        self,
+        times: np.ndarray,
+        sizes: np.ndarray,
+        sides: np.ndarray,
+        dominant_side: int
+    ) -> float:
+        """计算主动方向持续性（子窗口方向一致率）。"""
+        if times.size == 0:
+            return 0.0
+
+        start_time = float(times[0])
+        end_time = float(times[-1])
+        if end_time <= start_time:
+            return 0.0
+
+        sub_win = max(self.absorption_subwindow_seconds, 0.2)
+        windows = int(np.ceil((end_time - start_time) / sub_win))
+        if windows <= 0:
+            return 0.0
+
+        match_count = 0
+        valid_count = 0
+        for idx in range(windows):
+            left = start_time + idx * sub_win
+            right = left + sub_win
+            mask = (times >= left) & (times < right)
+            if not np.any(mask):
+                continue
+            sub_sizes = sizes[mask]
+            sub_sides = sides[mask]
+            sub_buy = float(np.sum(sub_sizes[sub_sides > 0]))
+            sub_sell = float(np.sum(sub_sizes[sub_sides < 0]))
+            if sub_buy + sub_sell <= 0:
+                continue
+            sub_dom = 1 if sub_buy > sub_sell else -1
+            valid_count += 1
+            if sub_dom == dominant_side:
+                match_count += 1
+
+        if valid_count == 0:
+            return 0.0
+        return match_count / valid_count
 
     def _detect_volatility_compression(self) -> bool:
 
@@ -1136,6 +1324,7 @@ class TripleAStateMachine:
         # 订单大小缓存（用于大单检测）
 
         self.order_size_buffer.append(tick.sz)
+        self.tick_side_buffer.append(tick.side)
 
     def _check_state_timeout(self):
 
@@ -1233,6 +1422,7 @@ class TripleAStateMachine:
         self.tick_time_buffer.clear()
 
         self.order_size_buffer.clear()
+        self.tick_side_buffer.clear()
 
         logger.info("TripleAStateMachine 已重置")
 
