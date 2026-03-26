@@ -87,6 +87,9 @@ class StateContext:
     # 攻击信号检测
     large_order_bubble_detected: bool = False
     footprint_imbalance_detected: bool = False
+    footprint_max_imbalance: float = 0.0
+    footprint_consecutive_levels: int = 0
+    footprint_direction: Optional[str] = None  # "BUY" or "SELL"
     aggression_signal_triggered: bool = False
 
     # 交易决策
@@ -228,10 +231,16 @@ class StateContext:
             duration = details.get('compression_duration', 0.0)
             event_summary = f"范围:{price_range:.1f}ticks | 持续:{duration:.1f}s"
         elif event == StateTransitionEvent.AGGRESSION_SIGNAL:
-            # 攻击信号：显示交易方向和入场价格
+            # 攻击信号：显示交易方向、入场价格和足迹细节
             trade_direction = details.get('trade_direction', 'UNKNOWN')
             entry_price = details.get('entry_price', 0.0)
-            event_summary = f"方向:{trade_direction} | 入场:{entry_price:.2f}"
+            footprint_max = details.get('footprint_max_imbalance', 0.0)
+            footprint_levels = details.get('footprint_consecutive_levels', 0)
+            footprint_direction = details.get('footprint_direction', 'UNKNOWN')
+            event_summary = (
+                f"方向:{trade_direction} | 入场:{entry_price:.2f} | 足迹:{footprint_direction} "
+                f"x{footprint_max:.2f} 连续{footprint_levels}档"
+            )
         else:
             # 其他事件：只显示简要信息
             event_summary = event.value
@@ -333,12 +342,15 @@ class TripleAStateMachine:
         self.large_order_multiplier = 99.0  # 大单气泡倍数（百分位）
         self.footprint_imbalance_threshold = 3.0  # 足迹失衡阈值（倍数）
         self.min_consecutive_levels = 3  # 最小连续失衡档位数
+        self.footprint_window_ticks = 120  # 足迹聚合窗口（建议80~200）
+        self.footprint_min_total_volume = 20.0  # 足迹最小总成交量门槛
 
         # 实时数据缓存（用于计算指标）
         self.price_buffer = deque(maxlen=1000)
         self.tick_time_buffer = deque(maxlen=1000)
         self.order_size_buffer = deque(maxlen=1000)
         self.tick_side_buffer = deque(maxlen=1000)
+        self.tick_price_buffer = deque(maxlen=1000)
 
         # 性能监控
         self.processing_times = deque(maxlen=100)
@@ -630,7 +642,10 @@ class TripleAStateMachine:
                     'trade_direction': self.context.trade_direction,
                     'entry_price': self.context.entry_price,
                     'stop_loss': self.context.stop_loss_price,
-                    'take_profit': self.context.take_profit_price
+                    'take_profit': self.context.take_profit_price,
+                    'footprint_max_imbalance': self.context.footprint_max_imbalance,
+                    'footprint_consecutive_levels': self.context.footprint_consecutive_levels,
+                    'footprint_direction': self.context.footprint_direction
                 }
             )
 
@@ -1093,25 +1108,134 @@ class TripleAStateMachine:
 
     def _detect_footprint_imbalance(self) -> bool:
 
-        """检测足迹失衡信号（简化版）"""
+        """检测足迹失衡信号（按价格档位聚合+连续失衡判定）"""
 
-        # 调试日志：足迹失衡检测
-        logger.debug(f"[DEBUG] _detect_footprint_imbalance: 缓冲区大小={len(self.order_size_buffer)}")
+        self.context.footprint_imbalance_detected = False
+        self.context.footprint_max_imbalance = 0.0
+        self.context.footprint_consecutive_levels = 0
+        self.context.footprint_direction = None
 
-        # 简化实现：检查最近成交量的买卖比例
+        window_ticks = min(self.footprint_window_ticks, len(self.tick_price_buffer))
+        logger.debug(f"[DEBUG] _detect_footprint_imbalance: window_ticks={window_ticks}")
 
-        if len(self.order_size_buffer) < 20:
-            logger.debug(f"[DEBUG] 足迹失衡检测: 缓冲区不足")
+        if window_ticks < max(20, self.min_consecutive_levels + 5):
+            logger.debug("[DEBUG] 足迹失衡检测: 有效tick不足")
             return False
 
-        # 需要扩展以分析更详细的足迹数据
+        prices = np.array(list(self.tick_price_buffer)[-window_ticks:], dtype=float)
+        sizes = np.array(list(self.order_size_buffer)[-window_ticks:], dtype=float)
+        sides = np.array(list(self.tick_side_buffer)[-window_ticks:], dtype=float)
 
-        # 临时返回True以便测试流程
+        total_volume = float(np.sum(np.clip(sizes, 0.0, None)))
+        if total_volume < self.footprint_min_total_volume:
+            logger.debug(
+                f"[DEBUG] 足迹失衡检测: 总量不足 total_volume={total_volume:.4f}, "
+                f"threshold={self.footprint_min_total_volume:.4f}"
+            )
+            return False
 
-        self.context.footprint_imbalance_detected = True
-        logger.debug(f"[DEBUG] 足迹失衡检测: 返回True (简化实现)")
+        tick_size = max(self.config.market.tick_size, 1e-8)
+        price_levels = np.round(prices / tick_size) * tick_size
 
-        return True
+        level_stats: Dict[float, Dict[str, float]] = {}
+        for px, sz, side in zip(price_levels, sizes, sides):
+            if sz <= 0:
+                continue
+            if px not in level_stats:
+                level_stats[px] = {'buy_vol': 0.0, 'sell_vol': 0.0}
+            if side > 0:
+                level_stats[px]['buy_vol'] += float(sz)
+            elif side < 0:
+                level_stats[px]['sell_vol'] += float(sz)
+
+        if not level_stats:
+            return False
+
+        eps = 1e-8
+        ordered_levels = []
+        max_imbalance = 0.0
+        for px in sorted(level_stats.keys()):
+            buy_vol = level_stats[px]['buy_vol']
+            sell_vol = level_stats[px]['sell_vol']
+            larger = max(buy_vol, sell_vol)
+            smaller = min(buy_vol, sell_vol)
+            imbalance = larger / max(smaller, eps)
+            dominant = 'BUY' if buy_vol >= sell_vol else 'SELL'
+            ordered_levels.append((px, dominant, imbalance, buy_vol, sell_vol))
+            max_imbalance = max(max_imbalance, imbalance)
+
+        expected_direction = None
+        if self.context.cvd_divergence_direction == 'BULLISH':
+            expected_direction = 'LONG'
+        elif self.context.cvd_divergence_direction == 'BEARISH':
+            expected_direction = 'SHORT'
+
+        def _find_best_run(target_side: str):
+            best = {'length': 0, 'start_idx': -1, 'end_idx': -1, 'max_imbalance': 0.0}
+            current_len = 0
+            start_idx = 0
+            current_max = 0.0
+
+            for idx, (_, dominant, imbalance, _, _) in enumerate(ordered_levels):
+                if dominant == target_side and imbalance >= self.footprint_imbalance_threshold:
+                    if current_len == 0:
+                        start_idx = idx
+                        current_max = imbalance
+                    current_len += 1
+                    current_max = max(current_max, imbalance)
+                    if current_len > best['length']:
+                        best = {
+                            'length': current_len,
+                            'start_idx': start_idx,
+                            'end_idx': idx,
+                            'max_imbalance': current_max
+                        }
+                else:
+                    current_len = 0
+                    current_max = 0.0
+            return best
+
+        def _has_opposite_absorption(run_start_idx: int, opposite_side: str) -> bool:
+            if run_start_idx <= 0:
+                return False
+            for _, dominant, imbalance, _, _ in ordered_levels[:run_start_idx]:
+                if dominant == opposite_side and imbalance >= self.footprint_imbalance_threshold:
+                    return True
+            return False
+
+        detected = False
+        footprint_side = None
+        best_run = {'length': 0, 'max_imbalance': max_imbalance}
+
+        if expected_direction == 'LONG':
+            buy_run = _find_best_run('BUY')
+            sell_absorbed = _has_opposite_absorption(buy_run['start_idx'], 'SELL')
+            detected = buy_run['length'] >= self.min_consecutive_levels and sell_absorbed
+            footprint_side = 'BUY' if detected else None
+            best_run = buy_run
+        elif expected_direction == 'SHORT':
+            sell_run = _find_best_run('SELL')
+            buy_absorbed = _has_opposite_absorption(sell_run['start_idx'], 'BUY')
+            detected = sell_run['length'] >= self.min_consecutive_levels and buy_absorbed
+            footprint_side = 'SELL' if detected else None
+            best_run = sell_run
+        else:
+            logger.debug("[DEBUG] 足迹失衡检测: 无有效预期方向")
+            return False
+
+        self.context.footprint_max_imbalance = float(max(best_run.get('max_imbalance', 0.0), max_imbalance))
+        self.context.footprint_consecutive_levels = int(best_run.get('length', 0))
+        self.context.footprint_direction = footprint_side
+        self.context.footprint_imbalance_detected = bool(detected)
+
+        logger.debug(
+            f"[DEBUG] 足迹失衡检测结果: detected={detected}, expected={expected_direction}, "
+            f"max_imbalance={self.context.footprint_max_imbalance:.2f}, "
+            f"consecutive_levels={self.context.footprint_consecutive_levels}, "
+            f"footprint_direction={self.context.footprint_direction}, total_volume={total_volume:.2f}"
+        )
+
+        return detected
 
     def _calculate_structural_levels(self, entry_price: float, direction: str) -> tuple[float, float]:
         """计算结构性止损止盈价格
@@ -1325,6 +1449,7 @@ class TripleAStateMachine:
 
         self.order_size_buffer.append(tick.sz)
         self.tick_side_buffer.append(tick.side)
+        self.tick_price_buffer.append(tick.px)
 
     def _check_state_timeout(self):
 
