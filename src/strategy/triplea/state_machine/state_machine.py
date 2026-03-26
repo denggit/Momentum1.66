@@ -86,6 +86,10 @@ class StateContext:
 
     # 攻击信号检测
     large_order_bubble_detected: bool = False
+    large_order_threshold: float = 0.0
+    large_order_hits: int = 0
+    large_order_ratio: float = 0.0
+    large_order_direction: Optional[str] = None  # "BULLISH" / "BEARISH" / "NEUTRAL"
     footprint_imbalance_detected: bool = False
     footprint_max_imbalance: float = 0.0
     footprint_consecutive_levels: int = 0
@@ -339,7 +343,13 @@ class TripleAStateMachine:
         self.tick_density_window = 60  # 密度分析窗口（秒）
 
         # 攻击信号参数
-        self.large_order_multiplier = 99.0  # 大单气泡倍数（百分位）
+        self.large_order_window_seconds = 45.0  # 大单检测滚动时间窗（秒，建议30~60）
+        self.large_order_quantile = 97.5  # 大单阈值分位（建议P97/P98）
+        self.large_order_median_multiplier = 3.0  # 阈值下限：median_size * k
+        self.large_order_ratio_window_ticks = 30  # 比例触发窗口（最近M ticks）
+        self.large_order_ratio_threshold = 0.20  # 比例触发阈值（15%~25%）
+        self.large_order_cooldown_seconds = 8.0  # 大单触发冷却期
+        self.last_large_order_trigger_ts = 0.0
         self.footprint_imbalance_threshold = 3.0  # 足迹失衡阈值（倍数）
         self.min_consecutive_levels = 3  # 最小连续失衡档位数
         self.footprint_window_ticks = 120  # 足迹聚合窗口（建议80~200）
@@ -594,7 +604,11 @@ class TripleAStateMachine:
         # 检测足迹失衡
         footprint_imbalance = self._detect_footprint_imbalance()
 
-        logger.debug(f"[DEBUG] 大单气泡检测: {large_order}, 足迹失衡检测: {footprint_imbalance}")
+        logger.debug(
+            f"[DEBUG] 大单气泡检测: {large_order}, 足迹失衡检测: {footprint_imbalance}, "
+            f"阈值={self.context.large_order_threshold:.4f}, 命中={self.context.large_order_hits}, "
+            f"占比={self.context.large_order_ratio:.2%}, 方向={self.context.large_order_direction}"
+        )
 
         if large_order and footprint_imbalance:
             # 生成交易信号
@@ -607,6 +621,10 @@ class TripleAStateMachine:
                     '价格': tick.px,
                     '原因': '风控拦截：交易被拒绝',
                     '大单检测': large_order,
+                    '大单阈值': self.context.large_order_threshold,
+                    '大单命中数': self.context.large_order_hits,
+                    '大单命中占比': self.context.large_order_ratio,
+                    '大单方向': self.context.large_order_direction,
                     '足迹失衡检测': footprint_imbalance,
                     '波动率压缩有效': self._is_vol_compression_valid()
                 }
@@ -627,6 +645,10 @@ class TripleAStateMachine:
                 '保本价格': self.context.breakeven_price,
                 '当前价格': tick.px,
                 '大单检测': large_order,
+                '大单阈值': self.context.large_order_threshold,
+                '大单命中数': self.context.large_order_hits,
+                '大单命中占比': self.context.large_order_ratio,
+                '大单方向': self.context.large_order_direction,
                 '足迹失衡检测': footprint_imbalance
             }
             self.context.update_state(
@@ -1067,43 +1089,100 @@ class TripleAStateMachine:
 
         """检测大单气泡信号"""
 
+        self.context.large_order_bubble_detected = False
+        self.context.large_order_threshold = 0.0
+        self.context.large_order_hits = 0
+        self.context.large_order_ratio = 0.0
+        self.context.large_order_direction = None
+
+        # 冷却检查
+        now = time.time()
+        cooldown_elapsed = now - self.last_large_order_trigger_ts
+        if cooldown_elapsed < self.large_order_cooldown_seconds:
+            logger.debug(
+                f"[DEBUG] 大单检测冷却中: remaining={self.large_order_cooldown_seconds - cooldown_elapsed:.2f}s"
+            )
+            return False
+
         # 调试日志：大单检测输入
         buffer_size = len(self.order_size_buffer)
-        logger.debug(f"[DEBUG] _detect_large_order_bubble: 缓冲区大小={buffer_size}, 百分位={self.large_order_multiplier}")
+        logger.debug(
+            f"[DEBUG] _detect_large_order_bubble: 缓冲区大小={buffer_size}, time_window={self.large_order_window_seconds}s"
+        )
 
         if buffer_size < 50:
             return False
 
-        # 计算成交量分布的百分位数
-
-        sizes = list(self.order_size_buffer)
+        # 滚动时间窗统计
+        times = np.array(self.tick_time_buffer, dtype=float)
+        sizes = np.array(self.order_size_buffer, dtype=float)
+        sides = np.array(self.tick_side_buffer, dtype=float)
+        cutoff = now - self.large_order_window_seconds
+        window_mask = times >= cutoff
+        if window_mask.sum() < max(30, self.large_order_ratio_window_ticks):
+            logger.debug("[DEBUG] 大单检测: 时间窗内样本不足")
+            return False
 
         try:
+            window_sizes = sizes[window_mask]
+            quantile_threshold = float(np.percentile(window_sizes, self.large_order_quantile))
+            median_floor = float(np.median(window_sizes) * self.large_order_median_multiplier)
+            large_order_threshold = max(quantile_threshold, median_floor)
+            self.context.large_order_threshold = large_order_threshold
 
-            # 计算99百分位（大单阈值）
+            # 比例触发：最近M ticks命中比例
+            m = min(self.large_order_ratio_window_ticks, len(sizes))
+            recent_sizes = sizes[-m:]
+            recent_sides = sides[-m:]
+            hit_mask = recent_sizes >= large_order_threshold
+            hits = int(np.sum(hit_mask))
+            ratio = hits / max(m, 1)
+            self.context.large_order_hits = hits
+            self.context.large_order_ratio = ratio
 
-            large_order_threshold = np.percentile(sizes, self.large_order_multiplier)
-            logger.debug(f"[DEBUG] 大单阈值: {large_order_threshold:.6f} (百分位={self.large_order_multiplier}), 缓冲区大小={buffer_size}")
+            # 大单方向：命中样本的主导主动方向
+            if hits > 0:
+                hit_sides = recent_sides[hit_mask]
+                buy_hits = int(np.sum(hit_sides > 0))
+                sell_hits = int(np.sum(hit_sides < 0))
+                if buy_hits > sell_hits:
+                    self.context.large_order_direction = "BULLISH"
+                elif sell_hits > buy_hits:
+                    self.context.large_order_direction = "BEARISH"
+                else:
+                    self.context.large_order_direction = "NEUTRAL"
 
-            # 检查最近是否有超过阈值的大单
+            logger.debug(
+                f"[DEBUG] 大单阈值={large_order_threshold:.6f} (Q={self.large_order_quantile}, median*k={median_floor:.6f}), "
+                f"命中={hits}/{m}, ratio={ratio:.2%}, 方向={self.context.large_order_direction}"
+            )
 
-            recent_sizes = sizes[-10:]  # 最近10个Tick
+            if ratio < self.large_order_ratio_threshold:
+                return False
 
-            for size in recent_sizes:
+            # 与A1方向一致性校验：不一致时只记录，不触发A3
+            a1_direction = self.context.cvd_divergence_direction
+            if (
+                a1_direction in ("BULLISH", "BEARISH")
+                and self.context.large_order_direction in ("BULLISH", "BEARISH")
+                and a1_direction != self.context.large_order_direction
+            ):
+                logger.info(
+                    f"⚠️ 大单方向与A1不一致，忽略触发: A1={a1_direction}, 大单={self.context.large_order_direction}, "
+                    f"阈值={large_order_threshold:.4f}, 命中={hits}/{m}, ratio={ratio:.2%}"
+                )
+                return False
 
-                if size >= large_order_threshold:
-                    self.context.large_order_bubble_detected = True
-
-                    return True
-
-
+            self.context.large_order_bubble_detected = True
+            self.last_large_order_trigger_ts = now
+            return True
 
         except Exception as e:
 
             logger.debug(f"大单检测异常: {e}")
 
         # 调试日志：大单检测结果
-        logger.debug(f"[DEBUG] 大单检测结果: 未找到超过阈值的大单")
+        logger.debug(f"[DEBUG] 大单检测结果: 未满足比例/方向条件")
         return False
 
     def _detect_footprint_imbalance(self) -> bool:
