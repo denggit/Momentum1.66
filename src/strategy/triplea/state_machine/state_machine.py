@@ -59,6 +59,12 @@ class StateContext:
     last_state_transition: Optional[Tuple[TripleAState, TripleAState, float]] = None  # (from, to, timestamp)
     last_state_log_time: float = 0.0
 
+    # 当前tick时间戳（纳秒）
+    current_tick_time_ns: int = 0
+
+    # 是否为影子引擎
+    is_shadow: bool = False
+
     # 活跃的LVN区域信息
     active_lvn_region: Optional[Dict[str, Any]] = None
     lvn_regions: List[Dict[str, Any]] = field(default_factory=list)
@@ -187,7 +193,22 @@ class StateContext:
                 # 超时返回：显示超时信息
                 log_msg = f"{log_msg} | 超时:{details['持续时间']:.1f}s"
 
-        logger.info(f"{log_msg}")
+        # 构建带时间前缀的日志消息
+        tick_time_str = ""
+        if self.current_tick_time_ns > 0:
+            tick_seconds = self.current_tick_time_ns / 1_000_000_000
+            # 转换为本地时间格式
+            tick_time_struct = time.localtime(tick_seconds)
+            tick_time_str = time.strftime("%H:%M:%S", tick_time_struct)
+            tick_time_str = f"【tick: {tick_time_str}】 "
+
+        full_log_msg = f"{tick_time_str}{log_msg}"
+
+        # 根据是否为影子引擎决定日志级别
+        if self.is_shadow:
+            logger.debug(full_log_msg)
+        else:
+            logger.info(full_log_msg)
 
         # 保存历史记录（包含详细信息）
         history_event = event
@@ -283,14 +304,16 @@ class TripleAStateMachine:
     - ACCUMULATING -> IDLE: 波动率压缩失败或超时（120秒）
     """
 
-    def __init__(self, config: TripleAEngineConfig):
+    def __init__(self, config: TripleAEngineConfig, is_shadow: bool = False):
         """
         初始化状态机
 
         Args:
             config: 四号引擎完整配置
+            is_shadow: 是否为影子引擎
         """
         self.config = config
+        self.is_shadow = is_shadow
 
         # 核心组件初始化
         # 注释掉KDE和LVN，暂时不运行
@@ -311,7 +334,7 @@ class TripleAStateMachine:
             self.loop_running = False
 
         # 状态机上下文
-        self.context = StateContext()
+        self.context = StateContext(is_shadow=is_shadow)
 
         # 时间窗口配置（秒）
         self.monitoring_timeout = 120  # 监控状态超时（2分钟）
@@ -366,8 +389,16 @@ class TripleAStateMachine:
         self.processing_times = deque(maxlen=100)
         self.last_processing_time_ns = 0
 
-        logger.info(f"TripleAStateMachine 初始化完成")
-        logger.info(f"状态模型: IDLE → MONITORING → CONFIRMED → ACCUMULATING → POSITION")
+        # 根据是否为影子引擎决定日志级别
+        if self.is_shadow:
+            logger.debug(f"TripleAStateMachine 初始化完成 (影子引擎)")
+        else:
+            logger.info(f"TripleAStateMachine 初始化完成")
+        # 根据是否为影子引擎决定日志级别
+        if self.is_shadow:
+            logger.debug(f"状态模型: IDLE → MONITORING → CONFIRMED → ACCUMULATING → POSITION")
+        else:
+            logger.info(f"状态模型: IDLE → MONITORING → CONFIRMED → ACCUMULATING → POSITION")
 
     async def process_tick(self, tick: NormalizedTick) -> Optional[Dict[str, Any]]:
         """
@@ -384,6 +415,9 @@ class TripleAStateMachine:
         try:
             # 调试日志：Tick处理开始
             logger.debug(f"[DEBUG] 处理Tick: 价格={tick.px:.2f}, 大小={tick.sz:.4f}, 方向={'BUY' if tick.side > 0 else 'SELL'}, 当前状态={self.context.current_state}")
+
+            # 保存当前tick时间戳
+            self.context.current_tick_time_ns = tick.ts
 
             # 更新实时数据缓存
             self._update_data_buffers(tick)
@@ -1167,10 +1201,21 @@ class TripleAStateMachine:
                 and self.context.large_order_direction in ("BULLISH", "BEARISH")
                 and a1_direction != self.context.large_order_direction
             ):
-                logger.info(
-                    f"⚠️ 大单方向与A1不一致，忽略触发: A1={a1_direction}, 大单={self.context.large_order_direction}, "
-                    f"阈值={large_order_threshold:.4f}, 命中={hits}/{m}, ratio={ratio:.2%}"
-                )
+                # 构建带时间前缀的日志消息
+                tick_time_str = ""
+                if self.context.current_tick_time_ns > 0:
+                    tick_seconds = self.context.current_tick_time_ns / 1_000_000_000
+                    tick_time_struct = time.localtime(tick_seconds)
+                    tick_time_str = time.strftime("%H:%M:%S", tick_time_struct)
+                    tick_time_str = f"【tick: {tick_time_str}】 "
+
+                log_msg = f"{tick_time_str}⚠️ 大单方向与A1不一致，忽略触发: A1={a1_direction}, 大单={self.context.large_order_direction}, 阈值={large_order_threshold:.4f}, 命中={hits}/{m}, ratio={ratio:.2%}"
+
+                # 根据是否为影子引擎决定日志级别
+                if self.is_shadow:
+                    logger.debug(log_msg)
+                else:
+                    logger.info(log_msg)
                 return False
 
             self.context.large_order_bubble_detected = True
@@ -1504,9 +1549,16 @@ class TripleAStateMachine:
             }
         }
 
-        logger.info(f"✅ 生成交易信号: {signal['action']} @ {signal['price']:.2f}")
-        logger.info(f"   结构性止损: {signal['stop_loss']:.2f}, 止盈: {signal['take_profit']:.2f}")
-        logger.info(f"   合约数量: {signal['quantity']:.3f}, 风险金额: {signal['risk_amount_usd']:.2f} USD")
+        # 构建完整的日志消息
+        log_message = f"✅ 生成交易信号: {signal['action']} @ {signal['price']:.2f}\n"
+        log_message += f"   结构性止损: {signal['stop_loss']:.2f}, 止盈: {signal['take_profit']:.2f}\n"
+        log_message += f"   合约数量: {signal['quantity']:.3f}, 风险金额: {signal['risk_amount_usd']:.2f} USD"
+
+        # 根据是否为影子引擎决定日志级别
+        if self.is_shadow:
+            logger.debug(log_message)
+        else:
+            logger.info(log_message)
 
         return signal
 
@@ -1617,7 +1669,7 @@ class TripleAStateMachine:
 
         # 重置上下文
 
-        self.context = StateContext()
+        self.context = StateContext(is_shadow=self.is_shadow)
 
         # 重置数据缓存
 
@@ -1628,7 +1680,11 @@ class TripleAStateMachine:
         self.order_size_buffer.clear()
         self.tick_side_buffer.clear()
 
-        logger.info("TripleAStateMachine 已重置")
+        # 根据是否为影子引擎决定日志级别
+        if self.is_shadow:
+            logger.debug("TripleAStateMachine 已重置")
+        else:
+            logger.info("TripleAStateMachine 已重置")
 
 
 # 测试函数

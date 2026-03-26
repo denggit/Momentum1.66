@@ -43,7 +43,7 @@ class TripleASignalGenerator:
             self.config.risk_manager.min_rr_ratio = 1.5  # 影子引擎降低盈亏比要求
 
         # 初始化状态机（核心算法引擎）
-        self.state_machine = TripleAStateMachine(self.config)
+        self.state_machine = TripleAStateMachine(self.config, is_shadow=is_shadow)
 
         # 兼容性属性（供orchestrator和轨迹矿工访问）
         self.status = "IDLE"  # 兼容性状态（映射到状态机状态）
@@ -198,8 +198,14 @@ class TripleASignalGenerator:
             'state_machine_signal': state_machine_signal  # 包含原始信号供调试
         }
 
-        logger.info(f"✅ 生成兼容性信号: {compatible_signal['action']} @ {compatible_signal['entry_price']:.2f}")
-        logger.info(f"   止损: {compatible_signal['stop_loss']:.2f}, 止盈: {compatible_signal['take_profit']:.2f}")
+        # 根据是否为影子引擎决定日志级别
+        log_message = f"✅ 生成兼容性信号: {compatible_signal['action']} @ {compatible_signal['entry_price']:.2f}\n"
+        log_message += f"   止损: {compatible_signal['stop_loss']:.2f}, 止盈: {compatible_signal['take_profit']:.2f}"
+
+        if self.is_shadow:
+            logger.debug(log_message)
+        else:
+            logger.info(log_message)
 
         return compatible_signal
 
